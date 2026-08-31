@@ -1,0 +1,226 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://decksmith.local/schemas/engine.schema.json",
+  "title": "DeckSmithPPT Engine Contract",
+  "description": "PPT 生成引擎契约：通用层（所有引擎共享）+ 引擎参数层（按引擎命名空间隔离）。",
+  "$defs": {
+    "DeckContent": {
+      "type": "object",
+      "description": "提交给引擎的生成请求（通用层，与 openapi.yaml 的 DeckRequest 一致）。engine_params 可在提交阶段一并提供。",
+      "required": [
+        "title",
+        "pages",
+        "engine"
+      ],
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "PPT 标题"
+        },
+        "content": {
+          "type": "string",
+          "description": "Markdown 内容。草稿确认后必传；直出模式可空（用 source）"
+        },
+        "pages": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "目标页数"
+        },
+        "engine": {
+          "type": "string",
+          "enum": [
+            "ppt_master"
+          ],
+          "description": "选择哪个引擎（注册表里的名字，与 GET /api/engines 返回的 name 一致）"
+        },
+        "agent": {
+          "type": "string",
+          "enum": [
+            "claude",
+            "codex",
+            "hermes"
+          ],
+          "default": "claude",
+          "description": "驱动引擎的 AI agent（通用层，可选）。claude=Claude Code；codex=Codex CLI；hermes=Hermes"
+        },
+        "source": {
+          "type": "object",
+          "description": "原始素材来源（提交时提供，用于生成草稿）。优先于 content。",
+          "required": [
+            "type",
+            "value"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "url",
+                "file_path",
+                "text"
+              ],
+              "description": "url=网页链接；file_path=上传后的服务器路径；text=直接文本"
+            },
+            "value": {
+              "type": "string",
+              "description": "URL / 上传返回的 path / 文本内容"
+            }
+          }
+        },
+        "engine_params": {
+          "type": "object",
+          "description": "提交阶段选择的引擎参数（与 /api/engines 返回的 params_schema 对齐）。",
+          "additionalProperties": true
+        }
+      }
+    },
+    "JobStatus": {
+      "type": "string",
+      "description": "任务状态：running=运行中；draft=草稿就绪待确认；timeout=超时；failed=失败；completed=完成",
+      "enum": [
+        "running",
+        "draft",
+        "timeout",
+        "failed",
+        "completed"
+      ]
+    },
+    "Job": {
+      "type": "object",
+      "description": "生成任务（submit/status/result/resume 的返回载体）。",
+      "required": [
+        "job_id",
+        "status"
+      ],
+      "properties": {
+        "job_id": {
+          "type": "string",
+          "description": "任务唯一 ID"
+        },
+        "status": {
+          "$ref": "#/$defs/JobStatus"
+        },
+        "result_path": {
+          "type": "string",
+          "description": "生成的 PPTX 文件路径（completed 后非空）"
+        },
+        "draft_path": {
+          "type": "string",
+          "description": "草稿 Markdown 文本路径（draft 状态时有值）"
+        },
+        "error": {
+          "type": "string",
+          "description": "失败/超时原因（仅 failed/timeout 时有值）"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "任务创建时间（ISO 8601）"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "任务最后更新时间（ISO 8601）"
+        },
+        "draft_content": {
+          "type": "string",
+          "description": "草稿 Markdown 内容（draft 状态时返回，供前端查看/编辑）"
+        }
+      }
+    },
+    "ppt_master": {
+      "type": "object",
+      "description": "ppt_master 引擎在 engine_params 中支持的参数。引擎参数文档见 docs/contracts/style-guide.md。此定义即 GET /api/engines 返回的 params_schema 内容。",
+      "properties": {
+        "source": {
+          "type": "object",
+          "description": "原始素材来源（可选）。优先于 content。",
+          "required": [
+            "type",
+            "value"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "url",
+                "file_path",
+                "text"
+              ],
+              "description": "url=网页链接；file_path=本地文件路径；text=直接文本"
+            },
+            "value": {
+              "type": "string",
+              "description": "URL / 文件路径 / 文本内容"
+            }
+          }
+        },
+        "style": {
+          "type": "string",
+          "description": "视觉风格（18 种）。中文说明见 docs/contracts/style-guide.md",
+          "enum": [
+            "swiss-minimal",
+            "soft-rounded",
+            "glassmorphism",
+            "dark-tech",
+            "blueprint",
+            "editorial",
+            "photo-editorial",
+            "data-journalism",
+            "brutalist",
+            "chalkboard",
+            "ink-notes",
+            "ink-wash",
+            "memphis",
+            "paper-cut",
+            "pixel-art",
+            "sketch-notes",
+            "vintage-poster",
+            "zine"
+          ]
+        },
+        "mode": {
+          "type": "string",
+          "description": "叙事模式（auto=由引擎自动决定）。中文说明见 docs/contracts/style-guide.md",
+          "enum": [
+            "auto",
+            "pyramid",
+            "narrative",
+            "instructional",
+            "showcase",
+            "briefing"
+          ],
+          "default": "auto"
+        },
+        "format": {
+          "type": "string",
+          "description": "画布/输出尺寸（默认 ppt169）。中文说明见 docs/contracts/style-guide.md",
+          "enum": [
+            "ppt169",
+            "ppt43",
+            "xiaohongshu",
+            "moments",
+            "story",
+            "wechat",
+            "banner",
+            "a4"
+          ],
+          "default": "ppt169"
+        },
+        "notes": {
+          "type": "boolean",
+          "default": false,
+          "description": "是否生成演讲备注"
+        },
+        "animation": {
+          "type": "string",
+          "enum": [
+            "none",
+            "auto"
+          ],
+          "default": "none",
+          "description": "动画：none=关，auto=自动"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,15 @@
+name: CI Backend
+
+on:
+  push:
+    paths: ["packages/backend/**", ".github/workflows/ci-backend.yml"]
+  pull_request:
+    paths: ["packages/backend/**"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 占位 — 选型后补充
+        run: echo "技术栈未定，选型后补充后端 CI（见 docs/adr/）"

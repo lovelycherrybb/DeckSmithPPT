@@ -1,0 +1,15 @@
+name: CI Frontend
+
+on:
+  push:
+    paths: ["packages/frontend/**", ".github/workflows/ci-frontend.yml"]
+  pull_request:
+    paths: ["packages/frontend/**"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 占位
+        run: echo "技术栈未定，选型后补充前端 CI（见 docs/adr/）"

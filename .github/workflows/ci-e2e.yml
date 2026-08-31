@@ -1,0 +1,15 @@
+name: CI E2E
+
+on:
+  push:
+    paths: ["packages/**", "**.py", "**.ts", "**.tsx"]
+  pull_request:
+    paths: ["packages/**"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 占位
+        run: echo "全栈选型后补充 e2e 测试"

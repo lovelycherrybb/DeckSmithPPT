@@ -1,0 +1,515 @@
+openapi: 3.1.0
+info:
+  title: DeckSmithPPT API
+  version: 0.3.0
+  description: '前后端契约（唯一来源）。后端实现本契约，前端从本文件生成类型。
+
+    与 engine.schema.json 保持一致：通用层（DeckRequest/Job）+ 引擎参数层（ppt_master）。
+
+    生成流程：提交 → 产草稿(draft) → 用户确认 → 正式生成(running) → completed/failed/timeout。
+
+    '
+paths:
+  /api/engines:
+    get:
+      summary: 获取引擎列表及参数说明书
+      description: '前端用此接口动态渲染"引擎选择"和"引擎参数表单"。
+
+        每项包含引擎名称、描述、以及该引擎的 engine_params 参数说明书（JSON Schema）。
+
+        用户选择引擎后，前端根据 params_schema 自动渲染对应表单控件。
+
+        '
+      operationId: listEngines
+      responses:
+        '200':
+          description: 引擎列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EngineInfo'
+  /api/decks:
+    post:
+      summary: 提交 PPT 生成任务
+      operationId: submitDeck
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeckRequest'
+      responses:
+        '202':
+          description: 已受理，返回任务（可能处于 draft 或 running）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '400':
+          description: 请求不合法（参数校验失败）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/jobs:
+    get:
+      summary: 获取任务历史列表
+      description: 支持按状态过滤和简单分页，供历史页使用。
+      operationId: listJobs
+      parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - running
+          - draft
+          - timeout
+          - failed
+          - completed
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 20
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 0
+      responses:
+        '200':
+          description: 任务列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Job'
+  /api/jobs/{job_id}:
+    get:
+      summary: 查询任务状态
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 任务状态
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '404':
+          description: 任务不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/jobs/{job_id}/confirm:
+    post:
+      summary: 确认草稿并进入正式生成
+      description: 用户在草稿(draft)状态查看/修改内容后调用，进入 running。
+      operationId: confirmDraft
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - content
+              properties:
+                content:
+                  type: string
+                  description: 用户修改确认后的 Markdown 内容
+                engine_params:
+                  type: object
+                  description: 引擎特定参数（风格/模式/尺寸等），在查看草稿后于本步选择。结构见 GET /api/engines
+                    返回的 params_schema；不在此强校验，由引擎实现校验。
+                  additionalProperties: true
+      responses:
+        '202':
+          description: 已进入正式生成
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '409':
+          description: 任务当前不是 draft 状态，无法确认
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/jobs/{job_id}/draft:
+    patch:
+      summary: 保存草稿（用户修改后暂存，不触发生成）
+      description: >-
+        用户在 draft 状态下编辑草稿 Markdown 后调用，仅持久化内容，不改变任务状态（仍为
+        draft），也不触发正式生成。可多次调用（前端自动保存 / 手动保存）。确认正式生成请调用
+        /api/jobs/{job_id}/confirm。
+      operationId: saveDraft
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaveDraftRequest'
+      responses:
+        '200':
+          description: 已保存草稿
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '404':
+          description: 任务不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: 任务当前不是 draft 状态，无法保存草稿
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/upload:
+    post:
+      summary: 上传源文件（docx/pdf 等）
+      description: '上传用户本地文件，后端存到 jobs_root/uploads/<upload_id>/，返回服务器路径。
+
+        该路径作为 DeckRequest.source.value（type=file_path）提交，引擎再用 source_to_md 转成草稿。
+
+        '
+      operationId: uploadFile
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: 待上传的源文件
+      responses:
+        '200':
+          description: 上传成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadResponse'
+  /api/jobs/{job_id}/download:
+    get:
+      summary: 下载生成的 PPTX
+      description: 任务 completed 后，返回 result_path 对应的 PPTX 文件流。
+      operationId: downloadJob
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: PPTX 文件流
+          content:
+            application/vnd.openxmlformats-officedocument.presentationml.presentation:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: 任务不存在或未生成产物
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+components:
+  schemas:
+    EngineInfo:
+      type: object
+      description: 引擎注册信息（含参数说明书，前端用于动态渲染表单）
+      required:
+      - name
+      - display_name
+      - params_schema
+      properties:
+        name:
+          type: string
+          description: 引擎标识（对应 DeckRequest.engine 的值）
+          example: ppt_master
+        display_name:
+          type: string
+          description: 用户可见的名称
+          example: PPT Master
+        description:
+          type: string
+          description: 简短说明
+          example: 基于 AI Agent 的 PPT 生成引擎，支持多风格/多尺寸
+        params_schema:
+          type: object
+          description: '该引擎 engine_params 的 JSON Schema。
+
+            前端根据此 schema 渲染动态表单（下拉框/输入框/开关等）。
+
+            '
+          example:
+            type: object
+            properties:
+              style:
+                type: string
+                enum:
+                - swiss-minimal
+                - soft-rounded
+                description: 视觉风格
+    DeckRequest:
+      type: object
+      description: 提交生成请求（通用层，与 engine.schema.json 的 DeckContent 一致）。
+      required:
+      - title
+      - pages
+      - engine
+      properties:
+        title:
+          type: string
+          description: PPT 标题
+        content:
+          type: string
+          description: Markdown 内容。草稿确认后必传；直出模式可空（用 source）
+        pages:
+          type: integer
+          minimum: 1
+          description: 目标页数
+        agent:
+          type: string
+          enum:
+          - claude
+          - codex
+          - hermes
+          default: claude
+          description: 驱动引擎的 AI agent（可选）。claude=Claude Code；codex=Codex CLI；hermes=Hermes
+        engine:
+          type: string
+          enum:
+          - ppt_master
+          description: 选择哪个引擎（注册表里的名字，与 GET /api/engines 返回的 name 一致）
+        source:
+          type: object
+          description: 原始素材来源（可选，提交时提供）。优先于 content，用于生成草稿。
+          required:
+          - type
+          - value
+          properties:
+            type:
+              type: string
+              enum:
+              - url
+              - file_path
+              - text
+              description: url=网页链接；file_path=上传后的服务器路径；text=直接文本
+            value:
+              type: string
+              description: URL / 上传返回的 path / 文本内容
+        engine_params:
+          type: object
+          description: '提交阶段选择的引擎参数（与 GET /api/engines 返回的 params_schema 对齐）。
+
+            其中 style/mode/format/notes/animation 可在此阶段预选，confirm 阶段可继续覆盖。
+
+            '
+          additionalProperties: true
+    JobStatus:
+      type: string
+      description: 任务状态
+      enum:
+      - running
+      - draft
+      - timeout
+      - failed
+      - completed
+    Job:
+      type: object
+      required:
+      - job_id
+      - status
+      properties:
+        job_id:
+          type: string
+          description: 任务唯一 ID
+        status:
+          $ref: '#/components/schemas/JobStatus'
+        title:
+          type: string
+          description: PPT 标题
+        pages:
+          type: integer
+          description: 目标页数
+        engine:
+          type: string
+          description: 选择的引擎
+        agent:
+          type: string
+          description: 驱动引擎的 AI agent
+        engine_params:
+          type: object
+          description: 提交/确认阶段使用的引擎参数
+          additionalProperties: true
+        result_path:
+          type: string
+          description: 生成的 PPTX 文件路径（completed 后非空）
+        draft_path:
+          type: string
+          description: 草稿 Markdown 文本路径（draft 状态时有值）
+        error:
+          type: string
+          description: 失败/超时原因（仅 failed/timeout 时有值）
+        created_at:
+          type: string
+          format: date-time
+          description: 任务创建时间（ISO 8601）
+        updated_at:
+          type: string
+          format: date-time
+          description: 任务最后更新时间（ISO 8601）
+        draft_content:
+          type: string
+          description: 草稿 Markdown 内容（draft 状态时返回，供前端查看/编辑）
+    Error:
+      type: object
+      required:
+      - message
+      properties:
+        message:
+          type: string
+          description: 错误描述
+        code:
+          type: string
+          description: 错误码（可选）
+    ppt_master:
+      type: object
+      description: ppt_master 引擎在 engine_params 中支持的参数。中文说明见 docs/contracts/style-guide.md
+      properties:
+        source:
+          type: object
+          description: 原始素材来源（可选）。优先于 content。
+          required:
+          - type
+          - value
+          properties:
+            type:
+              type: string
+              enum:
+              - url
+              - file_path
+              - text
+              description: url=网页链接；file_path=本地文件路径；text=直接文本
+            value:
+              type: string
+              description: URL / 文件路径 / 文本内容
+        style:
+          type: string
+          description: 视觉风格（18 种）。中文说明见 docs/contracts/style-guide.md
+          enum:
+          - swiss-minimal
+          - soft-rounded
+          - glassmorphism
+          - dark-tech
+          - blueprint
+          - editorial
+          - photo-editorial
+          - data-journalism
+          - brutalist
+          - chalkboard
+          - ink-notes
+          - ink-wash
+          - memphis
+          - paper-cut
+          - pixel-art
+          - sketch-notes
+          - vintage-poster
+          - zine
+        mode:
+          type: string
+          description: 叙事模式（auto=由引擎自动决定）。中文说明见 docs/contracts/style-guide.md
+          enum:
+          - auto
+          - pyramid
+          - narrative
+          - instructional
+          - showcase
+          - briefing
+          default: auto
+        format:
+          type: string
+          description: 画布/输出尺寸（默认 ppt169）。中文说明见 docs/contracts/style-guide.md
+          enum:
+          - ppt169
+          - ppt43
+          - xiaohongshu
+          - moments
+          - story
+          - wechat
+          - banner
+          - a4
+          default: ppt169
+        notes:
+          type: boolean
+          default: false
+          description: 是否生成演讲备注
+        animation:
+          type: string
+          enum:
+          - none
+          - auto
+          default: none
+          description: 动画：none=关，auto=自动
+    SaveDraftRequest:
+      type: object
+      required:
+      - content
+      properties:
+        content:
+          type: string
+          description: 用户修改后的草稿 Markdown 内容
+    UploadResponse:
+      type: object
+      description: 文件上传后的返回（服务器侧路径，供后续提交引用）
+      required:
+      - upload_id
+      - filename
+      - path
+      properties:
+        upload_id:
+          type: string
+          description: 上传标识（UUID）
+        filename:
+          type: string
+          description: 原始文件名
+        path:
+          type: string
+          description: 服务器存储路径（jobs_root/uploads/<upload_id>/<filename>），作为 source.value
+            提交
+        size:
+          type: integer
+          description: 字节数

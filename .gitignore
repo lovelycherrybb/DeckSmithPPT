@@ -1,0 +1,34 @@
+# 系统
+.DS_Store
+Thumbs.db
+
+# 环境变量（含密钥，禁止入库）
+.env
+.env.local
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+.next/
+out/
+dist/
+coverage/
+
+# 生成产物（契约代码生成，禁止手写提交）
+packages/shared/types/
+
+# 输出
+outputs/
+
+# 本地编辑器 / Agent 配置
+.claude/
+.vscode/

@@ -1,0 +1,17 @@
+name: CI Contract
+
+on:
+  push:
+    paths: ["docs/contracts/**", "scripts/check-drift.sh", ".github/workflows/ci-contract.yml"]
+  pull_request:
+    paths: ["docs/contracts/**"]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 检查契约漂移
+        run: bash scripts/check-drift.sh
+      - name: 运行契约测试
+        run: python -m pytest tests/contract/ -q

@@ -1,0 +1,8 @@
+[project]
+name = "deck-ppt-backend"
+version = "0.1.0"
+description = "DeckSmithPPT 后端服务"
+requires-python = ">=3.11"
+
+[tool.setuptools]
+packages = ["app", "app.core", "app.repository", "app.service", "app.engines", "app.api"]

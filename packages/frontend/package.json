@@ -1,0 +1,21 @@
+{
+  "name": "decksmith-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "@ant-design/nextjs-registry": "^1.0.2",
+    "@next/swc-darwin-arm64": "^15.5.24",
+    "@next/swc-wasm-nodejs": "^15.5.24",
+    "antd": "^5.27.0",
+    "lucide-react": "^0.540.0",
+    "next": "^15.4.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "lint": "next lint",
+    "test": "echo \"TODO: 技术栈选型后补充前端测试\""
+  }
+}

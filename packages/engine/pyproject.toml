@@ -1,0 +1,8 @@
+[project]
+name = "deck-ppt-engine"
+version = "0.1.0"
+description = "DeckSmithPPT PPT 生成引擎（抽象层 + 实现）"
+requires-python = ">=3.11"
+
+[tool.setuptools]
+packages = ["engine", "engine.core", "engine.impl", "engine.impl.ppt_master"]

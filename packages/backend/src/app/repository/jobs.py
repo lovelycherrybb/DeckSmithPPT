@@ -18,6 +18,7 @@ class JobRepo:
             "pages": obj.pages,
             "engine": obj.engine,
             "agent": obj.agent,
+            "content_style": obj.content_style,
             "engine_params": json.loads(obj.engine_params) if obj.engine_params else {},
             "content": obj.content,
             "draft_content": obj.draft_content,
@@ -31,6 +32,7 @@ class JobRepo:
         }
 
     def create(self, db, **fields) -> dict:
+        fields.setdefault("content_style", "marketing_promo")
         if isinstance(fields.get("engine_params"), dict):
             fields["engine_params"] = json.dumps(fields["engine_params"], ensure_ascii=False)
         obj = Job(**fields)
@@ -55,6 +57,8 @@ class JobRepo:
         obj = db.execute(select(Job).where(Job.job_id == job_id)).scalar_one_or_none()
         if obj is None:
             return None
+        if "content_style" in fields and fields["content_style"] is None:
+            fields["content_style"] = "marketing_promo"
         if isinstance(fields.get("engine_params"), dict):
             fields["engine_params"] = json.dumps(fields["engine_params"], ensure_ascii=False)
         for key, value in fields.items():

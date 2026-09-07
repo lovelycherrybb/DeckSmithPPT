@@ -61,12 +61,32 @@ class StubPptMasterEngine(PptEngine):
 
     # ── 草稿/产物构造（保留原 stub 能力，作为内部 helper）──
     @staticmethod
-    def generate_draft(title: str, pages: int, content: str | None, engine_params: dict | None = None) -> str:
+    def _outline_sections(content_style: str) -> list[str]:
+        return {
+            "product_story": ["## 用户痛点", "## 产品方案", "## 使用场景", "## 价值收益"],
+            "briefing": ["## 背景", "## 现状", "## 方案", "## 计划"],
+            "event_promo": ["## 活动亮点", "## 时间地点", "## 参与收益", "## 行动号召"],
+            "investment_pitch": ["## 市场机会", "## 商业模式", "## 合作价值", "## 下一步"],
+        }.get(content_style, ["## 目标受众", "## 核心卖点", "## 价值收益", "## 行动号召"])
+
+    @classmethod
+    def generate_draft(cls, title: str, pages: int, content: str | None, engine_params: dict | None = None) -> str:
         style = (engine_params or {}).get("style", "swiss-minimal")
+        content_style = (engine_params or {}).get("content_style", "marketing_promo")
         body = content or "（请在确认前补充正文内容，或提供 source 素材）"
-        lines = [f"# {title}", "", f"> 风格：{style} ｜ 目标页数：{pages}", "", "## 摘要", body, ""]
+        lines = [
+            f"# {title}",
+            "",
+            f"> 风格：{style} ｜ 内容风格：{content_style} ｜ 目标页数：{pages}",
+            "",
+            "## 摘要",
+            body,
+            "",
+        ]
+        outline = cls._outline_sections(content_style)
         for i in range(1, max(int(pages), 1) + 1):
-            lines += [f"## 第 {i} 页", "", f"- 要点 {i}.1", f"- 要点 {i}.2", ""]
+            section = outline[(i - 1) % len(outline)]
+            lines += [f"## 第 {i} 页", "", section, "", f"- 要点 {i}.1", f"- 要点 {i}.2", ""]
         lines += ["---", "_（这是 stub 生成的占位草稿，接入真实引擎后会被替换）_", ""]
         return "\n".join(lines)
 
@@ -85,18 +105,23 @@ class StubPptMasterEngine(PptEngine):
         return out
 
     # ── PptEngine 协议 ──
-    def submit(self, content, title, pages, engine_params=None, source=None, job_id=None) -> JobId:
+    def submit(self, content, title=None, pages=None, engine_params=None, source=None, job_id=None) -> JobId:
         job_id = job_id or uuid.uuid4().hex
         job_dir = self._job_dir(job_id)
         job_dir.mkdir(parents=True, exist_ok=True)
         text = content or (source.get("value") if source else "")
-        draft = self.generate_draft(title, pages, text, engine_params)
+        
+        # 使用默认值处理可选的 title 和 pages
+        effective_title = title or "Untitled"
+        effective_pages = pages or 10
+        
+        draft = self.generate_draft(effective_title, effective_pages, text, engine_params)
         (job_dir / "draft.md").write_text(draft, encoding="utf-8")
         self._write_job(
             job_id,
             status="draft",
-            title=title,
-            pages=int(pages),
+            title=effective_title,
+            pages=int(effective_pages),
             engine_params=engine_params or {},
             created_at=_now(), updated_at=_now(), pid=None, result_path=None, error=None,
         )
@@ -144,4 +169,23 @@ class StubPptMasterEngine(PptEngine):
             error=data.get("error"),
             created_at=data.get("created_at"),
             updated_at=data.get("updated_at"),
+            content_style=data.get("content_style"),
         )
+
+    def get_progress(self, job_id) -> dict | None:
+        """获取任务进度信息，仅在 running 状态时返回。"""
+        data = self._read_job(job_id)
+        if data.get("status") != "running":
+            return None
+        
+        started_at = data.get("started_at", 0)
+        elapsed = int(time.time() - started_at) if started_at else 0
+        
+        return {
+            "stage": "generating",
+            "stage_label": "正在生成 PPT（stub 模拟）",
+            "pages_generated": 2,
+            "elapsed_seconds": elapsed,
+            "current_page": "stub_page.pptx",
+            "last_log": "stub 引擎模拟生成中...",
+        }

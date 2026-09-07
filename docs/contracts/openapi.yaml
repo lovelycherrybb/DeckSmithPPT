@@ -287,20 +287,23 @@ components:
       type: object
       description: 提交生成请求（通用层，与 engine.schema.json 的 DeckContent 一致）。
       required:
-      - title
-      - pages
       - engine
+        # title 和 pages 改为可选（引擎可从源材料推断）
       properties:
         title:
           type: string
-          description: PPT 标题
+          description: PPT 标题（可选，可从源材料提取或由 AI 自动生成）
         content:
           type: string
           description: Markdown 内容。草稿确认后必传；直出模式可空（用 source）
+        content_style:
+          type: string
+          default: marketing_promo
+          description: 内容风格（先由 agent 对话式重写 Markdown，再交给引擎）
         pages:
           type: integer
           minimum: 1
-          description: 目标页数
+          description: 目标页数（可选，可由 AI 决定或使用默认值）
         agent:
           type: string
           enum:
@@ -361,7 +364,7 @@ components:
           $ref: '#/components/schemas/JobStatus'
         title:
           type: string
-          description: PPT 标题
+          description: PPT 标题（可选，可从源材料提取或由 AI 自动生成）
         pages:
           type: integer
           description: 目标页数
@@ -371,6 +374,9 @@ components:
         agent:
           type: string
           description: 驱动引擎的 AI agent
+        content_style:
+          type: string
+          description: 内容风格（用于草稿重写和内容表达）
         engine_params:
           type: object
           description: 提交/确认阶段使用的引擎参数

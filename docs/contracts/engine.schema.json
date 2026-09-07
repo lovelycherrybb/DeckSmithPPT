@@ -8,14 +8,12 @@
       "type": "object",
       "description": "提交给引擎的生成请求（通用层，与 openapi.yaml 的 DeckRequest 一致）。engine_params 可在提交阶段一并提供。",
       "required": [
-        "title",
-        "pages",
         "engine"
       ],
       "properties": {
         "title": {
           "type": "string",
-          "description": "PPT 标题"
+          "description": "PPT 标题（可选，可从源材料提取或由 AI 自动生成）"
         },
         "content": {
           "type": "string",
@@ -24,7 +22,7 @@
         "pages": {
           "type": "integer",
           "minimum": 1,
-          "description": "目标页数"
+          "description": "目标页数（可选，可由 AI 决定或使用默认值）"
         },
         "engine": {
           "type": "string",
@@ -42,6 +40,11 @@
           ],
           "default": "claude",
           "description": "驱动引擎的 AI agent（通用层，可选）。claude=Claude Code；codex=Codex CLI；hermes=Hermes"
+        },
+        "content_style": {
+          "type": "string",
+          "default": "marketing_promo",
+          "description": "内容风格（产品层选择，供草稿重写使用）"
         },
         "source": {
           "type": "object",
@@ -98,6 +101,11 @@
         },
         "status": {
           "$ref": "#/$defs/JobStatus"
+        },
+        "content_style": {
+          "type": "string",
+          "default": "marketing_promo",
+          "description": "内容风格（产品层选择，供草稿重写使用）"
         },
         "result_path": {
           "type": "string",

@@ -20,8 +20,8 @@ class Job(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     job_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     status: Mapped[str] = mapped_column(String(16), default="running", index=True)
-    title: Mapped[str] = mapped_column(String(255))
-    pages: Mapped[int] = mapped_column(Integer, default=1)
+    title: Mapped[str | None] = mapped_column(String(255), nullable=True)  # 可选，可从源材料提取或由 AI 自动生成
+    pages: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 可选，可由 AI 决定或使用默认值
     engine: Mapped[str] = mapped_column(String(64))
     agent: Mapped[str] = mapped_column(String(32), default="claude")
     content_style: Mapped[str] = mapped_column(String(64), default="marketing_promo")

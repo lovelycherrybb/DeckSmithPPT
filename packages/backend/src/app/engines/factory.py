@@ -16,7 +16,7 @@ _PACKAGES_DIR = Path(__file__).resolve().parents[4]
 if str(_PACKAGES_DIR) not in sys.path:
     sys.path.insert(0, str(_PACKAGES_DIR))
 
-from app.engines.stub import StubPptMasterEngine  # noqa: E402
+from ..engines.stub import StubPptMasterEngine  # noqa: E402
 
 
 def get_engine(name: str | None = None):

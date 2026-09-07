@@ -18,14 +18,24 @@ class SourceSpec(BaseModel):
 
 class DeckRequest(BaseModel):
     """提交生成请求（对齐 openapi.yaml 的 DeckRequest）。"""
-    title: str
-    pages: int = Field(ge=1, description="目标页数")
+    title: str | None = None  # 可选，可从源材料提取或由 AI 自动生成
+    pages: int | None = Field(default=None, ge=1, description="目标页数（可选，可由 AI 决定或使用默认值）")
     engine: str = "ppt_master"
     content: str | None = None
     source: SourceSpec | None = None
     content_style: str = "marketing_promo"
     engine_params: dict[str, Any] = Field(default_factory=dict)
     agent: str = "claude"
+
+
+class ProgressInfo(BaseModel):
+    """运行阶段进度信息。"""
+    stage: str  # initializing / generating_svg / exporting
+    stage_label: str  # 用户可见的阶段描述
+    pages_generated: int = 0  # 已生成的 SVG 页面数
+    elapsed_seconds: int = 0  # 已耗时秒数
+    current_page: str | None = None  # 当前正在生成的页面
+    last_log: str | None = None  # 最近日志输出
 
 
 class JobOut(BaseModel):
@@ -45,6 +55,7 @@ class JobOut(BaseModel):
     error: str | None = None
     created_at: str | None = None
     updated_at: str | None = None
+    progress: ProgressInfo | None = None  # 运行阶段进度信息
 
 
 class ErrorOut(BaseModel):

@@ -33,6 +33,7 @@ class DeckContent:
     engine: str = "ppt_master"
     content: str | None = None
     source: dict | None = None
+    content_style: str = "marketing_promo"
     engine_params: dict = field(default_factory=dict)
 
 
@@ -45,3 +46,4 @@ class Job:
     error: str | None = None
     created_at: str | None = None
     updated_at: str | None = None
+    content_style: str | None = None

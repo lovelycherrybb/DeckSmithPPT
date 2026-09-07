@@ -114,6 +114,85 @@ class PptMasterEngine(PptEngine):
         pool = matched or candidates
         return max(pool, key=lambda p: p.stat().st_mtime)
 
+    def _get_svg_progress(self, job_id: Any) -> dict:
+        """扫描 svg_output 目录，返回当前生成进度。"""
+        # 查找最近修改的项目目录
+        project_dirs = sorted(
+            _PPT_MASTER_DIR.glob("projects/decksmith_*"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        
+        if not project_dirs:
+            return {"pages_generated": 0, "current_page": None}
+        
+        svg_dir = project_dirs[0] / "svg_output"
+        if not svg_dir.exists():
+            return {"pages_generated": 0, "current_page": None}
+        
+        svg_files = sorted(svg_dir.glob("*.svg"))
+        pages_generated = len(svg_files)
+        current_page = svg_files[-1].name if svg_files else None
+        
+        return {
+            "pages_generated": pages_generated,
+            "current_page": current_page,
+        }
+
+    def _get_last_log_lines(self, job_id: Any, lines: int = 3) -> str:
+        """读取 run.log 的最后几行。"""
+        log_path = self._job_dir(job_id) / "run.log"
+        if not log_path.exists():
+            return ""
+        
+        try:
+            content = log_path.read_text(encoding="utf-8")
+            log_lines = content.strip().split("\n")
+            return "\n".join(log_lines[-lines:]) if log_lines else ""
+        except Exception:
+            return ""
+
+    def get_progress(self, job_id: Any) -> dict | None:
+        """获取任务进度信息，仅在 running 状态时返回。"""
+        data = self._read_job(job_id)
+        if data.get("status") != "running":
+            return None
+        
+        started_at = data.get("started_at", 0)
+        elapsed = int(time.time() - started_at) if started_at else 0
+        
+        # 判断阶段：有 SVG 文件说明在生成页面，否则在初始化
+        svg_progress = self._get_svg_progress(job_id)
+        pages_generated = svg_progress.get("pages_generated", 0)
+        
+        if pages_generated > 0:
+            stage = "generating_svg"
+            stage_label = "正在生成 SVG 页面"
+        else:
+            stage = "initializing"
+            stage_label = "正在初始化生成任务"
+        
+        # 检查是否有导出文件（正在导出阶段）
+        project_dirs = sorted(
+            _PPT_MASTER_DIR.glob("projects/decksmith_*"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        if project_dirs and (project_dirs[0] / "exports").exists():
+            exports = list((project_dirs[0] / "exports").glob("*.pptx"))
+            if exports:
+                stage = "exporting"
+                stage_label = "正在导出 PPTX 文件"
+        
+        return {
+            "stage": stage,
+            "stage_label": stage_label,
+            "pages_generated": pages_generated,
+            "elapsed_seconds": elapsed,
+            "current_page": svg_progress.get("current_page"),
+            "last_log": self._get_last_log_lines(job_id),
+        }
+
     # ── 草稿生成 ──
     def _run_source_to_md(self, path_or_url: str) -> str | None:
         """调 ppt-master 内置 source_to_md 脚本，确定性地把文件/URL 转成 Markdown。"""
@@ -127,19 +206,39 @@ class PptMasterEngine(PptEngine):
             # source_to_md 把 Markdown 落到文件，stdout 只回一行 `OUTPUT: <path>`（其余状态走 stderr）
             for line in proc.stdout.splitlines():
                 if line.startswith("OUTPUT:"):
-                    md_path = Path(line.split(":", 1)[1].strip())
+                    md_path = Path(line[len("OUTPUT:"):].strip())
                     if md_path.exists():
                         return md_path.read_text(encoding="utf-8")
+            return None
         except Exception:
             return None
-        return None
 
     @staticmethod
-    def _templated_draft(title: str, pages: int, content: str, engine_params: dict | None = None) -> str:
+    def _outline_sections(content_style: str) -> list[str]:
+        return {
+            "product_story": ["## 用户痛点", "## 产品方案", "## 使用场景", "## 价值收益"],
+            "briefing": ["## 背景", "## 现状", "## 方案", "## 计划"],
+            "event_promo": ["## 活动亮点", "## 时间地点", "## 参与收益", "## 行动号召"],
+            "investment_pitch": ["## 市场机会", "## 商业模式", "## 合作价值", "## 下一步"],
+        }.get(content_style, ["## 目标受众", "## 核心卖点", "## 价值收益", "## 行动号召"])
+
+    @classmethod
+    def _templated_draft(cls, title: str, pages: int, content: str, engine_params: dict | None = None) -> str:
         style = (engine_params or {}).get("style", "swiss-minimal")
-        lines = [f"# {title}", "", f"> 风格：{style} ｜ 目标页数：{pages}", "", "## 摘要", content or "（请补充正文内容）", ""]
+        content_style = (engine_params or {}).get("content_style", "marketing_promo")
+        lines = [
+            f"# {title}",
+            "",
+            f"> 风格：{style} ｜ 内容风格：{content_style} ｜ 目标页数：{pages}",
+            "",
+            "## 摘要",
+            content or "（请补充正文内容）",
+            "",
+        ]
+        outline = cls._outline_sections(content_style)
         for i in range(1, max(int(pages), 1) + 1):
-            lines += [f"## 第 {i} 页", "", "- 要点", ""]
+            section = outline[(i - 1) % len(outline)]
+            lines += [f"## 第 {i} 页", "", section, "", "- 要点", ""]
         return "\n".join(lines)
 
     def _build_draft(self, content: str | None, title: str, pages: int, source: dict | None, engine_params: dict | None) -> str:
@@ -153,7 +252,17 @@ class PptMasterEngine(PptEngine):
                     return md
             if stype == "text" and svalue:
                 content = svalue
-        return self._templated_draft(title, pages, content or "", engine_params)
+        
+        # 如果没有提供标题，尝试从内容中提取
+        if not title and content:
+            # 简单提取：取第一行作为标题
+            first_line = content.strip().split('\\n')[0]
+            if first_line.startswith('#'):
+                title = first_line.lstrip('#').strip()
+            else:
+                title = first_line[:50]  # 取前 50 个字符作为标题
+        
+        return self._templated_draft(title or "Untitled", pages, content or "", engine_params)
 
     @staticmethod
     def _build_prompt(title: str, style: str, pages: int, content: str) -> str:
@@ -162,6 +271,7 @@ class PptMasterEngine(PptEngine):
             "以 Quick Generate 流程生成 PPTX：\n"
             f"- 主题：{title}\n"
             f"- 视觉风格：{style}\n"
+            "- 内容处理：先把输入 Markdown 重写成更适合宣传材料/汇报场景的结构，再生成 PPT\n"
             "- 画布：ppt169（16:9）\n"
             "- 要求：不使用 AI 生图/外部图片，全部用原生形状、图标和文本；不加旁白和动画\n"
             f"- 项目名：decksmith_{title}\n"
@@ -174,8 +284,8 @@ class PptMasterEngine(PptEngine):
     def submit(
         self,
         content: str | None,
-        title: str,
-        pages: int,
+        title: str | None = None,
+        pages: int | None = None,
         engine_params: dict | None = None,
         source: dict | None = None,
         job_id: Any = None,
@@ -183,11 +293,15 @@ class PptMasterEngine(PptEngine):
         job_id = job_id or uuid.uuid4().hex
         job_dir = self._job_dir(job_id)
         job_dir.mkdir(parents=True, exist_ok=True)
-        draft = self._build_draft(content, title, pages, source, engine_params)
+        # 使用默认值处理可选的 title 和 pages
+        effective_title = title or ""
+        effective_pages = pages or 10  # 默认 10 页
+        
+        draft = self._build_draft(content, effective_title, effective_pages, source, engine_params)
         (job_dir / "draft.md").write_text(draft, encoding="utf-8")
         style = (engine_params or {}).get("style", "swiss-minimal")
         self._write_job(
-            job_id, status="draft", title=title, pages=int(pages),
+            job_id, status="draft", title=effective_title, pages=int(effective_pages),
             style=style, engine_params=engine_params or {}, created_at=_now(), updated_at=_now(),
             pid=None, result_path=None, error=None,
         )
@@ -202,7 +316,9 @@ class PptMasterEngine(PptEngine):
         style = (engine_params or {}).get("style") or prev.get("style") or "swiss-minimal"
         pages = (engine_params or {}).get("pages") or prev.get("pages") or 1
         title = (engine_params or {}).get("title") or prev.get("title") or ""
+        content_style = (engine_params or {}).get("content_style") or prev.get("engine_params", {}).get("content_style") or "marketing_promo"
         prompt = self._build_prompt(title, style, int(pages), content or "")
+        prompt += f"\n- 内容风格：{content_style}\n"
         (job_dir / "prompt.md").write_text(prompt, encoding="utf-8")
         run_log = open(job_dir / "run.log", "w", encoding="utf-8")
         proc = subprocess.Popen(
@@ -266,4 +382,5 @@ class PptMasterEngine(PptEngine):
             error=data.get("error"),
             created_at=data.get("created_at"),
             updated_at=data.get("updated_at"),
+            content_style=data.get("content_style"),
         )

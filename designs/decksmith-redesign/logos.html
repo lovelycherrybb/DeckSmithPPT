@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeckSmithPPT - Logo设计方案</title>
+    <style>
+        :root {
+            --primary: #1a1a2e;
+            --accent: #4361ee;
+            --text: #1a1a2e;
+            --text-secondary: #6b7280;
+            --bg: #fafbfc;
+            --card-bg: #ffffff;
+            --border: #e5e7eb;
+            --shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            --shadow-lg: 0 10px 25px rgba(0, 0, 0, 0.1);
+            --radius: 8px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+            padding: 40px 24px;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 60px;
+        }
+
+        .header h1 {
+            font-size: 32px;
+            font-weight: 700;
+            margin-bottom: 12px;
+            letter-spacing: -0.5px;
+        }
+
+        .header p {
+            font-size: 16px;
+            color: var(--text-secondary);
+        }
+
+        .logos-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 32px;
+            margin-bottom: 60px;
+        }
+
+        .logo-card {
+            background: white;
+            border: 2px solid var(--border);
+            border-radius: 12px;
+            padding: 40px;
+            transition: all 0.2s;
+            cursor: pointer;
+            position: relative;
+        }
+
+        .logo-card:hover {
+            border-color: var(--accent);
+            box-shadow: var(--shadow-lg);
+            transform: translateY(-2px);
+        }
+
+        .logo-card.selected {
+            border-color: var(--accent);
+            background: linear-gradient(135deg, #f0f4ff, #fafbfc);
+        }
+
+        .logo-card.selected::after {
+            content: '✓ 已选择';
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            background: var(--accent);
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .logo-number {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 24px;
+        }
+
+        .logo-preview {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 120px;
+            margin-bottom: 24px;
+            padding: 20px;
+            background: var(--bg);
+            border-radius: 8px;
+        }
+
+        .logo-info h3 {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .logo-info p {
+            font-size: 14px;
+            color: var(--text-secondary);
+            line-height: 1.6;
+            margin-bottom: 16px;
+        }
+
+        .logo-tags {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .logo-tag {
+            padding: 4px 10px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .footer {
+            text-align: center;
+            padding-top: 40px;
+            border-top: 1px solid var(--border);
+        }
+
+        .footer p {
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin-bottom: 24px;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            text-decoration: none;
+            transition: all 0.15s;
+            cursor: pointer;
+            border: none;
+            line-height: 1.5;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #3651d4;
+        }
+
+        .btn-secondary {
+            background: transparent;
+            color: var(--text);
+            border: 1px solid var(--border);
+        }
+
+        .btn-secondary:hover {
+            background: var(--bg);
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+        }
+
+        /* Logo Styles */
+        .logo-1 {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .logo-1-icon {
+            width: 56px;
+            height: 56px;
+            background: linear-gradient(135deg, #4361ee, #6366f1);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .logo-1-icon::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(135deg, rgba(255,255,255,0.2), transparent);
+        }
+
+        .logo-1-icon svg {
+            position: relative;
+            z-index: 1;
+        }
+
+        .logo-1-text {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .logo-1-main {
+            font-size: 28px;
+            font-weight: 700;
+            letter-spacing: -1px;
+            color: var(--primary);
+            line-height: 1.2;
+        }
+
+        .logo-1-sub {
+            font-size: 12px;
+            color: var(--text-secondary);
+            letter-spacing: 1px;
+        }
+
+        .logo-2 {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .logo-2-icon {
+            width: 64px;
+            height: 64px;
+            background: var(--primary);
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        .logo-2-icon::after {
+            content: '';
+            position: absolute;
+            width: 28px;
+            height: 28px;
+            background: var(--accent);
+            border-radius: 6px;
+            bottom: -6px;
+            right: -6px;
+        }
+
+        .logo-2-text {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .logo-2-main {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--primary);
+            line-height: 1.2;
+        }
+
+        .logo-2-sub {
+            font-size: 11px;
+            color: var(--text-secondary);
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+
+        .logo-3 {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .logo-3-icon {
+            width: 56px;
+            height: 56px;
+            background: linear-gradient(135deg, #0f9d8f, #10b981);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        .logo-3-icon svg {
+            color: white;
+        }
+
+        .logo-3-text {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .logo-3-main {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--primary);
+            line-height: 1.2;
+        }
+
+        .logo-3-sub {
+            font-size: 12px;
+            color: var(--accent);
+            font-weight: 600;
+        }
+
+        .logo-4 {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .logo-4-icon {
+            width: 56px;
+            height: 56px;
+            background: linear-gradient(135deg, #f59e0b, #f97316);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        .logo-4-icon svg {
+            color: white;
+        }
+
+        .logo-4-text {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .logo-4-main {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--primary);
+            line-height: 1.2;
+        }
+
+        .logo-4-sub {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        /* Preview Section */
+        .preview-section {
+            background: white;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 40px;
+            margin-top: 40px;
+        }
+
+        .preview-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 24px;
+        }
+
+        .preview-title {
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .preview-content {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 24px;
+        }
+
+        .preview-item {
+            padding: 20px;
+            background: var(--bg);
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .preview-item-label {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 12px;
+        }
+
+        @media (max-width: 768px) {
+            .logos-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .preview-content {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>DeckSmithPPT Logo 设计方案</h1>
+            <p>选择一个最适合你产品的logo设计</p>
+        </div>
+
+        <div class="logos-grid">
+            <!-- Logo 1: 专业组合 -->
+            <div class="logo-card" data-logo="1">
+                <div class="logo-number">方案 01</div>
+                <div class="logo-preview">
+                    <div class="logo-1">
+                        <div class="logo-1-icon">
+                            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                <polyline points="14 2 14 8 20 8"></polyline>
+                                <path d="M12 18v-6"></path>
+                                <path d="M9 15l3 3 3-3"></path>
+                            </svg>
+                        </div>
+                        <div class="logo-1-text">
+                            <div class="logo-1-main">DeckSmith</div>
+                            <div class="logo-1-sub">PPT Generator</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="logo-info">
+                    <h3>专业组合</h3>
+                    <p>图标+双行文字的组合。图标象征"文档转换"，渐变色增加现代感。清晰传达产品功能，适合官网和正式场合。</p>
+                    <div class="logo-tags">
+                        <span class="logo-tag">专业</span>
+                        <span class="logo-tag">清晰</span>
+                        <span class="logo-tag">适合官网</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Logo 2: 立体图标 -->
+            <div class="logo-card" data-logo="2">
+                <div class="logo-number">方案 02</div>
+                <div class="logo-preview">
+                    <div class="logo-2">
+                        <div class="logo-2-icon">
+                            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+                                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                                <line x1="3" y1="9" x2="21" y2="9"></line>
+                                <line x1="9" y1="21" x2="9" y2="9"></line>
+                            </svg>
+                        </div>
+                        <div class="logo-2-text">
+                            <div class="logo-2-main">DeckSmith</div>
+                            <div class="logo-2-sub">PPT Generator</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="logo-info">
+                    <h3>立体图标</h3>
+                    <p>大图标+小文字的组合。图标象征"PPT页面"，右下角的强调色方块增加层次感。醒目易识别，适合移动端和社交媒体。</p>
+                    <div class="logo-tags">
+                        <span class="logo-tag">醒目</span>
+                        <span class="logo-tag">立体</span>
+                        <span class="logo-tag">适合移动端</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Logo 3: 清新绿色 -->
+            <div class="logo-card" data-logo="3">
+                <div class="logo-number">方案 03</div>
+                <div class="logo-preview">
+                    <div class="logo-3">
+                        <div class="logo-3-icon">
+                            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                <polyline points="14 2 14 8 20 8"></polyline>
+                                <line x1="16" y1="13" x2="8" y2="13"></line>
+                                <line x1="16" y1="17" x2="8" y2="17"></line>
+                                <polyline points="10 9 9 9 8 9"></polyline>
+                            </svg>
+                        </div>
+                        <div class="logo-3-text">
+                            <div class="logo-3-main">DeckSmith</div>
+                            <div class="logo-3-sub">PPT Generator</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="logo-info">
+                    <h3>清新绿色</h3>
+                    <p>使用青绿色系，象征"生成"和"创造"。文档图标清晰表达产品功能。清新自然，适合创意工具类产品。</p>
+                    <div class="logo-tags">
+                        <span class="logo-tag">清新</span>
+                        <span class="logo-tag">创意</span>
+                        <span class="logo-tag">自然</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Logo 4: 活力橙色 -->
+            <div class="logo-card" data-logo="4">
+                <div class="logo-number">方案 04</div>
+                <div class="logo-preview">
+                    <div class="logo-4">
+                        <div class="logo-4-icon">
+                            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                <polyline points="14 2 14 8 20 8"></polyline>
+                                <polygon points="12 18 9 15 15 15 12 18"></polygon>
+                            </svg>
+                        </div>
+                        <div class="logo-4-text">
+                            <div class="logo-4-main">DeckSmith</div>
+                            <div class="logo-4-sub">把材料变成PPT</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="logo-info">
+                    <h3>活力橙色</h3>
+                    <p>使用橙色系，象征"活力"和"效率"。文档上传箭头图标强调"转换"功能。活力醒目，适合年轻用户群体。</p>
+                    <div class="logo-tags">
+                        <span class="logo-tag">活力</span>
+                        <span class="logo-tag">醒目</span>
+                        <span class="logo-tag">年轻化</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Preview Section -->
+        <div class="preview-section" id="previewSection" style="display: none;">
+            <div class="preview-header">
+                <div class="preview-title">应用预览</div>
+            </div>
+            <div class="preview-content">
+                <div class="preview-item">
+                    <div id="previewHeader" style="display: flex; align-items: center; gap: 12px; padding: 12px; background: white; border-bottom: 1px solid #e5e7eb; border-radius: 8px 8px 0 0;">
+                        <!-- Preview content will be inserted here -->
+                    </div>
+                    <div class="preview-item-label">Header 导航栏</div>
+                </div>
+                <div class="preview-item">
+                    <div id="previewFavicon" style="display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; margin: 0 auto; background: white; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                        <!-- Preview content will be inserted here -->
+                    </div>
+                    <div class="preview-item-label">Favicon (32x32)</div>
+                </div>
+                <div class="preview-item">
+                    <div id="previewSocial" style="display: flex; align-items: center; justify-content: center; height: 80px; background: linear-gradient(135deg, #1a1a2e, #4361ee); border-radius: 8px; color: white;">
+                        <!-- Preview content will be inserted here -->
+                    </div>
+                    <div class="preview-item-label">社交媒体封面</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>点击选择你喜欢的logo方案，然后应用到产品中</p>
+            <div class="btn-group">
+                <button class="btn btn-primary" id="applyBtn" disabled>应用选中的Logo</button>
+                <a href="home.html" class="btn btn-secondary">返回首页</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Logo selection
+        let selectedLogo = null;
+        
+        document.querySelectorAll('.logo-card').forEach(card => {
+            card.addEventListener('click', function() {
+                // Remove selected from all
+                document.querySelectorAll('.logo-card').forEach(c => {
+                    c.classList.remove('selected');
+                });
+                
+                // Add selected to clicked
+                this.classList.add('selected');
+                selectedLogo = this.dataset.logo;
+                
+                // Enable apply button
+                document.getElementById('applyBtn').disabled = false;
+                
+                // Show preview
+                updatePreview(selectedLogo);
+                document.getElementById('previewSection').style.display = 'block';
+            });
+        });
+
+        // Update preview
+        function updatePreview(logoNumber) {
+            const headerPreview = document.getElementById('previewHeader');
+            const faviconPreview = document.getElementById('previewFavicon');
+            const socialPreview = document.getElementById('previewSocial');
+            
+            // Clear previous content
+            headerPreview.innerHTML = '';
+            faviconPreview.innerHTML = '';
+            socialPreview.innerHTML = '';
+            
+            switch(logoNumber) {
+                case '1':
+                    headerPreview.innerHTML = `
+                        <div style="width: 40px; height: 40px; background: linear-gradient(135deg, #4361ee, #6366f1); border-radius: 10px; display: flex; align-items: center; justify-content: center;">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                <polyline points="14 2 14 8 20 8"></polyline>
+                                <path d="M12 18v-6"></path>
+                                <path d="M9 15l3 3 3-3"></path>
+                            </svg>
+                        </div>
+                        <div>
+                            <div style="font-size: 16px; font-weight: 600; color: #1a1a2e; line-height: 1.2;">DeckSmith</div>
+                            <div style="font-size: 10px; color: #6b7280;">PPT Generator</div>
+                        </div>
+                    `;
+                    faviconPreview.innerHTML = `
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                            <path d="M12 18v-6"></path>
+                            <path d="M9 15l3 3 3-3"></path>
+                        </svg>
+                    `;
+                    faviconPreview.style.background = 'linear-gradient(135deg, #4361ee, #6366f1)';
+                    socialPreview.innerHTML = `
+                        <div style="display: flex; align-items: center; gap: 16px;">
+                            <div style="width: 56px; height: 56px; background: rgba(255,255,255,0.2); border-radius: 12px; display: flex; align-items: center; justify-content: center;">
+                                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                    <polyline points="14 2 14 8 20 8"></polyline>
+                                    <path d="M12 18v-6"></path>
+                                    <path d="M9 15l3 3 3-3"></path>
+                                </svg>
+                            </div>
+                            <div>
+                                <div style="font-size: 28px; font-weight: 700; line-height: 1.2;">DeckSmith</div>
+                                <div style="font-size: 14px; color: #a5b4fc;">PPT Generator</div>
+                            </div>
+                        </div>
+                    `;
+                    break;
+                    
+                case '2':
+                    headerPreview.innerHTML = `
+                        <div style="width: 40px; height: 40px; background: #1a1a2e; border-radius: 10px; display: flex; align-items: center; justify-content: center; position: relative;">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+                                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                                <line x1="3" y1="9" x2="21" y2="9"></line>
+                                <line x1="9" y1="21" x2="9" y2="9"></line>
+                            </svg>
+                            <div style="position: absolute; width: 10px; height: 10px; background: #4361ee; border-radius: 2px; bottom: -2px; right: -2px;"></div>
+                        </div>
+                        <div>
+                            <div style="font-size: 16px; font-weight: 600; color: #1a1a2e; line-height: 1.2;">DeckSmith</div>
+                            <div style="font-size: 10px; color: #6b7280; letter-spacing: 1px;">PPT GENERATOR</div>
+                        </div>
+                    `;
+                    faviconPreview.innerHTML = `
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                            <line x1="3" y1="9" x2="21" y2="9"></line>
+                            <line x1="9" y1="21" x2="9" y2="9"></line>
+                        </svg>
+                    `;
+                    faviconPreview.style.background = '#1a1a2e';
+                    socialPreview.innerHTML = `
+                        <div style="display: flex; align-items: center; gap: 16px;">
+                            <div style="width: 56px; height: 56px; background: rgba(255,255,255,0.2); border-radius: 12px; display: flex; align-items: center; justify-content: center; position: relative;">
+                                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+                                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                                    <line x1="3" y1="9" x2="21" y2="9"></line>
+                                    <line x1="9" y1="21" x2="9" y2="9"></line>
+                                </svg>
+                                <div style="position: absolute; width: 14px; height: 14px; background: #4361ee; border-radius: 3px; bottom: -3px; right: -3px;"></div>
+                            </div>
+                            <div>
+                                <div style="font-size: 28px; font-weight: 700; line-height: 1.2;">DeckSmith</div>
+                                <div style="font-size: 12px; color: #a5b4fc; letter-spacing: 2px;">PPT GENERATOR</div>
+                            </div>
+                        </div>
+                    `;
+                    break;
+                    
+                case '3':
+                    headerPreview.innerHTML = `
+                        <div style="width: 40px; height: 40px; background: linear-gradient(135deg, #0f9d8f, #10b981); border-radius: 10px; display: flex; align-items: center; justify-content: center;">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                <polyline points="14 2 14 8 20 8"></polyline>
+                                <line x1="16" y1="13" x2="8" y2="13"></line>
+                                <line x1="16" y1="17" x2="8" y2="17"></line>
+                                <polyline points="10 9 9 9 8 9"></polyline>
+                            </svg>
+                        </div>
+                        <div>
+                            <div style="font-size: 16px; font-weight: 600; color: #1a1a2e; line-height: 1.2;">DeckSmith</div>
+                            <div style="font-size: 10px; color: #4361ee; font-weight: 600;">PPT Generator</div>
+                        </div>
+                    `;
+                    faviconPreview.innerHTML = `
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                            <line x1="16" y1="13" x2="8" y2="13"></line>
+                            <line x1="16" y1="17" x2="8" y2="17"></line>
+                            <polyline points="10 9 9 9 8 9"></polyline>
+                        </svg>
+                    `;
+                    faviconPreview.style.background = 'linear-gradient(135deg, #0f9d8f, #10b981)';
+                    socialPreview.innerHTML = `
+                        <div style="display: flex; align-items: center; gap: 16px;">
+                            <div style="width: 56px; height: 56px; background: rgba(255,255,255,0.2); border-radius: 12px; display: flex; align-items: center; justify-content: center;">
+                                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                    <polyline points="14 2 14 8 20 8"></polyline>
+                                    <line x1="16" y1="13" x2="8" y2="13"></line>
+                                    <line x1="16" y1="17" x2="8" y2="17"></line>
+                                    <polyline points="10 9 9 9 8 9"></polyline>
+                                </svg>
+                            </div>
+                            <div>
+                                <div style="font-size: 28px; font-weight: 700; line-height: 1.2;">DeckSmith</div>
+                                <div style="font-size: 14px; color: #6ee7b7; font-weight: 600;">PPT Generator</div>
+                            </div>
+                        </div>
+                    `;
+                    break;
+                    
+                case '4':
+                    headerPreview.innerHTML = `
+                        <div style="width: 40px; height: 40px; background: linear-gradient(135deg, #f59e0b, #f97316); border-radius: 10px; display: flex; align-items: center; justify-content: center;">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                <polyline points="14 2 14 8 20 8"></polyline>
+                                <polygon points="12 18 9 15 15 15 12 18"></polygon>
+                            </svg>
+                        </div>
+                        <div>
+                            <div style="font-size: 16px; font-weight: 600; color: #1a1a2e; line-height: 1.2;">DeckSmith</div>
+                            <div style="font-size: 10px; color: #6b7280;">把材料变成PPT</div>
+                        </div>
+                    `;
+                    faviconPreview.innerHTML = `
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                            <polygon points="12 18 9 15 15 15 12 18"></polygon>
+                        </svg>
+                    `;
+                    faviconPreview.style.background = 'linear-gradient(135deg, #f59e0b, #f97316)';
+                    socialPreview.innerHTML = `
+                        <div style="display: flex; align-items: center; gap: 16px;">
+                            <div style="width: 56px; height: 56px; background: rgba(255,255,255,0.2); border-radius: 12px; display: flex; align-items: center; justify-content: center;">
+                                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                    <polyline points="14 2 14 8 20 8"></polyline>
+                                    <polygon points="12 18 9 15 15 15 12 18"></polygon>
+                                </svg>
+                            </div>
+                            <div>
+                                <div style="font-size: 28px; font-weight: 700; line-height: 1.2;">DeckSmith</div>
+                                <div style="font-size: 14px; color: #fcd34d;">把材料变成PPT</div>
+                            </div>
+                        </div>
+                    `;
+                    break;
+            }
+        }
+
+        // Apply button
+        document.getElementById('applyBtn').addEventListener('click', function() {
+            if (selectedLogo) {
+                alert(`Logo 方案 ${selectedLogo} 已选择！\n\n在实际应用中，这里会将logo应用到产品中。`);
+                // Here you would typically:
+                // 1. Update the logo in the header component
+                // 2. Update the favicon
+                // 3. Save the selection
+            }
+        });
+    </script>
+</body>
+</html>

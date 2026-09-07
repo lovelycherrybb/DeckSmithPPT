@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from ..core.db import SessionLocal, JOBS_ROOT
 from ..repository.jobs import JobRepo
-from ..core.schemas import DeckRequest, JobOut
+from ..core.schemas import DeckRequest, JobOut, ProgressInfo
 
 
 def _now() -> str:
@@ -32,16 +32,25 @@ class JobService:
     def _resolve_style(engine_params: dict | None) -> str:
         return (engine_params or {}).get("style") or "swiss-minimal"
 
+    def _enrich_with_progress(self, job: JobOut) -> JobOut:
+        """如果任务正在运行，附加进度信息。"""
+        if job.status == "running" and hasattr(self.engine, 'get_progress'):
+            progress_data = self.engine.get_progress(job.job_id)
+            if progress_data:
+                job.progress = ProgressInfo(**progress_data)
+        return job
+
     # ── submit：产草稿 ──
     def submit(self, db: Session, req: DeckRequest) -> JobOut:
         job_id = uuid.uuid4().hex
         source = req.source.model_dump() if req.source else None
+        engine_params = {**(req.engine_params or {}), "content_style": req.content_style}
         # 调引擎产出草稿 Markdown（不调 AI、不计费），写到 jobs_root/<job_id>/draft.md
         self.engine.submit(
             content=req.content,
             title=req.title,
             pages=req.pages,
-            engine_params=req.engine_params,
+            engine_params=engine_params,
             source=source,
             job_id=job_id,
         )
@@ -58,7 +67,8 @@ class JobService:
             pages=req.pages,
             engine=req.engine,
             agent=req.agent,
-            engine_params=req.engine_params,
+            content_style=req.content_style,
+            engine_params=engine_params,
             content=req.content,
             draft_content=draft_content,
             draft_path=str(draft_path),
@@ -69,14 +79,17 @@ class JobService:
 
     def list(self, db: Session, status: str | None = None, limit: int = 20, offset: int = 0) -> list[JobOut]:
         rows = self.repo.list(db, status=status, limit=limit, offset=offset)
-        return [JobOut(**row) for row in rows]
+        jobs = [JobOut(**row) for row in rows]
+        # 为 running 状态的任务附加进度
+        return [self._enrich_with_progress(job) for job in jobs]
 
     # ── get：查任务 ──
     def get(self, db: Session, job_id: str) -> JobOut:
         row = self.repo.get(db, job_id)
         if row is None:
             raise HTTPException(status_code=404, detail="任务不存在")
-        return JobOut(**row)
+        job = JobOut(**row)
+        return self._enrich_with_progress(job)
 
     # ── save_draft：暂存用户修改（不触发生成）──
     def save_draft(self, db: Session, job_id: str, content: str) -> JobOut:
@@ -99,9 +112,13 @@ class JobService:
 
         # 用户改好的内容落盘，状态置 running
         (JOBS_ROOT / job_id / "draft.md").write_text(content or "", encoding="utf-8")
-        merged_engine_params = {**(row.get("engine_params") or {}), **(engine_params or {})}
+        confirm_engine_params = dict(engine_params or {})
+        confirm_engine_params.setdefault("content_style", row.get("content_style") or "marketing_promo")
+        merged_engine_params = {**(row.get("engine_params") or {}), **confirm_engine_params}
+        merged_engine_params.setdefault("content_style", row.get("content_style") or "marketing_promo")
         merged_engine_params.setdefault("style", self._resolve_style(row.get("engine_params")))
         self.repo.update(db, job_id, status="running", content=content,
+                         content_style=row.get("content_style") or "marketing_promo",
                          engine_params=merged_engine_params, updated_at=_now())
 
         # 调引擎正式生成（真实引擎在此拉起 claude 子进程；stub 起后台线程）

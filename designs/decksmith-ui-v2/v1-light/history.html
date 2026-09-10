@@ -1,0 +1,996 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeckSmithPPT - 历史项目</title>
+    <style>
+        /* ===== Design Tokens ===== */
+        :root {
+            /* Colors */
+            --primary-50: #eff6ff;
+            --primary-100: #dbeafe;
+            --primary-200: #bfdbfe;
+            --primary-300: #93c5fd;
+            --primary-400: #60a5fa;
+            --primary-500: #3b82f6;
+            --primary-600: #2563eb;
+            --primary-700: #1d4ed8;
+            --primary-800: #1e40af;
+            --primary-900: #1e3a8a;
+            
+            --accent-500: #10b981;
+            --accent-600: #059669;
+            
+            --neutral-50: #f8fafc;
+            --neutral-100: #f1f5f9;
+            --neutral-200: #e2e8f0;
+            --neutral-300: #cbd5e1;
+            --neutral-400: #94a3b8;
+            --neutral-500: #64748b;
+            --neutral-600: #475569;
+            --neutral-700: #334155;
+            --neutral-800: #1e293b;
+            --neutral-900: #0f172a;
+            
+            --success-500: #22c55e;
+            --warning-500: #eab308;
+            --error-500: #ef4444;
+            
+            /* Typography */
+            --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+            
+            /* Spacing */
+            --space-1: 4px;
+            --space-2: 8px;
+            --space-3: 12px;
+            --space-4: 16px;
+            --space-5: 20px;
+            --space-6: 24px;
+            --space-8: 32px;
+            --space-10: 40px;
+            
+            /* Border Radius */
+            --radius-sm: 6px;
+            --radius-md: 8px;
+            --radius-lg: 12px;
+            --radius-xl: 16px;
+            --radius-full: 9999px;
+            
+            /* Shadows */
+            --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+            
+            /* Layout */
+            --sidebar-width: 280px;
+        }
+
+        /* ===== Reset & Base ===== */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: var(--font-sans);
+            background: var(--neutral-50);
+            color: var(--neutral-800);
+            line-height: 1.6;
+            min-height: 100vh;
+            display: flex;
+        }
+
+        /* ===== Sidebar ===== */
+        .sidebar {
+            width: var(--sidebar-width);
+            background: white;
+            border-right: 1px solid var(--neutral-200);
+            display: flex;
+            flex-direction: column;
+            position: fixed;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            z-index: 100;
+        }
+
+        .sidebar-header {
+            padding: var(--space-6);
+            border-bottom: 1px solid var(--neutral-200);
+        }
+
+        .sidebar-logo {
+            display: flex;
+            align-items: center;
+            gap: var(--space-3);
+            text-decoration: none;
+            color: var(--neutral-900);
+        }
+
+        .sidebar-logo-icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, var(--primary-500), var(--primary-700));
+            border-radius: var(--radius-lg);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 700;
+            font-size: 18px;
+        }
+
+        .sidebar-logo-text h1 {
+            font-size: 18px;
+            font-weight: 700;
+            line-height: 1.2;
+        }
+
+        .sidebar-logo-text p {
+            font-size: 12px;
+            color: var(--neutral-500);
+            margin-top: 2px;
+        }
+
+        .sidebar-nav {
+            flex: 1;
+            padding: var(--space-6) var(--space-4);
+            overflow-y: auto;
+        }
+
+        .nav-section {
+            margin-bottom: var(--space-8);
+        }
+
+        .nav-section-title {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--neutral-400);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: var(--space-4);
+            padding: 0 var(--space-2);
+        }
+
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: var(--space-3);
+            padding: var(--space-3) var(--space-4);
+            border-radius: var(--radius-md);
+            text-decoration: none;
+            color: var(--neutral-700);
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 150ms ease;
+            margin-bottom: var(--space-1);
+            cursor: pointer;
+        }
+
+        .nav-item:hover {
+            background: var(--primary-50);
+            color: var(--primary-600);
+        }
+
+        .nav-item.active {
+            background: var(--primary-500);
+            color: white;
+        }
+
+        .nav-item-icon {
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .nav-item-badge {
+            margin-left: auto;
+            background: var(--primary-100);
+            color: var(--primary-600);
+            padding: 2px 8px;
+            border-radius: var(--radius-full);
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .nav-item.active .nav-item-badge {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+        }
+
+        .sidebar-footer {
+            padding: var(--space-6);
+            border-top: 1px solid var(--neutral-200);
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: var(--space-3);
+            padding: var(--space-3);
+            border-radius: var(--radius-md);
+            background: var(--neutral-50);
+        }
+
+        .user-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: var(--radius-full);
+            background: linear-gradient(135deg, var(--primary-400), var(--accent-500));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 700;
+            font-size: 16px;
+        }
+
+        .user-details h4 {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 2px;
+        }
+
+        .user-details p {
+            font-size: 12px;
+            color: var(--neutral-500);
+        }
+
+        /* ===== Main Content ===== */
+        .main-content {
+            flex: 1;
+            margin-left: var(--sidebar-width);
+            padding: var(--space-8);
+            min-height: 100vh;
+        }
+
+        /* ===== Header ===== */
+        .main-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: var(--space-8);
+        }
+
+        .header-left h2 {
+            font-size: 24px;
+            font-weight: 700;
+            margin-bottom: var(--space-2);
+            color: var(--neutral-900);
+        }
+
+        .header-left p {
+            font-size: 14px;
+            color: var(--neutral-500);
+        }
+
+        .header-actions {
+            display: flex;
+            gap: var(--space-3);
+        }
+
+        /* ===== Buttons ===== */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: var(--space-2);
+            padding: var(--space-2) var(--space-4);
+            border-radius: var(--radius-md);
+            font-size: 14px;
+            font-weight: 500;
+            text-decoration: none;
+            transition: all 150ms ease;
+            cursor: pointer;
+            border: none;
+            line-height: 1.5;
+        }
+
+        .btn-primary {
+            background: var(--primary-500);
+            color: white;
+            box-shadow: 0 1px 2px rgba(59, 130, 246, 0.3);
+        }
+
+        .btn-primary:hover {
+            background: var(--primary-600);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+        }
+
+        .btn-ghost {
+            background: transparent;
+            color: var(--neutral-700);
+            border: 1px solid var(--neutral-300);
+        }
+
+        .btn-ghost:hover {
+            background: var(--neutral-100);
+            border-color: var(--neutral-400);
+        }
+
+        /* ===== Stats Cards ===== */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: var(--space-5);
+            margin-bottom: var(--space-8);
+        }
+
+        .stat-card {
+            background: white;
+            border: 1px solid var(--neutral-200);
+            border-radius: var(--radius-xl);
+            padding: var(--space-5);
+        }
+
+        .stat-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: var(--space-3);
+        }
+
+        .stat-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: var(--radius-lg);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .stat-icon.blue {
+            background: var(--primary-100);
+            color: var(--primary-600);
+        }
+
+        .stat-icon.green {
+            background: #dcfce7;
+            color: #16a34a;
+        }
+
+        .stat-icon.yellow {
+            background: #fef3c7;
+            color: #d97706;
+        }
+
+        .stat-icon.purple {
+            background: #f3e8ff;
+            color: #9333ea;
+        }
+
+        .stat-label {
+            font-size: 13px;
+            color: var(--neutral-500);
+            font-weight: 500;
+        }
+
+        .stat-value {
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--neutral-900);
+            line-height: 1.2;
+        }
+
+        .stat-change {
+            font-size: 12px;
+            margin-top: 4px;
+        }
+
+        .stat-change.positive {
+            color: #16a34a;
+        }
+
+        .stat-change.negative {
+            color: #dc2626;
+        }
+
+        /* ===== Filters ===== */
+        .filters {
+            display: flex;
+            gap: var(--space-3);
+            margin-bottom: var(--space-6);
+            flex-wrap: wrap;
+        }
+
+        .filter-input {
+            padding: var(--space-2) var(--space-4);
+            border: 1px solid var(--neutral-300);
+            border-radius: var(--radius-md);
+            font-size: 14px;
+            color: var(--neutral-700);
+            background: white;
+            min-width: 200px;
+        }
+
+        .filter-input:focus {
+            outline: none;
+            border-color: var(--primary-500);
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+
+        .filter-select {
+            appearance: none;
+            padding: var(--space-2) var(--space-4);
+            padding-right: 36px;
+            border: 1px solid var(--neutral-300);
+            border-radius: var(--radius-md);
+            font-size: 14px;
+            color: var(--neutral-700);
+            background: white;
+            background-image: url("data:image/svg+xml,%3Csvg width='12' height='8' viewBox='0 0 12 8' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1.5L6 6.5L11 1.5' stroke='%2364748b' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 12px center;
+            cursor: pointer;
+        }
+
+        /* ===== Table ===== */
+        .table-container {
+            background: white;
+            border: 1px solid var(--neutral-200);
+            border-radius: var(--radius-xl);
+            overflow: hidden;
+        }
+
+        .table-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: var(--space-5) var(--space-6);
+            border-bottom: 1px solid var(--neutral-200);
+        }
+
+        .table-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--neutral-900);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        thead {
+            background: var(--neutral-50);
+        }
+
+        th {
+            padding: var(--space-3) var(--space-5);
+            text-align: left;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--neutral-500);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        td {
+            padding: var(--space-4) var(--space-5);
+            font-size: 14px;
+            color: var(--neutral-700);
+            border-bottom: 1px solid var(--neutral-100);
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tr:hover {
+            background: var(--neutral-50);
+        }
+
+        .project-name {
+            font-weight: 600;
+            color: var(--neutral-900);
+        }
+
+        .project-id {
+            font-family: var(--font-mono);
+            font-size: 12px;
+            color: var(--neutral-500);
+        }
+
+        .status-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 2px 10px;
+            border-radius: var(--radius-full);
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .status-active {
+            background: #dcfce7;
+            color: #16a34a;
+        }
+
+        .status-completed {
+            background: var(--primary-100);
+            color: var(--primary-600);
+        }
+
+        .status-archived {
+            background: var(--neutral-100);
+            color: var(--neutral-500);
+        }
+
+        .action-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 12px;
+            border-radius: var(--radius-sm);
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 150ms ease;
+            border: none;
+            background: transparent;
+            color: var(--neutral-600);
+        }
+
+        .action-btn:hover {
+            background: var(--primary-50);
+            color: var(--primary-600);
+        }
+
+        .action-btn.primary {
+            background: var(--primary-500);
+            color: white;
+        }
+
+        .action-btn.primary:hover {
+            background: var(--primary-600);
+        }
+
+        /* ===== Pagination ===== */
+        .pagination {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: var(--space-4) var(--space-6);
+            border-top: 1px solid var(--neutral-200);
+        }
+
+        .pagination-info {
+            font-size: 13px;
+            color: var(--neutral-500);
+        }
+
+        .pagination-buttons {
+            display: flex;
+            gap: var(--space-2);
+        }
+
+        .pagination-btn {
+            width: 36px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--neutral-300);
+            background: white;
+            color: var(--neutral-700);
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 150ms ease;
+        }
+
+        .pagination-btn:hover {
+            background: var(--neutral-100);
+            border-color: var(--neutral-400);
+        }
+
+        .pagination-btn.active {
+            background: var(--primary-500);
+            border-color: var(--primary-500);
+            color: white;
+        }
+
+        .pagination-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* ===== Empty State ===== */
+        .empty-state {
+            text-align: center;
+            padding: var(--space-12) var(--space-6);
+        }
+
+        .empty-icon {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto var(--space-5);
+            background: var(--neutral-100);
+            border-radius: var(--radius-full);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--neutral-400);
+        }
+
+        .empty-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--neutral-700);
+            margin-bottom: var(--space-2);
+        }
+
+        .empty-text {
+            font-size: 14px;
+            color: var(--neutral-500);
+            margin-bottom: var(--space-6);
+        }
+
+        /* ===== Responsive ===== */
+        @media (max-width: 1280px) {
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        @media (max-width: 1024px) {
+            .sidebar {
+                transform: translateX(-100%);
+            }
+            
+            .main-content {
+                margin-left: 0;
+            }
+            
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .filters {
+                flex-direction: column;
+            }
+            
+            .filter-input,
+            .filter-select {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Sidebar -->
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <a href="index.html" class="sidebar-logo">
+                <div class="sidebar-logo-icon">DS</div>
+                <div class="sidebar-logo-text">
+                    <h1>DeckSmith</h1>
+                    <p>智能 PPT 生成</p>
+                </div>
+            </a>
+        </div>
+        
+        <nav class="sidebar-nav">
+            <div class="nav-section">
+                <div class="nav-section-title">创作</div>
+                <a href="studio.html" class="nav-item">
+                    <span class="nav-item-icon">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 5v14M5 12h14"/>
+                        </svg>
+                    </span>
+                    创建新 PPT
+                </a>
+                <a href="studio.html" class="nav-item">
+                    <span class="nav-item-icon">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                            <polyline points="14 2 14 8 20 8"/>
+                        </svg>
+                    </span>
+                    草稿任务
+                    <span class="nav-item-badge">3</span>
+                </a>
+            </div>
+            
+            <div class="nav-section">
+                <div class="nav-section-title">管理</div>
+                <a href="studio.html" class="nav-item">
+                    <span class="nav-item-icon">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+                        </svg>
+                    </span>
+                    生成任务
+                </a>
+                <a href="studio.html" class="nav-item">
+                    <span class="nav-item-icon">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                        </svg>
+                    </span>
+                    演示文件库
+                </a>
+            </div>
+            
+            <div class="nav-section">
+                <div class="nav-section-title">其他</div>
+                <a href="history.html" class="nav-item active">
+                    <span class="nav-item-icon">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"/>
+                            <polyline points="12 6 12 12 16 14"/>
+                        </svg>
+                    </span>
+                    历史项目
+                </a>
+                <a href="#" class="nav-item">
+                    <span class="nav-item-icon">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="3"/>
+                            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                        </svg>
+                    </span>
+                    设置
+                </a>
+            </div>
+        </nav>
+        
+        <div class="sidebar-footer">
+            <div class="user-info">
+                <div class="user-avatar">U</div>
+                <div class="user-details">
+                    <h4>用户</h4>
+                    <p>免费版</p>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <!-- Header -->
+        <div class="main-header">
+            <div class="header-left">
+                <h2>历史项目</h2>
+                <p>查看和管理所有 PPT 项目</p>
+            </div>
+            <div class="header-actions">
+                <button class="btn btn-ghost">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="7 10 12 15 17 10"/>
+                        <line x1="12" y1="15" x2="12" y2="3"/>
+                    </svg>
+                    导出全部
+                </button>
+                <a href="studio.html" class="btn btn-primary">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 5v14M5 12h14"/>
+                    </svg>
+                    新建项目
+                </a>
+            </div>
+        </div>
+
+        <!-- Stats Cards -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-header">
+                    <span class="stat-label">总项目数</span>
+                    <div class="stat-icon blue">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                        </svg>
+                    </div>
+                </div>
+                <div class="stat-value">24</div>
+                <div class="stat-change positive">+3 本周</div>
+            </div>
+            
+            <div class="stat-card">
+                <div class="stat-header">
+                    <span class="stat-label">已完成</span>
+                    <div class="stat-icon green">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="20 6 9 17 4 12"/>
+                        </svg>
+                    </div>
+                </div>
+                <div class="stat-value">18</div>
+                <div class="stat-change positive">75% 完成率</div>
+            </div>
+            
+            <div class="stat-card">
+                <div class="stat-header">
+                    <span class="stat-label">处理中</span>
+                    <div class="stat-icon yellow">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"/>
+                            <polyline points="12 6 12 12 16 14"/>
+                        </svg>
+                    </div>
+                </div>
+                <div class="stat-value">4</div>
+                <div class="stat-change">2 个运行中</div>
+            </div>
+            
+            <div class="stat-card">
+                <div class="stat-header">
+                    <span class="stat-label">生成页面</span>
+                    <div class="stat-icon purple">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                            <line x1="3" y1="9" x2="21" y2="9"/>
+                            <line x1="9" y1="21" x2="9" y2="9"/>
+                        </svg>
+                    </div>
+                </div>
+                <div class="stat-value">156</div>
+                <div class="stat-change positive">+12 本周</div>
+            </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="filters">
+            <input type="text" class="filter-input" placeholder="搜索项目名称...">
+            <select class="filter-select">
+                <option value="">全部状态</option>
+                <option value="active">进行中</option>
+                <option value="completed">已完成</option>
+                <option value="archived">已归档</option>
+            </select>
+            <select class="filter-select">
+                <option value="">全部时间</option>
+                <option value="today">今天</option>
+                <option value="week">本周</option>
+                <option value="month">本月</option>
+            </select>
+        </div>
+
+        <!-- Projects Table -->
+        <div class="table-container">
+            <div class="table-header">
+                <h3 class="table-title">项目列表</h3>
+                <span style="font-size: 13px; color: var(--neutral-500);">共 24 个项目</span>
+            </div>
+            
+            <table>
+                <thead>
+                    <tr>
+                        <th>项目</th>
+                        <th>状态</th>
+                        <th>草稿数</th>
+                        <th>页面数</th>
+                        <th>创建时间</th>
+                        <th>更新时间</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>
+                            <div class="project-name">产品介绍 PPT</div>
+                            <div class="project-id">proj_8a3f2b1c</div>
+                        </td>
+                        <td><span class="status-tag status-active">进行中</span></td>
+                        <td>3</td>
+                        <td>12</td>
+                        <td>2026-09-10</td>
+                        <td>2 小时前</td>
+                        <td>
+                            <button class="action-btn">查看</button>
+                            <button class="action-btn primary">编辑</button>
+                        </td>
+                    </tr>
+                    
+                    <tr>
+                        <td>
+                            <div class="project-name">季度总结报告</div>
+                            <div class="project-id">proj_7b2e4d9a</div>
+                        </td>
+                        <td><span class="status-tag status-active">进行中</span></td>
+                        <td>2</td>
+                        <td>18</td>
+                        <td>2026-09-09</td>
+                        <td>1 天前</td>
+                        <td>
+                            <button class="action-btn">查看</button>
+                            <button class="action-btn primary">编辑</button>
+                        </td>
+                    </tr>
+                    
+                    <tr>
+                        <td>
+                            <div class="project-name">技术方案评审</div>
+                            <div class="project-id">proj_5c1d8e3f</div>
+                        </td>
+                        <td><span class="status-tag status-completed">已完成</span></td>
+                        <td>5</td>
+                        <td>24</td>
+                        <td>2026-09-08</td>
+                        <td>2 天前</td>
+                        <td>
+                            <button class="action-btn">查看</button>
+                            <button class="action-btn">下载</button>
+                        </td>
+                    </tr>
+                    
+                    <tr>
+                        <td>
+                            <div class="project-name">市场营销策略</div>
+                            <div class="project-id">proj_9f4a6b2c</div>
+                        </td>
+                        <td><span class="status-tag status-completed">已完成</span></td>
+                        <td>4</td>
+                        <td>16</td>
+                        <td>2026-09-07</td>
+                        <td>3 天前</td>
+                        <td>
+                            <button class="action-btn">查看</button>
+                            <button class="action-btn">下载</button>
+                        </td>
+                    </tr>
+                    
+                    <tr>
+                        <td>
+                            <div class="project-name">用户调研报告</div>
+                            <div class="project-id">proj_2e7c9d1a</div>
+                        </td>
+                        <td><span class="status-tag status-completed">已完成</span></td>
+                        <td>6</td>
+                        <td>28</td>
+                        <td>2026-09-05</td>
+                        <td>5 天前</td>
+                        <td>
+                            <button class="action-btn">查看</button>
+                            <button class="action-btn">下载</button>
+                        </td>
+                    </tr>
+                    
+                    <tr>
+                        <td>
+                            <div class="project-name">产品路线图</div>
+                            <div class="project-id">proj_4d8f1a5b</div>
+                        </td>
+                        <td><span class="status-tag status-archived">已归档</span></td>
+                        <td>3</td>
+                        <td>14</td>
+                        <td>2026-09-01</td>
+                        <td>9 天前</td>
+                        <td>
+                            <button class="action-btn">查看</button>
+                            <button class="action-btn">恢复</button>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+            
+            <div class="pagination">
+                <span class="pagination-info">显示 1-6 条，共 24 条</span>
+                <div class="pagination-buttons">
+                    <button class="pagination-btn" disabled>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="15 18 9 12 15 6"/>
+                        </svg>
+                    </button>
+                    <button class="pagination-btn active">1</button>
+                    <button class="pagination-btn">2</button>
+                    <button class="pagination-btn">3</button>
+                    <button class="pagination-btn">4</button>
+                    <button class="pagination-btn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="9 18 15 12 9 6"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </main>
+</body>
+</html>

@@ -1,0 +1,978 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeckSmithPPT - 工作台</title>
+    <style>
+        :root {
+            --primary: #8b5cf6;
+            --primary-light: #a78bfa;
+            --primary-dark: #7c3aed;
+            --primary-bg: #f5f3ff;
+            --bg: #f8fafc;
+            --bg-card: #ffffff;
+            --bg-hover: #f1f5f9;
+            --bg-input: #ffffff;
+            --text-primary: #0f172a;
+            --text-secondary: #475569;
+            --text-muted: #94a3b8;
+            --border: #e2e8f0;
+            --border-hover: #cbd5e1;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --error: #ef4444;
+            --info: #3b82f6;
+            --shadow: 0 1px 3px rgba(0,0,0,0.1);
+            --shadow-lg: 0 4px 12px rgba(0,0,0,0.1);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--bg);
+            color: var(--text-primary);
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+
+        /* ===== 顶部导航栏 ===== */
+        .header {
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border);
+            padding: 0 32px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            height: 56px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: var(--shadow);
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            text-decoration: none;
+            color: var(--text-primary);
+        }
+
+        .logo-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 800;
+            font-size: 14px;
+        }
+
+        .logo-text {
+            font-weight: 700;
+            font-size: 16px;
+            color: var(--text-primary);
+        }
+
+        .tabs-nav {
+            display: flex;
+            gap: 4px;
+            background: var(--bg-hover);
+            padding: 4px;
+            border-radius: 10px;
+        }
+
+        .tab-btn {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: all 150ms ease;
+            border: none;
+            background: transparent;
+        }
+
+        .tab-btn:hover {
+            color: var(--text-secondary);
+            background: var(--bg-card);
+        }
+
+        .tab-btn.active {
+            background: var(--primary);
+            color: white;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        /* ===== 主题切换按钮 ===== */
+        .theme-toggle {
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: var(--bg-card);
+            color: var(--text-secondary);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 150ms ease;
+        }
+
+        .theme-toggle:hover {
+            background: var(--bg-hover);
+            border-color: var(--border-hover);
+            color: var(--text-primary);
+        }
+
+        /* ===== 按钮 ===== */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            text-decoration: none;
+            transition: all 150ms ease;
+            cursor: pointer;
+            border: none;
+            line-height: 1.5;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: var(--primary-dark);
+        }
+
+        .btn-ghost {
+            background: transparent;
+            color: var(--text-secondary);
+            border: 1px solid var(--border);
+        }
+
+        .btn-ghost:hover {
+            background: var(--bg-hover);
+            border-color: var(--border-hover);
+            color: var(--text-primary);
+        }
+
+        .btn-sm {
+            padding: 4px 12px;
+            font-size: 13px;
+        }
+
+        /* ===== 主内容区 ===== */
+        .main-content {
+            padding: 24px 32px;
+        }
+
+        /* ===== 子标签页 ===== */
+        .sub-tabs {
+            display: flex;
+            gap: 4px;
+            background: var(--bg-card);
+            padding: 4px;
+            border-radius: 10px;
+            margin-bottom: 24px;
+            border: 1px solid var(--border);
+            max-width: 720px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .sub-tab {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 14px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: all 150ms ease;
+            border: none;
+            background: transparent;
+            flex: 1;
+            justify-content: center;
+        }
+
+        .sub-tab:hover {
+            color: var(--text-secondary);
+            background: var(--bg-hover);
+        }
+
+        .sub-tab.active {
+            background: var(--primary-bg);
+            color: var(--primary);
+        }
+
+        .sub-tab .badge {
+            background: var(--primary-bg);
+            color: var(--primary);
+            padding: 1px 6px;
+            border-radius: 4px;
+            font-size: 11px;
+        }
+
+        /* ===== 当前项目信息 ===== */
+        .project-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-bottom: 16px;
+            max-width: 720px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .project-info .name {
+            color: var(--text-primary);
+            font-weight: 500;
+        }
+
+        .project-info .id {
+            font-family: monospace;
+            font-size: 12px;
+            color: var(--primary);
+        }
+
+        /* ===== 卡片 ===== */
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            max-width: 720px;
+            margin: 0 auto;
+            box-shadow: var(--shadow);
+        }
+
+        /* ===== 步骤指示器 ===== */
+        .steps {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            margin-bottom: 32px;
+        }
+
+        .step {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .step-number {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 13px;
+            font-weight: 600;
+            background: var(--bg-hover);
+            color: var(--text-muted);
+        }
+
+        .step.active .step-number {
+            background: var(--primary);
+            color: white;
+        }
+
+        .step-label {
+            font-size: 13px;
+            color: var(--text-muted);
+        }
+
+        .step.active .step-label {
+            color: var(--text-primary);
+            font-weight: 500;
+        }
+
+        .step-divider {
+            width: 40px;
+            height: 2px;
+            background: var(--border);
+        }
+
+        /* ===== 素材来源切换 ===== */
+        .segmented {
+            display: flex;
+            background: var(--bg-hover);
+            border-radius: 8px;
+            padding: 3px;
+            margin-bottom: 20px;
+        }
+
+        .segmented-btn {
+            flex: 1;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: all 150ms ease;
+            border: none;
+            background: transparent;
+            text-align: center;
+        }
+
+        .segmented-btn.active {
+            background: var(--bg-card);
+            color: var(--text-primary);
+            box-shadow: var(--shadow);
+        }
+
+        /* ===== 上传区域 ===== */
+        .upload-area {
+            border: 2px dashed var(--border);
+            border-radius: 12px;
+            padding: 40px 24px;
+            text-align: center;
+            transition: all 200ms ease;
+            cursor: pointer;
+            background: var(--bg);
+            margin-bottom: 20px;
+        }
+
+        .upload-area:hover {
+            border-color: var(--primary);
+            background: var(--primary-bg);
+        }
+
+        .upload-icon {
+            width: 48px;
+            height: 48px;
+            margin: 0 auto 12px;
+            background: var(--primary-bg);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--primary);
+        }
+
+        .upload-text {
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin-bottom: 4px;
+        }
+
+        .upload-hint {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        /* ===== 已上传文件列表 ===== */
+        .file-list {
+            margin-bottom: 20px;
+        }
+
+        .file-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 12px;
+            background: var(--bg-hover);
+            border-radius: 8px;
+            margin-bottom: 8px;
+        }
+
+        .file-item .name {
+            font-size: 13px;
+            color: var(--text-primary);
+        }
+
+        .file-item .remove {
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 4px;
+            border-radius: 4px;
+            border: none;
+            background: transparent;
+        }
+
+        .file-item .remove:hover {
+            background: rgba(239, 68, 68, 0.1);
+            color: var(--error);
+        }
+
+        /* ===== 表单 ===== */
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+
+        .form-label .suggest-btn {
+            font-size: 12px;
+            color: var(--primary);
+            cursor: pointer;
+            background: none;
+            border: none;
+            padding: 2px 8px;
+            border-radius: 4px;
+        }
+
+        .form-label .suggest-btn:hover {
+            background: var(--primary-bg);
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 10px 14px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 14px;
+            color: var(--text-primary);
+            background: var(--bg-input);
+            transition: all 150ms ease;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+        }
+
+        .form-input::placeholder {
+            color: var(--text-muted);
+        }
+
+        .form-textarea {
+            min-height: 120px;
+            resize: vertical;
+        }
+
+        .form-select {
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg width='12' height='8' viewBox='0 0 12 8' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1.5L6 6.5L11 1.5' stroke='%2394a3b8' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 12px center;
+            padding-right: 36px;
+        }
+
+        .form-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+            margin-top: 24px;
+            padding-top: 20px;
+            border-top: 1px solid var(--border);
+        }
+
+        /* ===== 草稿列表 ===== */
+        .draft-list {
+            margin-top: 16px;
+        }
+
+        .draft-item {
+            padding: 16px;
+            background: var(--bg);
+            border-radius: 10px;
+            margin-bottom: 12px;
+            border: 1px solid var(--border);
+            transition: all 150ms ease;
+        }
+
+        .draft-item:hover {
+            border-color: var(--primary);
+            box-shadow: var(--shadow);
+        }
+
+        .draft-item.generating {
+            border-color: var(--warning);
+            background: rgba(245, 158, 11, 0.05);
+        }
+
+        .draft-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 8px;
+        }
+
+        .draft-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .draft-meta {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .draft-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        /* ===== 状态标签 ===== */
+        .status-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .status-success {
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--success);
+        }
+
+        .status-warning {
+            background: rgba(245, 158, 11, 0.1);
+            color: var(--warning);
+        }
+
+        .status-info {
+            background: var(--primary-bg);
+            color: var(--primary);
+        }
+
+        /* ===== 进度条 ===== */
+        .progress-bar {
+            height: 6px;
+            background: var(--border);
+            border-radius: 3px;
+            overflow: hidden;
+            margin: 8px 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--primary), var(--primary-light));
+            border-radius: 3px;
+            transition: width 300ms ease;
+        }
+
+        /* ===== 文件卡片 ===== */
+        .file-card {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 16px;
+            background: var(--bg);
+            border-radius: 10px;
+            margin-bottom: 10px;
+            border: 1px solid var(--border);
+        }
+
+        .file-card .info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .file-card .icon {
+            width: 36px;
+            height: 36px;
+            background: var(--primary-bg);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--primary);
+        }
+
+        .file-card .name {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        .file-card .size {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        /* ===== RunningTasksDock ===== */
+        .running-dock {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            min-width: 280px;
+            box-shadow: var(--shadow-lg);
+            z-index: 200;
+        }
+
+        .dock-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+        }
+
+        .dock-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .dock-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 0;
+        }
+
+        .dock-item .spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid var(--border);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .dock-item .name {
+            font-size: 13px;
+            color: var(--text-primary);
+            flex: 1;
+        }
+
+        .dock-item .progress {
+            font-size: 12px;
+            color: var(--primary);
+        }
+    </style>
+</head>
+<body>
+    <!-- 顶部导航栏 -->
+    <header class="header">
+        <a href="/" class="logo">
+            <div class="logo-icon">DS</div>
+            <span class="logo-text">DeckSmithPower</span>
+        </a>
+
+        <div class="tabs-nav">
+            <button class="tab-btn active">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 3l1.912 5.813a2 2 0 001.275 1.275L21 12l-5.813 1.912a2 2 0 00-1.275 1.275L12 21l-1.912-5.813a2 2 0 00-1.275-1.275L3 12l5.813-1.912a2 2 0 001.275-1.275L12 3z"/>
+                </svg>
+                工作台
+            </button>
+            <button class="tab-btn">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"/>
+                    <polyline points="12 6 12 12 16 14"/>
+                </svg>
+                历史项目
+            </button>
+            <button class="tab-btn">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="3"/>
+                    <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9c.26.604.852.997 1.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+                </svg>
+                设置
+            </button>
+        </div>
+
+        <div class="header-right">
+            <!-- 主题切换按钮 -->
+            <button class="theme-toggle" onclick="toggleTheme()" title="切换主题">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="5"/>
+                    <line x1="12" y1="1" x2="12" y2="3"/>
+                    <line x1="12" y1="21" x2="12" y2="23"/>
+                    <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+                    <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+                    <line x1="1" y1="12" x2="3" y2="12"/>
+                    <line x1="21" y1="12" x2="23" y2="12"/>
+                    <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+                    <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+                </svg>
+            </button>
+            <a href="/" class="btn btn-ghost btn-sm">返回首页</a>
+        </div>
+    </header>
+
+    <!-- 主内容区 -->
+    <main class="main-content">
+        <div class="sub-tabs">
+            <button class="sub-tab active" onclick="switchSubTab('create', this)">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 3l1.912 5.813a2 2 0 001.275 1.275L21 12l-5.813 1.912a2 2 0 00-1.275 1.275L12 21l-1.912-5.813a2 2 0 00-1.275-1.275L3 12l5.813-1.912a2 2 0 001.275-1.275L12 3z"/>
+                </svg>
+                创建向导
+            </button>
+            <button class="sub-tab" onclick="switchSubTab('drafts', this)">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+                    <polyline points="14 2 14 8 20 8"/>
+                </svg>
+                草稿任务
+                <span class="badge">3</span>
+            </button>
+            <button class="sub-tab" onclick="switchSubTab('jobs', this)">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+                </svg>
+                生成任务
+                <span class="badge">1</span>
+            </button>
+            <button class="sub-tab" onclick="switchSubTab('presentations', this)">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+                </svg>
+                演示文件库
+                <span class="badge">2</span>
+            </button>
+        </div>
+
+        <div class="project-info">
+            当前项目：
+            <span class="name">产品介绍 PPT</span>
+            <span class="id">8a3f2b1c</span>
+        </div>
+
+        <!-- 创建向导 -->
+        <div id="panel-create" class="card">
+            <div class="steps">
+                <div class="step active">
+                    <span class="step-number">1</span>
+                    <span class="step-label">选素材来源</span>
+                </div>
+                <div class="step-divider"></div>
+                <div class="step">
+                    <span class="step-number">2</span>
+                    <span class="step-label">补充信息</span>
+                </div>
+                <div class="step-divider"></div>
+                <div class="step">
+                    <span class="step-number">3</span>
+                    <span class="step-label">提交草稿</span>
+                </div>
+            </div>
+
+            <div class="segmented">
+                <button class="segmented-btn active" onclick="switchSource('upload', this)">上传文件</button>
+                <button class="segmented-btn" onclick="switchSource('text', this)">文本输入</button>
+            </div>
+
+            <div id="source-upload" class="upload-area">
+                <div class="upload-icon">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+                        <polyline points="17 8 12 3 7 8"/>
+                        <line x1="12" y1="3" x2="12" y2="15"/>
+                    </svg>
+                </div>
+                <div class="upload-text">点击或拖拽文件到此处上传</div>
+                <div class="upload-hint">支持 PDF、Word、Markdown、TXT 等格式，单文件最大 50MB</div>
+            </div>
+
+            <div class="file-list">
+                <div class="file-item">
+                    <span class="name">📄 产品介绍文档.pdf</span>
+                    <button class="remove">✕</button>
+                </div>
+            </div>
+
+            <div id="source-text" style="display:none">
+                <div class="form-group">
+                    <textarea class="form-input form-textarea" placeholder="在这里粘贴或输入你的内容..."></textarea>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">
+                    PPT 标题
+                    <button class="suggest-btn">✨ AI 拟题</button>
+                </label>
+                <input type="text" class="form-input" placeholder="输入标题（可选，AI 会自动推荐）" value="产品介绍 PPT">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">草稿引擎</label>
+                <select class="form-input form-select">
+                    <option>ppt_master_draft（默认）</option>
+                    <option>advanced_draft</option>
+                </select>
+            </div>
+
+            <div class="form-actions">
+                <button class="btn btn-ghost">保存草稿</button>
+                <button class="btn btn-primary">下一步 →</button>
+            </div>
+        </div>
+
+        <!-- 草稿任务 -->
+        <div id="panel-drafts" class="card" style="display:none">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+                <h3 style="font-size:15px;font-weight:600;color:var(--text-primary)">草稿列表</h3>
+                <button class="btn btn-ghost btn-sm">刷新</button>
+            </div>
+
+            <div class="draft-list">
+                <div class="draft-item generating">
+                    <div class="draft-header">
+                        <div>
+                            <div class="draft-title">技术方案评审</div>
+                            <div class="draft-meta">生成中...</div>
+                        </div>
+                        <span class="status-tag status-warning">生成中</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: 45%"></div>
+                    </div>
+                </div>
+
+                <div class="draft-item">
+                    <div class="draft-header">
+                        <div>
+                            <div class="draft-title">2026年9月10日 第2版</div>
+                            <div class="draft-meta">草稿 ID: draft_abc123</div>
+                        </div>
+                        <span class="status-tag status-success">当前版本</span>
+                    </div>
+                    <div class="draft-actions">
+                        <button class="btn btn-ghost btn-sm">查看</button>
+                        <button class="btn btn-ghost btn-sm">编辑</button>
+                        <button class="btn btn-primary btn-sm">去生成</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 生成任务 -->
+        <div id="panel-jobs" class="card" style="display:none">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+                <h3 style="font-size:15px;font-weight:600;color:var(--text-primary)">生成任务</h3>
+                <button class="btn btn-ghost btn-sm">刷新</button>
+            </div>
+            <div class="draft-item">
+                <div class="draft-header">
+                    <div class="draft-title">产品介绍 PPT</div>
+                    <span class="status-tag status-info">运行中</span>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: 72%"></div>
+                </div>
+                <div class="draft-meta">进度: 72%</div>
+            </div>
+        </div>
+
+        <!-- 演示文件库 -->
+        <div id="panel-presentations" class="card" style="display:none">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+                <h3 style="font-size:15px;font-weight:600;color:var(--text-primary)">演示文件</h3>
+                <button class="btn btn-ghost btn-sm">刷新</button>
+            </div>
+            <div class="file-card">
+                <div class="info">
+                    <div class="icon">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                            <line x1="3" y1="9" x2="21" y2="9"/>
+                            <line x1="9" y1="21" x2="9" y2="9"/>
+                        </svg>
+                    </div>
+                    <div>
+                        <div class="name">产品介绍 PPT.pptx</div>
+                        <div class="size">12 页 · 2.3 MB</div>
+                    </div>
+                </div>
+                <button class="btn btn-primary btn-sm">下载</button>
+            </div>
+        </div>
+    </main>
+
+    <!-- RunningTasksDock -->
+    <div class="running-dock">
+        <div class="dock-header">
+            <span class="dock-title">运行中的任务</span>
+            <span style="font-size:12px;color:var(--text-muted)">2 个</span>
+        </div>
+        <div class="dock-item">
+            <div class="spinner"></div>
+            <span class="name">技术方案评审</span>
+            <span class="progress">45%</span>
+        </div>
+        <div class="dock-item">
+            <div class="spinner"></div>
+            <span class="name">产品介绍 PPT</span>
+            <span class="progress">72%</span>
+        </div>
+    </div>
+
+    <script>
+        function switchSubTab(tab, btn) {
+            document.querySelectorAll('[id^="panel-"]').forEach(p => p.style.display = 'none');
+            document.getElementById('panel-' + tab).style.display = 'block';
+            document.querySelectorAll('.sub-tab').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+        }
+
+        function switchSource(type, btn) {
+            document.getElementById('source-upload').style.display = type === 'upload' ? 'block' : 'none';
+            document.getElementById('source-text').style.display = type === 'text' ? 'block' : 'none';
+            document.querySelectorAll('.segmented-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+        }
+
+        function toggleTheme() {
+            const current = document.documentElement.getAttribute('data-theme');
+            const newTheme = current === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', newTheme);
+            localStorage.setItem('decksmith-theme', newTheme);
+            // 跳转到对应主题页面
+            if (newTheme === 'dark') {
+                window.location.href = 'studio-faithful.html';
+            } else {
+                window.location.href = 'studio-light.html';
+            }
+        }
+    </script>
+</body>
+</html>

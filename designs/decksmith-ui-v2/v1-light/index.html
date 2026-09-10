@@ -1,0 +1,763 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeckSmithPPT - 智能PPT生成平台</title>
+    <style>
+        /* ===== Design Tokens ===== */
+        :root {
+            /* Colors */
+            --primary-50: #eff6ff;
+            --primary-100: #dbeafe;
+            --primary-200: #bfdbfe;
+            --primary-300: #93c5fd;
+            --primary-400: #60a5fa;
+            --primary-500: #3b82f6;
+            --primary-600: #2563eb;
+            --primary-700: #1d4ed8;
+            --primary-800: #1e40af;
+            --primary-900: #1e3a8a;
+            
+            --accent-500: #10b981;
+            --accent-600: #059669;
+            
+            --neutral-50: #f8fafc;
+            --neutral-100: #f1f5f9;
+            --neutral-200: #e2e8f0;
+            --neutral-300: #cbd5e1;
+            --neutral-400: #94a3b8;
+            --neutral-500: #64748b;
+            --neutral-600: #475569;
+            --neutral-700: #334155;
+            --neutral-800: #1e293b;
+            --neutral-900: #0f172a;
+            
+            /* Typography */
+            --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+            
+            /* Spacing */
+            --space-1: 4px;
+            --space-2: 8px;
+            --space-3: 12px;
+            --space-4: 16px;
+            --space-5: 20px;
+            --space-6: 24px;
+            --space-8: 32px;
+            --space-10: 40px;
+            --space-12: 48px;
+            --space-16: 64px;
+            
+            /* Border Radius */
+            --radius-sm: 6px;
+            --radius-md: 8px;
+            --radius-lg: 12px;
+            --radius-xl: 16px;
+            --radius-2xl: 24px;
+            --radius-full: 9999px;
+            
+            /* Shadows */
+            --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+            --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+            
+            /* Transitions */
+            --transition-fast: 150ms ease;
+            --transition-normal: 200ms ease;
+            --transition-slow: 300ms ease;
+        }
+
+        /* ===== Reset & Base ===== */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: var(--font-sans);
+            background: var(--neutral-50);
+            color: var(--neutral-800);
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        /* ===== Header ===== */
+        .header {
+            background: white;
+            border-bottom: 1px solid var(--neutral-200);
+            padding: var(--space-4) var(--space-6);
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            backdrop-filter: blur(10px);
+            background: rgba(255, 255, 255, 0.9);
+        }
+
+        .header-inner {
+            max-width: 1280px;
+            margin: 0 auto;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: var(--space-3);
+            text-decoration: none;
+            color: var(--neutral-900);
+        }
+
+        .logo-icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, var(--primary-500), var(--primary-700));
+            border-radius: var(--radius-lg);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 700;
+            font-size: 18px;
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+        }
+
+        .logo-text {
+            font-size: 20px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+        }
+
+        .logo-text span {
+            color: var(--primary-500);
+        }
+
+        .nav {
+            display: flex;
+            align-items: center;
+            gap: var(--space-8);
+        }
+
+        .nav-link {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--neutral-600);
+            text-decoration: none;
+            transition: color var(--transition-fast);
+            position: relative;
+        }
+
+        .nav-link:hover {
+            color: var(--primary-600);
+        }
+
+        .nav-link.active {
+            color: var(--primary-600);
+        }
+
+        .nav-link.active::after {
+            content: '';
+            position: absolute;
+            bottom: -4px;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: var(--primary-500);
+            border-radius: var(--radius-full);
+        }
+
+        .nav-actions {
+            display: flex;
+            align-items: center;
+            gap: var(--space-3);
+        }
+
+        /* ===== Buttons ===== */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: var(--space-2);
+            padding: var(--space-2) var(--space-4);
+            border-radius: var(--radius-md);
+            font-size: 14px;
+            font-weight: 500;
+            text-decoration: none;
+            transition: all var(--transition-fast);
+            cursor: pointer;
+            border: none;
+            line-height: 1.5;
+        }
+
+        .btn-primary {
+            background: var(--primary-500);
+            color: white;
+            box-shadow: 0 1px 2px rgba(59, 130, 246, 0.3);
+        }
+
+        .btn-primary:hover {
+            background: var(--primary-600);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+        }
+
+        .btn-ghost {
+            background: transparent;
+            color: var(--neutral-700);
+            border: 1px solid var(--neutral-300);
+        }
+
+        .btn-ghost:hover {
+            background: var(--neutral-100);
+            border-color: var(--neutral-400);
+        }
+
+        .btn-lg {
+            padding: var(--space-3) var(--space-6);
+            font-size: 16px;
+        }
+
+        /* ===== Hero Section ===== */
+        .hero {
+            padding: var(--space-16) var(--space-6);
+            text-align: center;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .hero-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: var(--space-2);
+            padding: var(--space-1) var(--space-3);
+            background: var(--primary-50);
+            color: var(--primary-600);
+            border-radius: var(--radius-full);
+            font-size: 13px;
+            font-weight: 500;
+            margin-bottom: var(--space-6);
+            border: 1px solid var(--primary-200);
+        }
+
+        .hero-badge-dot {
+            width: 6px;
+            height: 6px;
+            background: var(--primary-500);
+            border-radius: var(--radius-full);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .hero h1 {
+            font-size: 56px;
+            font-weight: 800;
+            line-height: 1.1;
+            letter-spacing: -1.5px;
+            margin-bottom: var(--space-6);
+            color: var(--neutral-900);
+        }
+
+        .hero h1 span {
+            background: linear-gradient(135deg, var(--primary-500), var(--accent-500));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .hero p {
+            font-size: 18px;
+            color: var(--neutral-500);
+            max-width: 600px;
+            margin: 0 auto var(--space-8);
+            line-height: 1.7;
+        }
+
+        .hero-actions {
+            display: flex;
+            gap: var(--space-3);
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        /* ===== Features Section ===== */
+        .features {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: var(--space-16) var(--space-6);
+        }
+
+        .features-header {
+            text-align: center;
+            margin-bottom: var(--space-12);
+        }
+
+        .features-header h2 {
+            font-size: 32px;
+            font-weight: 700;
+            margin-bottom: var(--space-3);
+            letter-spacing: -0.5px;
+            color: var(--neutral-900);
+        }
+
+        .features-header p {
+            font-size: 16px;
+            color: var(--neutral-500);
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: var(--space-6);
+        }
+
+        .feature-card {
+            padding: var(--space-8);
+            background: white;
+            border: 1px solid var(--neutral-200);
+            border-radius: var(--radius-xl);
+            transition: all var(--transition-normal);
+        }
+
+        .feature-card:hover {
+            border-color: var(--primary-300);
+            box-shadow: var(--shadow-lg);
+            transform: translateY(-4px);
+        }
+
+        .feature-icon {
+            width: 56px;
+            height: 56px;
+            background: var(--primary-50);
+            border-radius: var(--radius-lg);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: var(--space-5);
+            color: var(--primary-500);
+            font-size: 24px;
+        }
+
+        .feature-card h3 {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: var(--space-2);
+            color: var(--neutral-900);
+        }
+
+        .feature-card p {
+            font-size: 14px;
+            color: var(--neutral-500);
+            line-height: 1.6;
+        }
+
+        /* ===== Process Section ===== */
+        .process {
+            background: white;
+            border-top: 1px solid var(--neutral-200);
+            border-bottom: 1px solid var(--neutral-200);
+            padding: var(--space-16) var(--space-6);
+        }
+
+        .process-inner {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        .process-header {
+            text-align: center;
+            margin-bottom: var(--space-12);
+        }
+
+        .process-header h2 {
+            font-size: 32px;
+            font-weight: 700;
+            margin-bottom: var(--space-3);
+            letter-spacing: -0.5px;
+            color: var(--neutral-900);
+        }
+
+        .process-header p {
+            font-size: 16px;
+            color: var(--neutral-500);
+        }
+
+        .process-steps {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: var(--space-10);
+            position: relative;
+        }
+
+        .process-steps::before {
+            content: '';
+            position: absolute;
+            top: 40px;
+            left: 20%;
+            right: 20%;
+            height: 2px;
+            background: linear-gradient(90deg, var(--primary-200), var(--accent-500), var(--primary-200));
+            z-index: 0;
+        }
+
+        .process-step {
+            text-align: center;
+            position: relative;
+            z-index: 1;
+        }
+
+        .step-number {
+            width: 80px;
+            height: 80px;
+            background: linear-gradient(135deg, var(--primary-500), var(--primary-600));
+            border-radius: var(--radius-full);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 24px;
+            font-weight: 700;
+            margin: 0 auto var(--space-5);
+            box-shadow: 0 4px 20px rgba(59, 130, 246, 0.3);
+        }
+
+        .process-step h3 {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: var(--space-2);
+            color: var(--neutral-900);
+        }
+
+        .process-step p {
+            font-size: 14px;
+            color: var(--neutral-500);
+            line-height: 1.6;
+        }
+
+        /* ===== CTA Section ===== */
+        .cta {
+            padding: var(--space-16) var(--space-6);
+            text-align: center;
+            background: linear-gradient(135deg, var(--primary-50), var(--accent-50));
+        }
+
+        .cta-inner {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .cta h2 {
+            font-size: 32px;
+            font-weight: 700;
+            margin-bottom: var(--space-4);
+            color: var(--neutral-900);
+        }
+
+        .cta p {
+            font-size: 16px;
+            color: var(--neutral-600);
+            margin-bottom: var(--space-8);
+        }
+
+        /* ===== Footer ===== */
+        .footer {
+            background: var(--neutral-900);
+            color: var(--neutral-400);
+            padding: var(--space-12) var(--space-6);
+        }
+
+        .footer-inner {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .footer-logo {
+            display: flex;
+            align-items: center;
+            gap: var(--space-3);
+        }
+
+        .footer-logo-icon {
+            width: 32px;
+            height: 32px;
+            background: linear-gradient(135deg, var(--primary-400), var(--primary-600));
+            border-radius: var(--radius-md);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 700;
+            font-size: 14px;
+        }
+
+        .footer-logo-text {
+            font-size: 16px;
+            font-weight: 600;
+            color: white;
+        }
+
+        .footer-links {
+            display: flex;
+            gap: var(--space-8);
+        }
+
+        .footer-link {
+            font-size: 14px;
+            color: var(--neutral-400);
+            text-decoration: none;
+            transition: color var(--transition-fast);
+        }
+
+        .footer-link:hover {
+            color: white;
+        }
+
+        .footer-copy {
+            font-size: 13px;
+        }
+
+        /* ===== Responsive ===== */
+        @media (max-width: 768px) {
+            .hero h1 {
+                font-size: 36px;
+            }
+            
+            .features-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .process-steps {
+                grid-template-columns: 1fr;
+                gap: var(--space-8);
+            }
+            
+            .process-steps::before {
+                display: none;
+            }
+            
+            .nav {
+                display: none;
+            }
+            
+            .footer-inner {
+                flex-direction: column;
+                gap: var(--space-6);
+                text-align: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-inner">
+            <a href="index.html" class="logo">
+                <div class="logo-icon">DS</div>
+                <div class="logo-text">Deck<span>Smith</span></div>
+            </a>
+            
+            <nav class="nav">
+                <a href="index.html" class="nav-link active">首页</a>
+                <a href="studio.html" class="nav-link">工作台</a>
+                <a href="history.html" class="nav-link">历史项目</a>
+                <a href="#" class="nav-link">帮助文档</a>
+            </nav>
+            
+            <div class="nav-actions">
+                <a href="studio.html" class="btn btn-primary">
+                    开始创作
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M5 12h14M12 5l7 7-7 7"/>
+                    </svg>
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="hero-badge">
+            <span class="hero-badge-dot"></span>
+            <span>AI 驱动的智能 PPT 生成</span>
+        </div>
+        
+        <h1>
+            把你的想法<br>
+            变成<span>专业演示</span>
+        </h1>
+        
+        <p>
+            上传文档、输入想法，AI 自动生成结构清晰、设计精美的 PPT 草稿。
+            节省 80% 的制作时间，专注于内容本身。
+        </p>
+        
+        <div class="hero-actions">
+            <a href="studio.html" class="btn btn-primary btn-lg">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 5v14M5 12h14"/>
+                </svg>
+                立即开始创作
+            </a>
+            <a href="#features" class="btn btn-ghost btn-lg">
+                了解更多
+            </a>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section class="features" id="features">
+        <div class="features-header">
+            <h2>为什么选择 DeckSmith</h2>
+            <p>强大的 AI 能力，让 PPT 制作变得简单高效</p>
+        </div>
+        
+        <div class="features-grid">
+            <div class="feature-card">
+                <div class="feature-icon">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                        <polyline points="14 2 14 8 20 8"/>
+                        <line x1="16" y1="13" x2="8" y2="13"/>
+                        <line x1="16" y1="17" x2="8" y2="17"/>
+                        <polyline points="10 9 9 9 8 9"/>
+                    </svg>
+                </div>
+                <h3>智能内容提取</h3>
+                <p>上传 PDF、Word、Markdown 等文档，AI 自动识别结构和重点，生成清晰的演示大纲。</p>
+            </div>
+            
+            <div class="feature-card">
+                <div class="feature-icon">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                        <line x1="3" y1="9" x2="21" y2="9"/>
+                        <line x1="9" y1="21" x2="9" y2="9"/>
+                    </svg>
+                </div>
+                <h3>专业设计模板</h3>
+                <p>内置多种专业设计风格，自动应用统一的配色、字体和布局，确保视觉一致性。</p>
+            </div>
+            
+            <div class="feature-card">
+                <div class="feature-icon">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                    </svg>
+                </div>
+                <h3>灵活编辑调整</h3>
+                <p>生成的草稿完全可编辑，支持逐页调整内容、样式和布局，直到满意为止。</p>
+            </div>
+            
+            <div class="feature-card">
+                <div class="feature-icon">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+                    </svg>
+                </div>
+                <h3>实时进度追踪</h3>
+                <p>生成过程中实时显示进度，随时了解当前状态，支持暂停和重新生成。</p>
+            </div>
+            
+            <div class="feature-card">
+                <div class="feature-icon">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="7 10 12 15 17 10"/>
+                        <line x1="12" y1="15" x2="12" y2="3"/>
+                    </svg>
+                </div>
+                <h3>多格式导出</h3>
+                <p>支持导出为 PPTX、PDF 等多种格式，方便在不同场景下使用和分享。</p>
+            </div>
+            
+            <div class="feature-card">
+                <div class="feature-icon">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"/>
+                        <polyline points="12 6 12 12 16 14"/>
+                    </svg>
+                </div>
+                <h3>历史版本管理</h3>
+                <p>自动保存每次生成记录，支持查看历史版本、对比差异和快速恢复。</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Process Section -->
+    <section class="process">
+        <div class="process-inner">
+            <div class="process-header">
+                <h2>简单三步，生成专业 PPT</h2>
+                <p>无需设计经验，AI 帮你搞定一切</p>
+            </div>
+            
+            <div class="process-steps">
+                <div class="process-step">
+                    <div class="step-number">1</div>
+                    <h3>上传素材</h3>
+                    <p>上传文档、粘贴文本或输入想法，AI 开始理解你的内容。</p>
+                </div>
+                
+                <div class="process-step">
+                    <div class="step-number">2</div>
+                    <h3>AI 生成草稿</h3>
+                    <p>智能分析内容结构，自动生成专业设计的 PPT 草稿。</p>
+                </div>
+                
+                <div class="process-step">
+                    <div class="step-number">3</div>
+                    <h3>编辑导出</h3>
+                    <p>按需调整内容和样式，满意后一键导出为 PPTX 或 PDF。</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="cta">
+        <div class="cta-inner">
+            <h2>准备好开始了吗？</h2>
+            <p>只需几分钟，就能拥有专业的演示文稿</p>
+            <a href="studio.html" class="btn btn-primary btn-lg">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 5v14M5 12h14"/>
+                </svg>
+                免费开始使用
+            </a>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="footer-inner">
+            <div class="footer-logo">
+                <div class="footer-logo-icon">DS</div>
+                <div class="footer-logo-text">DeckSmith</div>
+            </div>
+            
+            <div class="footer-links">
+                <a href="#" class="footer-link">关于我们</a>
+                <a href="#" class="footer-link">帮助中心</a>
+                <a href="#" class="footer-link">隐私政策</a>
+                <a href="#" class="footer-link">服务条款</a>
+            </div>
+            
+            <div class="footer-copy">
+                © 2026 DeckSmith. All rights reserved.
+            </div>
+        </div>
+    </footer>
+</body>
+</html>

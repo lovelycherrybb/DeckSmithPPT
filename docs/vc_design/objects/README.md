@@ -1,33 +1,40 @@
-# VC 设计阶段对象列表
+# VC 设计阶段 - 核心领域对象
 
-本目录包含基于 `docs/contracts/` 契约反推出的 VC 设计阶段应设计的对象。每个对象以 Markdown 文件形式记录，文件名格式为 `序号-中文名-英文名.md`。
+本目录定义 DeckSmithPPT 系统的核心领域对象。
 
 ## 对象列表
 
-1. [01-引擎信息-EngineInfo.md](01-引擎信息-EngineInfo.md) - 引擎注册信息，包含参数说明书
-2. [02-生成请求-DeckRequest.md](02-生成请求-DeckRequest.md) - 提交 PPT 生成任务的请求对象
-3. [03-生成任务-Job.md](03-生成任务-Job.md) - PPT 生成任务的核心实体
-4. [04-任务状态-JobStatus.md](04-任务状态-JobStatus.md) - 任务状态枚举类型
-5. [05-错误对象-Error.md](05-错误对象-Error.md) - API 错误响应对象
-6. [06-ppt_master引擎参数-ppt_master.md](06-ppt_master引擎参数-ppt_master.md) - ppt_master 引擎的特定参数
-7. [07-保存草稿请求-SaveDraftRequest.md](07-保存草稿请求-SaveDraftRequest.md) - 保存草稿的请求对象
-8. [08-上传响应-UploadResponse.md](08-上传响应-UploadResponse.md) - 文件上传成功后的响应对象
-9. [09-引擎契约请求-DeckContent.md](09-引擎契约请求-DeckContent.md) - 引擎契约中的通用层请求对象
-10. [10-素材来源-Source.md](10-素材来源-Source.md) - 原始素材来源的值对象
-11. [11-人工智能代理-Agent.md](11-人工智能代理-Agent.md) - 驱动引擎的 AI 代理枚举
+| 编号 | 对象 | 类型 | 说明 |
+|------|------|------|------|
+| 01 | [引擎（Engine）](01-引擎-Engine.md) | 抽象概念 | 系统能力组件 |
+| 01-01 | [pptmaster草稿引擎](01-01-pptmaster草稿引擎.md) | 草稿生成引擎 | 基于py文件直接处理 |
+| 01-02 | [Claude草稿引擎](01-02-Claude草稿引擎.md) | 草稿生成引擎 | 基于Claude Code理解材料 |
+| 01-03 | [pptmaster输出引擎](01-03-pptmaster输出引擎.md) | 输出引擎 | 生成PPTX |
+| 01-04 | [HTML输出引擎](01-04-HTML输出引擎.md) | 输出引擎 | 生成HTML |
+| 02 | [草稿（Draft）](02-草稿-Draft.md) | 实体 | Markdown内容载体，多版本 |
+| 03 | [任务（Task）](03-任务-Task.md) | 实体 | 引擎工作单元 |
+| 04 | [项目（Project）](04-项目-Project.md) | 聚合根 | 单个演示文件生成项目 |
+| 05 | [演示文件（Presentation）](05-演示文件-Presentation.md) | 实体 | 最终展示文件 |
 
-## 设计依据
+## 核心关系
 
-这些对象从以下契约文件中提取：
-- `docs/contracts/openapi.yaml` - 前后端 API 契约
-- `docs/contracts/engine.schema.json` - 引擎契约
+```
+项目（Project）← 顶层聚合根
+├── 草稿引擎任务A → 草稿1（多个版本）
+├── 草稿引擎任务B → 草稿2（多个版本）
+├── 输出引擎任务A → 演示文件A（PPTX）
+└── 输出引擎任务B → 演示文件B（HTML）
+```
 
-## 使用说明
+## 引擎架构
 
-每个对象文件包含：
-- 对象描述
-- 属性列表（名称、类型、是否必填、说明）
-- 来源（对应的契约定义）
-- 备注（设计考虑、使用场景等）
+```
+Agent（能力层，不暴露）
+    ↓ 被调用
+引擎层
+├── 草稿生成引擎：文件 → 新草稿（参数固定）
+└── 输出引擎：草稿版本 → 演示文件（参数动态）
+```
 
-这些对象可作为 VC 设计阶段的基础，用于进一步的领域建模、数据库设计、API 实现等。
+## 相关文档
+- `states` - 任务状态流转定义

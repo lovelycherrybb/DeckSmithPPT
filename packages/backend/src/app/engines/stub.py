@@ -22,7 +22,7 @@ if str(_PACKAGES_DIR) not in sys.path:
     sys.path.insert(0, str(_PACKAGES_DIR))
 
 from engine.core.config import get_jobs_root
-from engine.core.models import Job, JobId, JobStatus
+from engine.core.models import Job, JobId, JobStatus, EngineType
 from engine.core.protocol import PptEngine
 
 
@@ -104,45 +104,53 @@ class StubPptMasterEngine(PptEngine):
         prs.save(out)
         return out
 
-    # ── PptEngine 协议 ──
-    def submit(self, content, title=None, pages=None, engine_params=None, source=None, job_id=None) -> JobId:
-        job_id = job_id or uuid.uuid4().hex
-        job_dir = self._job_dir(job_id)
-        job_dir.mkdir(parents=True, exist_ok=True)
-        text = content or (source.get("value") if source else "")
-        
-        # 使用默认值处理可选的 title 和 pages
-        effective_title = title or "Untitled"
-        effective_pages = pages or 10
-        
-        draft = self.generate_draft(effective_title, effective_pages, text, engine_params)
-        (job_dir / "draft.md").write_text(draft, encoding="utf-8")
-        self._write_job(
-            job_id,
-            status="draft",
-            title=effective_title,
-            pages=int(effective_pages),
-            engine_params=engine_params or {},
-            created_at=_now(), updated_at=_now(), pid=None, result_path=None, error=None,
-        )
-        return JobId(job_id)
-
-    def confirm(self, job_id, content, engine_params) -> None:
-        job_dir = self._job_dir(job_id)
-        job_dir.mkdir(parents=True, exist_ok=True)
-        (job_dir / "draft.md").write_text(content or "", encoding="utf-8")
-        self._write_job(job_id, status="running", pid=None, started_at=time.time(), updated_at=_now(), error=None)
-        # 用后台线程模拟"长任务生成"，结束后把状态写回 job.json
-        threading.Thread(target=self._run_generation, args=(job_id, content), daemon=True).start()
-
     def _run_generation(self, job_id, content) -> None:
+        """后台线程：模拟 PPT 生成过程。"""
         time.sleep(self.simulate_seconds)
         title = self._read_job(job_id).get("title", "")
         result = self.generate_ppt(self._job_dir(job_id), title, content)
         self._write_job(job_id, status="completed", result_path=str(result), updated_at=_now())
 
+    # ── PptEngine 协议 ──
+    def submit(self, content, title=None, pages=None, engine_params=None, sources=None, job_id=None, engine_type=None) -> JobId:
+        job_id = job_id or uuid.uuid4().hex
+        job_dir = self._job_dir(job_id)
+        job_dir.mkdir(parents=True, exist_ok=True)
+        text = content or (sources[0].get("value") if sources else "")
+        
+        effective_title = title or "Untitled"
+        effective_pages = pages or 10
+        
+        if engine_type == "draft":
+            # 草稿引擎任务：同步生成草稿，直接完成
+            draft = self.generate_draft(effective_title, effective_pages, text, engine_params)
+            (job_dir / "draft.md").write_text(draft, encoding="utf-8")
+            self._write_job(
+                job_id,
+                status="completed",
+                title=effective_title,
+                pages=int(effective_pages),
+                engine_params=engine_params or {},
+                created_at=_now(), updated_at=_now(), pid=None, result_path=None, error=None,
+            )
+        else:
+            # 输出引擎任务：后台生成 PPT
+            (job_dir / "draft.md").write_text(content or "", encoding="utf-8")
+            self._write_job(
+                job_id,
+                status="running",
+                title=effective_title,
+                pages=int(effective_pages),
+                engine_params=engine_params or {},
+                created_at=_now(), updated_at=_now(), pid=None, result_path=None, error=None,
+                started_at=time.time(),
+            )
+            threading.Thread(target=self._run_generation, args=(job_id, content), daemon=True).start()
+        
+        return JobId(job_id)
+
     def status(self, job_id) -> JobStatus:
-        return JobStatus(self._read_job(job_id).get("status", "draft"))
+        return JobStatus(self._read_job(job_id).get("status", "running"))
 
     def result(self, job_id) -> str:
         rp = self._read_job(job_id).get("result_path")
@@ -154,16 +162,20 @@ class StubPptMasterEngine(PptEngine):
         data = self._read_job(job_id)
         if data.get("status") == "completed":
             return self._to_job(job_id, data)
+        # 对于未完成的任务，重新启动生成
         draft_path = self._job_dir(job_id) / "draft.md"
         content = draft_path.read_text(encoding="utf-8") if draft_path.exists() else ""
-        self.confirm(job_id, content, data.get("engine_params") or {})
+        self._write_job(job_id, status="running", started_at=time.time(), updated_at=_now(), error=None)
+        threading.Thread(target=self._run_generation, args=(job_id, content), daemon=True).start()
         return self._to_job(job_id, self._read_job(job_id))
 
     @staticmethod
     def _to_job(job_id, data) -> Job:
         return Job(
             job_id=JobId(str(job_id)),
-            status=JobStatus(data.get("status", "draft")),
+            status=JobStatus(data.get("status", "running")),
+            task_type=EngineType.OUTPUT,
+            status_detail=data.get("status_detail"),
             result_path=data.get("result_path"),
             draft_path=str(data.get("draft_path")) if data.get("draft_path") else None,
             error=data.get("error"),

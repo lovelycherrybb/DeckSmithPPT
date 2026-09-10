@@ -1,14 +1,224 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://decksmith.local/schemas/engine.schema.json",
-  "title": "DeckSmithPPT Engine Contract",
-  "description": "PPT 生成引擎契约：通用层（所有引擎共享）+ 引擎参数层（按引擎命名空间隔离）。",
   "$defs": {
+    "Engine": {
+      "type": "object",
+      "description": "引擎（与 vc_design/objects/01-引擎-Engine.md 对齐）。生成演示文件的封闭产品。",
+      "required": [
+        "name",
+        "display_name",
+        "engine_type"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "引擎名称（唯一标识）"
+        },
+        "display_name": {
+          "type": "string",
+          "description": "引擎显示名称（用户可见）"
+        },
+        "description": {
+          "type": "string",
+          "description": "引擎描述"
+        },
+        "engine_type": {
+          "$ref": "#/$defs/EngineType",
+          "description": "引擎类型"
+        },
+        "params_schema": {
+          "type": "object",
+          "description": "引擎参数说明书（JSON Schema），前端据此渲染表单",
+          "additionalProperties": true
+        }
+      }
+    },
+    "EngineType": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "output"
+      ],
+      "description": "引擎类型：draft=草稿生成引擎，output=输出引擎"
+    },
+    "Project": {
+      "type": "object",
+      "description": "项目（与 vc_design/objects/04-项目-Project.md 对齐）。单个演示文件生成项目，是系统的顶层聚合根。",
+      "required": [
+        "project_id",
+        "project_name",
+        "created_at",
+        "updated_at"
+      ],
+      "properties": {
+        "project_id": {
+          "type": "string",
+          "description": "项目标识（唯一）"
+        },
+        "project_name": {
+          "type": "string",
+          "description": "项目名称（用户可见）"
+        },
+        "current_draft_id": {
+          "type": "string",
+          "description": "当前草稿标识（用户正在编辑的草稿）"
+        },
+        "current_draft_version": {
+          "type": "string",
+          "description": "当前草稿版本（用户正在编辑的版本）",
+          "pattern": "^[0-9]{14}$"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "创建时间（ISO 8601）"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "最后更新时间（ISO 8601）"
+        }
+      }
+    },
+    "Draft": {
+      "type": "object",
+      "description": "草稿聚合（与 vc_design/objects/02-草稿-Draft.md 对齐）。管理同一草稿的多个版本。",
+      "required": [
+        "draft_id",
+        "project_id",
+        "task_id",
+        "current_version",
+        "created_at",
+        "updated_at"
+      ],
+      "properties": {
+        "draft_id": {
+          "type": "string",
+          "description": "草稿标识（唯一）"
+        },
+        "project_id": {
+          "type": "string",
+          "description": "所属项目标识"
+        },
+        "task_id": {
+          "type": "string",
+          "description": "生成此草稿的草稿引擎任务标识"
+        },
+        "current_version": {
+          "type": "string",
+          "description": "当前版本号（年月日时分秒格式）",
+          "pattern": "^[0-9]{14}$"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "创建时间（ISO 8601）"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "最后更新时间（ISO 8601）"
+        }
+      }
+    },
+    "DraftVersion": {
+      "type": "object",
+      "description": "草稿版本记录（与 vc_design 对齐）。每个版本有唯一的内容和版本号。",
+      "required": [
+        "draft_id",
+        "task_id",
+        "version",
+        "content",
+        "draft_path",
+        "created_at"
+      ],
+      "properties": {
+        "draft_id": {
+          "type": "string",
+          "description": "草稿标识（同一草稿的所有版本共享此标识）"
+        },
+        "project_id": {
+          "type": "string",
+          "description": "所属项目标识"
+        },
+        "task_id": {
+          "type": "string",
+          "description": "生成任务（哪个草稿引擎任务创建的）"
+        },
+        "version": {
+          "type": "string",
+          "description": "版本号（格式：年月日时分秒，如 20260907143025）。同一草稿同一秒内只能有一个版本。",
+          "pattern": "^[0-9]{14}$"
+        },
+        "content": {
+          "type": "string",
+          "description": "草稿内容（Markdown 格式）"
+        },
+        "draft_path": {
+          "type": "string",
+          "description": "草稿文件路径（服务器上的存储位置）"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "创建时间（ISO 8601）"
+        }
+      }
+    },
+    "Presentation": {
+      "type": "object",
+      "description": "演示文件（与 vc_design/objects/05-演示文件-Presentation.md 对齐）。输出引擎任务生成的最终展示文件。",
+      "required": [
+        "presentation_id",
+        "project_id",
+        "task_id",
+        "file_name",
+        "file_format",
+        "file_path",
+        "created_at"
+      ],
+      "properties": {
+        "presentation_id": {
+          "type": "string",
+          "description": "文件标识（唯一）"
+        },
+        "project_id": {
+          "type": "string",
+          "description": "所属项目标识"
+        },
+        "task_id": {
+          "type": "string",
+          "description": "生成任务（哪个输出引擎任务创建的）"
+        },
+        "file_name": {
+          "type": "string",
+          "description": "文件名称（默认为项目名称_年月日时分秒）"
+        },
+        "file_format": {
+          "type": "string",
+          "description": "文件格式（PPTX、HTML等）",
+          "enum": [
+            "pptx",
+            "html"
+          ]
+        },
+        "file_path": {
+          "type": "string",
+          "description": "文件路径（服务器上的存储位置）"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "创建时间（ISO 8601）"
+        }
+      }
+    },
     "DeckContent": {
       "type": "object",
       "description": "提交给引擎的生成请求（通用层，与 openapi.yaml 的 DeckRequest 一致）。engine_params 可在提交阶段一并提供。",
       "required": [
-        "engine"
+        "engine",
+        "engine_type"
       ],
       "properties": {
         "title": {
@@ -17,7 +227,17 @@
         },
         "content": {
           "type": "string",
-          "description": "Markdown 内容。草稿确认后必传；直出模式可空（用 source）"
+          "description": "Markdown 内容。输出引擎任务可直接提供，或通过 draft_id + version 引用草稿实体。最多15000字符。",
+          "maxLength": 15000
+        },
+        "draft_id": {
+          "type": "string",
+          "description": "草稿标识（输出引擎任务可选）。提供后系统自动从草稿版本中获取 content，无需手动传 content。"
+        },
+        "version": {
+          "type": "string",
+          "description": "草稿版本号（与 draft_id 配合使用）。不提供则使用草稿的当前版本。",
+          "pattern": "^[0-9]{14}$"
         },
         "pages": {
           "type": "integer",
@@ -27,9 +247,16 @@
         "engine": {
           "type": "string",
           "enum": [
-            "ppt_master"
+            "ppt_master",
+            "claude_draft",
+            "ppt_master_draft",
+            "guizang_ppt"
           ],
           "description": "选择哪个引擎（注册表里的名字，与 GET /api/engines 返回的 name 一致）"
+        },
+        "engine_type": {
+          "$ref": "#/$defs/EngineType",
+          "description": "引擎类型：draft=草稿引擎任务，output=输出引擎任务"
         },
         "agent": {
           "type": "string",
@@ -46,26 +273,29 @@
           "default": "marketing_promo",
           "description": "内容风格（产品层选择，供草稿重写使用）"
         },
-        "source": {
-          "type": "object",
-          "description": "原始素材来源（提交时提供，用于生成草稿）。优先于 content。",
-          "required": [
-            "type",
-            "value"
-          ],
-          "properties": {
-            "type": {
-              "type": "string",
-              "enum": [
-                "url",
-                "file_path",
-                "text"
-              ],
-              "description": "url=网页链接；file_path=上传后的服务器路径；text=直接文本"
-            },
-            "value": {
-              "type": "string",
-              "description": "URL / 上传返回的 path / 文本内容"
+        "sources": {
+          "type": "array",
+          "description": "原始素材来源列表（提交时提供，用于生成草稿）。优先于 content。支持多文件上传。",
+          "items": {
+            "type": "object",
+            "required": [
+              "type",
+              "value"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "url",
+                  "file_path",
+                  "text"
+                ],
+                "description": "url=网页链接；file_path=上传返回的 path；text=直接文本"
+              },
+              "value": {
+                "type": "string",
+                "description": "URL / 上传返回的 path / 文本内容"
+              }
             }
           }
         },
@@ -78,42 +308,86 @@
     },
     "JobStatus": {
       "type": "string",
-      "description": "任务状态：running=运行中；draft=草稿就绪待确认；timeout=超时；failed=失败；completed=完成",
+      "description": "任务状态（与 vc_design 一致：只有4种状态）",
       "enum": [
         "running",
-        "draft",
         "timeout",
         "failed",
         "completed"
       ]
     },
+    "TaskType": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "output"
+      ],
+      "description": "任务类型：draft=草稿引擎任务，output=输出引擎任务"
+    },
     "Job": {
       "type": "object",
-      "description": "生成任务（submit/status/result/resume 的返回载体）。",
+      "description": "引擎任务。任务类型：草稿引擎任务（调用草稿生成引擎，将用户文件转化为 Markdown 草稿）和输出引擎任务（调用输出引擎，将草稿内容生成最终展示文件）。状态明细（status_detail）仅在 running 状态下有意义，内容随执行进度变化，前端通过轮询获取最新状态。",
       "required": [
         "job_id",
-        "status"
+        "status",
+        "task_type"
       ],
       "properties": {
         "job_id": {
           "type": "string",
           "description": "任务唯一 ID"
         },
+        "project_id": {
+          "type": "string",
+          "description": "所属项目标识"
+        },
+        "task_type": {
+          "$ref": "#/$defs/TaskType",
+          "description": "任务类型：draft=草稿引擎任务，output=输出引擎任务"
+        },
         "status": {
           "$ref": "#/$defs/JobStatus"
         },
+        "status_detail": {
+          "type": "string",
+          "description": "状态明细（引擎当前正在做什么，仅 running 时有意义）。前端通过轮询获取最新状态。"
+        },
+        "engine_job_id": {
+          "type": "string",
+          "description": "引擎任务编号（用于查询 Agent 执行状态，即 Agent 的会话标识）。非 Agent 类引擎可为空。"
+        },
+        "title": {
+          "type": "string",
+          "description": "PPT 标题（可选，可从源材料提取或由 AI 自动生成）"
+        },
+        "pages": {
+          "type": "integer",
+          "description": "目标页数"
+        },
+        "engine": {
+          "type": "string",
+          "description": "选择的引擎"
+        },
+        "agent": {
+          "type": "string",
+          "description": "驱动引擎的 AI agent"
+        },
         "content_style": {
           "type": "string",
-          "default": "marketing_promo",
-          "description": "内容风格（产品层选择，供草稿重写使用）"
+          "description": "内容风格（用于草稿重写和内容表达）"
+        },
+        "engine_params": {
+          "type": "object",
+          "description": "提交/确认阶段使用的引擎参数",
+          "additionalProperties": true
         },
         "result_path": {
           "type": "string",
           "description": "生成的 PPTX 文件路径（completed 后非空）"
         },
-        "draft_path": {
+        "draft_content": {
           "type": "string",
-          "description": "草稿 Markdown 文本路径（draft 状态时有值）"
+          "description": "草稿 Markdown 内容（已废弃，使用 Draft 实体）"
         },
         "error": {
           "type": "string",
@@ -128,40 +402,75 @@
           "type": "string",
           "format": "date-time",
           "description": "任务最后更新时间（ISO 8601）"
+        }
+      }
+    },
+    "DraftEngine": {
+      "type": "object",
+      "description": "草稿引擎接口（将用户文件转化为 Markdown 草稿）",
+      "properties": {
+        "sources": {
+          "type": "array",
+          "description": "原始素材来源列表",
+          "items": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "url",
+                  "file_path",
+                  "text"
+                ]
+              },
+              "value": {
+                "type": "string"
+              }
+            }
+          }
         },
-        "draft_content": {
+        "content": {
           "type": "string",
-          "description": "草稿 Markdown 内容（draft 状态时返回，供前端查看/编辑）"
+          "description": "直接提供的文本内容（可选）"
+        },
+        "title": {
+          "type": "string",
+          "description": "标题（可选）"
+        },
+        "engine_params": {
+          "type": "object",
+          "description": "引擎特定参数",
+          "additionalProperties": true
+        }
+      }
+    },
+    "OutputEngine": {
+      "type": "object",
+      "description": "输出引擎接口（将 Markdown 内容生成最终展示文件）",
+      "properties": {
+        "content": {
+          "type": "string",
+          "description": "草稿的 Markdown 内容（最多15000字符）"
+        },
+        "title": {
+          "type": "string",
+          "description": "PPT 标题（可选）"
+        },
+        "pages": {
+          "type": "integer",
+          "description": "目标页数（可选）"
+        },
+        "engine_params": {
+          "type": "object",
+          "description": "引擎特定参数（风格/模式/尺寸等）",
+          "additionalProperties": true
         }
       }
     },
     "ppt_master": {
       "type": "object",
-      "description": "ppt_master 引擎在 engine_params 中支持的参数。引擎参数文档见 docs/contracts/style-guide.md。此定义即 GET /api/engines 返回的 params_schema 内容。",
+      "description": "ppt_master 引擎在 engine_params 中支持的参数。中文说明见 docs/contracts/style-guide.md。此定义即 GET /api/engines 返回的 params_schema 内容。",
       "properties": {
-        "source": {
-          "type": "object",
-          "description": "原始素材来源（可选）。优先于 content。",
-          "required": [
-            "type",
-            "value"
-          ],
-          "properties": {
-            "type": {
-              "type": "string",
-              "enum": [
-                "url",
-                "file_path",
-                "text"
-              ],
-              "description": "url=网页链接；file_path=本地文件路径；text=直接文本"
-            },
-            "value": {
-              "type": "string",
-              "description": "URL / 文件路径 / 文本内容"
-            }
-          }
-        },
         "style": {
           "type": "string",
           "description": "视觉风格（18 种）。中文说明见 docs/contracts/style-guide.md",
@@ -227,6 +536,102 @@
           ],
           "default": "none",
           "description": "动画：none=关，auto=自动"
+        }
+      }
+    },
+    "ppt_master_draft": {
+      "type": "object",
+      "description": "pptmaster 草稿引擎参数",
+      "properties": {
+        "files": {
+          "type": "array",
+          "description": "文件列表，支持多种类型多份文件上传",
+          "items": {
+            "type": "object",
+            "properties": {
+              "filename": {
+                "type": "string",
+                "description": "文件名"
+              },
+              "path": {
+                "type": "string",
+                "description": "服务器路径"
+              }
+            }
+          }
+        },
+        "prompt": {
+          "type": "string",
+          "description": "草稿生成提示词（选填），指导生成风格或要求"
+        }
+      }
+    },
+    "claude_draft": {
+      "type": "object",
+      "description": "Claude 草稿引擎参数",
+      "properties": {
+        "files": {
+          "type": "array",
+          "description": "文件列表，支持多种类型多份文件上传",
+          "items": {
+            "type": "object",
+            "properties": {
+              "filename": {
+                "type": "string",
+                "description": "文件名"
+              },
+              "path": {
+                "type": "string",
+                "description": "服务器路径"
+              }
+            }
+          }
+        },
+        "prompt": {
+          "type": "string",
+          "description": "草稿生成提示词（选填），指导 AI 理解和生成方向"
+        }
+      }
+    },
+    "guizang_ppt": {
+      "type": "object",
+      "description": "guizang-ppt-skill 引擎在 engine_params 中支持的参数。中文说明见 docs/contracts/style-guide.md。此定义即 GET /api/engines 返回的 params_schema 内容。",
+      "properties": {
+        "style": {
+          "type": "string",
+          "enum": [
+            "magazine",
+            "swiss"
+          ],
+          "default": "magazine",
+          "description": "视觉风格：magazine=电子杂志风，swiss=瑞士国际主义"
+        },
+        "magazine_theme": {
+          "type": "string",
+          "enum": [
+            "monocle",
+            "indigo",
+            "forest",
+            "kraft",
+            "dune"
+          ],
+          "default": "monocle",
+          "description": "杂志风主题色（仅 style=magazine 时有效）：monocle=墨水经典，indigo=靛蓝瓷，forest=森林墨，kraft=牛皮纸，dune=沙丘"
+        },
+        "swiss_theme": {
+          "type": "string",
+          "enum": [
+            "ikb",
+            "lemon",
+            "green",
+            "orange"
+          ],
+          "default": "ikb",
+          "description": "瑞士风主题色（仅 style=swiss 时有效）：ikb=克莱因蓝，lemon=柠檬黄，green=柠檬绿，orange=安全橙"
+        },
+        "pages": {
+          "type": "integer",
+          "description": "目标页数（默认根据内容自动，参考：15分钟≈10页，30分钟≈20页，45分钟≈25-30页）"
         }
       }
     }

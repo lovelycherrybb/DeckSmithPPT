@@ -1,0 +1,961 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeckSmithPPT - 工作台</title>
+    <style>
+        /* ===== Design Tokens ===== */
+        :root {
+            /* Colors */
+            --primary-50: #eff6ff;
+            --primary-100: #dbeafe;
+            --primary-200: #bfdbfe;
+            --primary-300: #93c5fd;
+            --primary-400: #60a5fa;
+            --primary-500: #3b82f6;
+            --primary-600: #2563eb;
+            --primary-700: #1d4ed8;
+            --primary-800: #1e40af;
+            --primary-900: #1e3a8a;
+            
+            --accent-500: #10b981;
+            --accent-600: #059669;
+            
+            --neutral-50: #f8fafc;
+            --neutral-100: #f1f5f9;
+            --neutral-200: #e2e8f0;
+            --neutral-300: #cbd5e1;
+            --neutral-400: #94a3b8;
+            --neutral-500: #64748b;
+            --neutral-600: #475569;
+            --neutral-700: #334155;
+            --neutral-800: #1e293b;
+            --neutral-900: #0f172a;
+            
+            --success-500: #22c55e;
+            --warning-500: #eab308;
+            --error-500: #ef4444;
+            
+            /* Typography */
+            --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+            
+            /* Spacing */
+            --space-1: 4px;
+            --space-2: 8px;
+            --space-3: 12px;
+            --space-4: 16px;
+            --space-5: 20px;
+            --space-6: 24px;
+            --space-8: 32px;
+            --space-10: 40px;
+            
+            /* Border Radius */
+            --radius-sm: 6px;
+            --radius-md: 8px;
+            --radius-lg: 12px;
+            --radius-xl: 16px;
+            --radius-full: 9999px;
+            
+            /* Shadows */
+            --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+            
+            /* Layout */
+            --sidebar-width: 280px;
+        }
+
+        /* ===== Reset & Base ===== */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: var(--font-sans);
+            background: var(--neutral-50);
+            color: var(--neutral-800);
+            line-height: 1.6;
+            min-height: 100vh;
+            display: flex;
+        }
+
+        /* ===== Sidebar ===== */
+        .sidebar {
+            width: var(--sidebar-width);
+            background: white;
+            border-right: 1px solid var(--neutral-200);
+            display: flex;
+            flex-direction: column;
+            position: fixed;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            z-index: 100;
+        }
+
+        .sidebar-header {
+            padding: var(--space-6);
+            border-bottom: 1px solid var(--neutral-200);
+        }
+
+        .sidebar-logo {
+            display: flex;
+            align-items: center;
+            gap: var(--space-3);
+            text-decoration: none;
+            color: var(--neutral-900);
+        }
+
+        .sidebar-logo-icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, var(--primary-500), var(--primary-700));
+            border-radius: var(--radius-lg);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 700;
+            font-size: 18px;
+        }
+
+        .sidebar-logo-text h1 {
+            font-size: 18px;
+            font-weight: 700;
+            line-height: 1.2;
+        }
+
+        .sidebar-logo-text p {
+            font-size: 12px;
+            color: var(--neutral-500);
+            margin-top: 2px;
+        }
+
+        .sidebar-nav {
+            flex: 1;
+            padding: var(--space-6) var(--space-4);
+            overflow-y: auto;
+        }
+
+        .nav-section {
+            margin-bottom: var(--space-8);
+        }
+
+        .nav-section-title {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--neutral-400);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: var(--space-4);
+            padding: 0 var(--space-2);
+        }
+
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: var(--space-3);
+            padding: var(--space-3) var(--space-4);
+            border-radius: var(--radius-md);
+            text-decoration: none;
+            color: var(--neutral-700);
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 150ms ease;
+            margin-bottom: var(--space-1);
+            cursor: pointer;
+        }
+
+        .nav-item:hover {
+            background: var(--primary-50);
+            color: var(--primary-600);
+        }
+
+        .nav-item.active {
+            background: var(--primary-500);
+            color: white;
+        }
+
+        .nav-item-icon {
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .nav-item-badge {
+            margin-left: auto;
+            background: var(--primary-100);
+            color: var(--primary-600);
+            padding: 2px 8px;
+            border-radius: var(--radius-full);
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .nav-item.active .nav-item-badge {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+        }
+
+        .sidebar-footer {
+            padding: var(--space-6);
+            border-top: 1px solid var(--neutral-200);
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: var(--space-3);
+            padding: var(--space-3);
+            border-radius: var(--radius-md);
+            background: var(--neutral-50);
+        }
+
+        .user-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: var(--radius-full);
+            background: linear-gradient(135deg, var(--primary-400), var(--accent-500));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 700;
+            font-size: 16px;
+        }
+
+        .user-details h4 {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 2px;
+        }
+
+        .user-details p {
+            font-size: 12px;
+            color: var(--neutral-500);
+        }
+
+        /* ===== Main Content ===== */
+        .main-content {
+            flex: 1;
+            margin-left: var(--sidebar-width);
+            padding: var(--space-8);
+            min-height: 100vh;
+        }
+
+        /* ===== Header ===== */
+        .main-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: var(--space-8);
+        }
+
+        .header-left h2 {
+            font-size: 24px;
+            font-weight: 700;
+            margin-bottom: var(--space-2);
+            color: var(--neutral-900);
+        }
+
+        .header-left p {
+            font-size: 14px;
+            color: var(--neutral-500);
+        }
+
+        .header-actions {
+            display: flex;
+            gap: var(--space-3);
+        }
+
+        /* ===== Buttons ===== */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: var(--space-2);
+            padding: var(--space-2) var(--space-4);
+            border-radius: var(--radius-md);
+            font-size: 14px;
+            font-weight: 500;
+            text-decoration: none;
+            transition: all 150ms ease;
+            cursor: pointer;
+            border: none;
+            line-height: 1.5;
+        }
+
+        .btn-primary {
+            background: var(--primary-500);
+            color: white;
+            box-shadow: 0 1px 2px rgba(59, 130, 246, 0.3);
+        }
+
+        .btn-primary:hover {
+            background: var(--primary-600);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+        }
+
+        .btn-ghost {
+            background: transparent;
+            color: var(--neutral-700);
+            border: 1px solid var(--neutral-300);
+        }
+
+        .btn-ghost:hover {
+            background: var(--neutral-100);
+            border-color: var(--neutral-400);
+        }
+
+        .btn-success {
+            background: var(--success-500);
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #16a34a;
+        }
+
+        .btn-icon {
+            width: 40px;
+            height: 40px;
+            padding: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: var(--radius-md);
+            background: transparent;
+            border: 1px solid var(--neutral-300);
+            color: var(--neutral-600);
+            cursor: pointer;
+            transition: all 150ms ease;
+        }
+
+        .btn-icon:hover {
+            background: var(--primary-50);
+            border-color: var(--primary-300);
+            color: var(--primary-600);
+        }
+
+        /* ===== Tabs ===== */
+        .tabs {
+            display: flex;
+            gap: var(--space-1);
+            background: var(--neutral-100);
+            padding: var(--space-1);
+            border-radius: var(--radius-lg);
+            margin-bottom: var(--space-6);
+        }
+
+        .tab {
+            display: flex;
+            align-items: center;
+            gap: var(--space-2);
+            padding: var(--space-2) var(--space-4);
+            border-radius: var(--radius-md);
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--neutral-600);
+            cursor: pointer;
+            transition: all 150ms ease;
+            border: none;
+            background: transparent;
+        }
+
+        .tab:hover {
+            color: var(--neutral-900);
+            background: white;
+        }
+
+        .tab.active {
+            background: white;
+            color: var(--primary-600);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .tab-badge {
+            background: var(--primary-100);
+            color: var(--primary-600);
+            padding: 2px 6px;
+            border-radius: var(--radius-full);
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        /* ===== Cards ===== */
+        .card {
+            background: white;
+            border: 1px solid var(--neutral-200);
+            border-radius: var(--radius-xl);
+            padding: var(--space-6);
+        }
+
+        .card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: var(--space-6);
+        }
+
+        .card-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--neutral-900);
+        }
+
+        /* ===== Form Elements ===== */
+        .form-group {
+            margin-bottom: var(--space-5);
+        }
+
+        .form-label {
+            display: block;
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--neutral-700);
+            margin-bottom: var(--space-2);
+        }
+
+        .form-input {
+            width: 100%;
+            padding: var(--space-3) var(--space-4);
+            border: 1px solid var(--neutral-300);
+            border-radius: var(--radius-md);
+            font-size: 14px;
+            color: var(--neutral-900);
+            transition: all 150ms ease;
+            background: white;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: var(--primary-500);
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+
+        .form-input::placeholder {
+            color: var(--neutral-400);
+        }
+
+        .form-textarea {
+            min-height: 120px;
+            resize: vertical;
+        }
+
+        .form-select {
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg width='12' height='8' viewBox='0 0 12 8' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1.5L6 6.5L11 1.5' stroke='%2364748b' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 12px center;
+            padding-right: 36px;
+        }
+
+        /* ===== Upload Area ===== */
+        .upload-area {
+            border: 2px dashed var(--neutral-300);
+            border-radius: var(--radius-xl);
+            padding: var(--space-10) var(--space-6);
+            text-align: center;
+            transition: all 200ms ease;
+            cursor: pointer;
+            background: var(--neutral-50);
+        }
+
+        .upload-area:hover {
+            border-color: var(--primary-400);
+            background: var(--primary-50);
+        }
+
+        .upload-icon {
+            width: 64px;
+            height: 64px;
+            margin: 0 auto var(--space-4);
+            background: var(--primary-100);
+            border-radius: var(--radius-full);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--primary-500);
+        }
+
+        .upload-text {
+            font-size: 16px;
+            font-weight: 500;
+            color: var(--neutral-700);
+            margin-bottom: var(--space-2);
+        }
+
+        .upload-hint {
+            font-size: 13px;
+            color: var(--neutral-500);
+        }
+
+        /* ===== Progress ===== */
+        .progress-bar {
+            height: 8px;
+            background: var(--neutral-200);
+            border-radius: var(--radius-full);
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--primary-500), var(--accent-500));
+            border-radius: var(--radius-full);
+            transition: width 300ms ease;
+        }
+
+        /* ===== Status Tags ===== */
+        .status-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: var(--space-1);
+            padding: 2px 10px;
+            border-radius: var(--radius-full);
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .status-success {
+            background: #dcfce7;
+            color: #16a34a;
+        }
+
+        .status-warning {
+            background: #fef3c7;
+            color: #d97706;
+        }
+
+        .status-error {
+            background: #fee2e2;
+            color: #dc2626;
+        }
+
+        .status-info {
+            background: var(--primary-100);
+            color: var(--primary-600);
+        }
+
+        /* ===== Steps ===== */
+        .steps {
+            display: flex;
+            align-items: center;
+            gap: var(--space-2);
+            margin-bottom: var(--space-8);
+        }
+
+        .step {
+            display: flex;
+            align-items: center;
+            gap: var(--space-2);
+        }
+
+        .step-number {
+            width: 32px;
+            height: 32px;
+            border-radius: var(--radius-full);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            font-weight: 600;
+            background: var(--neutral-200);
+            color: var(--neutral-600);
+        }
+
+        .step.active .step-number {
+            background: var(--primary-500);
+            color: white;
+        }
+
+        .step.completed .step-number {
+            background: var(--success-500);
+            color: white;
+        }
+
+        .step-label {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--neutral-500);
+        }
+
+        .step.active .step-label {
+            color: var(--neutral-900);
+        }
+
+        .step-divider {
+            width: 40px;
+            height: 2px;
+            background: var(--neutral-200);
+            margin: 0 var(--space-2);
+        }
+
+        /* ===== Empty State ===== */
+        .empty-state {
+            text-align: center;
+            padding: var(--space-12) var(--space-6);
+        }
+
+        .empty-icon {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto var(--space-5);
+            background: var(--neutral-100);
+            border-radius: var(--radius-full);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--neutral-400);
+        }
+
+        .empty-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--neutral-700);
+            margin-bottom: var(--space-2);
+        }
+
+        .empty-text {
+            font-size: 14px;
+            color: var(--neutral-500);
+            margin-bottom: var(--space-6);
+        }
+
+        /* ===== Responsive ===== */
+        @media (max-width: 1024px) {
+            .sidebar {
+                transform: translateX(-100%);
+            }
+            
+            .main-content {
+                margin-left: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Sidebar -->
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <a href="index.html" class="sidebar-logo">
+                <div class="sidebar-logo-icon">DS</div>
+                <div class="sidebar-logo-text">
+                    <h1>DeckSmith</h1>
+                    <p>智能 PPT 生成</p>
+                </div>
+            </a>
+        </div>
+        
+        <nav class="sidebar-nav">
+            <div class="nav-section">
+                <div class="nav-section-title">创作</div>
+                <a href="#" class="nav-item active" onclick="showTab('create')">
+                    <span class="nav-item-icon">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 5v14M5 12h14"/>
+                        </svg>
+                    </span>
+                    创建新 PPT
+                </a>
+                <a href="#" class="nav-item" onclick="showTab('drafts')">
+                    <span class="nav-item-icon">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                            <polyline points="14 2 14 8 20 8"/>
+                        </svg>
+                    </span>
+                    草稿任务
+                    <span class="nav-item-badge">3</span>
+                </a>
+            </div>
+            
+            <div class="nav-section">
+                <div class="nav-section-title">管理</div>
+                <a href="#" class="nav-item" onclick="showTab('jobs')">
+                    <span class="nav-item-icon">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+                        </svg>
+                    </span>
+                    生成任务
+                    <span class="nav-item-badge">2</span>
+                </a>
+                <a href="#" class="nav-item" onclick="showTab('files')">
+                    <span class="nav-item-icon">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                        </svg>
+                    </span>
+                    演示文件库
+                </a>
+            </div>
+            
+            <div class="nav-section">
+                <div class="nav-section-title">其他</div>
+                <a href="history.html" class="nav-item">
+                    <span class="nav-item-icon">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"/>
+                            <polyline points="12 6 12 12 16 14"/>
+                        </svg>
+                    </span>
+                    历史项目
+                </a>
+                <a href="#" class="nav-item">
+                    <span class="nav-item-icon">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="3"/>
+                            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                        </svg>
+                    </span>
+                    设置
+                </a>
+            </div>
+        </nav>
+        
+        <div class="sidebar-footer">
+            <div class="user-info">
+                <div class="user-avatar">U</div>
+                <div class="user-details">
+                    <h4>用户</h4>
+                    <p>免费版</p>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <!-- Header -->
+        <div class="main-header">
+            <div class="header-left">
+                <h2>工作台</h2>
+                <p>创建和管理你的 PPT 项目</p>
+            </div>
+            <div class="header-actions">
+                <button class="btn btn-ghost">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="11" cy="11" r="8"/>
+                        <path d="M21 21l-4.35-4.35"/>
+                    </svg>
+                    搜索
+                </button>
+                <button class="btn btn-primary" onclick="showTab('create')">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 5v14M5 12h14"/>
+                    </svg>
+                    新建项目
+                </button>
+            </div>
+        </div>
+
+        <!-- Create Tab -->
+        <div id="tab-create" class="tab-content">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">创建新 PPT</h3>
+                </div>
+                
+                <!-- Steps -->
+                <div class="steps">
+                    <div class="step active">
+                        <span class="step-number">1</span>
+                        <span class="step-label">选择素材</span>
+                    </div>
+                    <div class="step-divider"></div>
+                    <div class="step">
+                        <span class="step-number">2</span>
+                        <span class="step-label">配置选项</span>
+                    </div>
+                    <div class="step-divider"></div>
+                    <div class="step">
+                        <span class="step-number">3</span>
+                        <span class="step-label">生成草稿</span>
+                    </div>
+                </div>
+                
+                <!-- Upload Area -->
+                <div class="upload-area" onclick="document.getElementById('file-input').click()">
+                    <div class="upload-icon">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                            <polyline points="17 8 12 3 7 8"/>
+                            <line x1="12" y1="3" x2="12" y2="15"/>
+                        </svg>
+                    </div>
+                    <div class="upload-text">点击或拖拽文件到此处上传</div>
+                    <div class="upload-hint">支持 PDF、Word、Markdown、TXT 等格式，最大 50MB</div>
+                    <input type="file" id="file-input" style="display: none;" accept=".pdf,.doc,.docx,.md,.txt">
+                </div>
+                
+                <!-- Form -->
+                <div style="margin-top: var(--space-6);">
+                    <div class="form-group">
+                        <label class="form-label">或者直接输入文本内容</label>
+                        <textarea class="form-input form-textarea" placeholder="在这里粘贴或输入你的内容，AI 将自动分析并生成 PPT..."></textarea>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">PPT 标题</label>
+                        <input type="text" class="form-input" placeholder="输入 PPT 标题（可选，AI 会自动推荐）">
+                    </div>
+                    
+                    <div style="display: flex; gap: var(--space-3); justify-content: flex-end; margin-top: var(--space-6);">
+                        <button class="btn btn-ghost">保存草稿</button>
+                        <button class="btn btn-primary">
+                            下一步：配置选项
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M5 12h14M12 5l7 7-7 7"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Drafts Tab -->
+        <div id="tab-drafts" class="tab-content" style="display: none;">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">草稿任务</h3>
+                    <button class="btn btn-ghost btn-sm">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="23 4 23 10 17 10"/>
+                            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                        </svg>
+                        刷新
+                    </button>
+                </div>
+                
+                <!-- Draft Item 1 -->
+                <div style="border: 1px solid var(--neutral-200); border-radius: var(--radius-lg); padding: var(--space-5); margin-bottom: var(--space-4);">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: var(--space-3);">
+                        <div>
+                            <h4 style="font-size: 16px; font-weight: 600; margin-bottom: 4px;">产品介绍 PPT</h4>
+                            <p style="font-size: 13px; color: var(--neutral-500);">创建于 2026-09-10 14:30</p>
+                        </div>
+                        <span class="status-tag status-success">已完成</span>
+                    </div>
+                    <p style="font-size: 14px; color: var(--neutral-600); margin-bottom: var(--space-4);">基于上传的产品文档生成，共 12 页</p>
+                    <div style="display: flex; gap: var(--space-2);">
+                        <button class="btn btn-ghost" style="font-size: 13px;">预览</button>
+                        <button class="btn btn-primary" style="font-size: 13px;">生成 PPT</button>
+                    </div>
+                </div>
+                
+                <!-- Draft Item 2 -->
+                <div style="border: 1px solid var(--neutral-200); border-radius: var(--radius-lg); padding: var(--space-5); margin-bottom: var(--space-4);">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: var(--space-3);">
+                        <div>
+                            <h4 style="font-size: 16px; font-weight: 600; margin-bottom: 4px;">季度总结报告</h4>
+                            <p style="font-size: 13px; color: var(--neutral-500);">创建于 2026-09-09 10:15</p>
+                        </div>
+                        <span class="status-tag status-warning">处理中</span>
+                    </div>
+                    <div class="progress-bar" style="margin-bottom: var(--space-3);">
+                        <div class="progress-fill" style="width: 65%;"></div>
+                    </div>
+                    <p style="font-size: 13px; color: var(--neutral-500);">AI 正在分析内容结构... 65%</p>
+                </div>
+                
+                <!-- Draft Item 3 -->
+                <div style="border: 1px solid var(--neutral-200); border-radius: var(--radius-lg); padding: var(--space-5);">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: var(--space-3);">
+                        <div>
+                            <h4 style="font-size: 16px; font-weight: 600; margin-bottom: 4px;">技术方案评审</h4>
+                            <p style="font-size: 13px; color: var(--neutral-500);">创建于 2026-09-08 16:45</p>
+                        </div>
+                        <span class="status-tag status-info">待生成</span>
+                    </div>
+                    <p style="font-size: 14px; color: var(--neutral-600); margin-bottom: var(--space-4);">草稿已完成，等待生成最终 PPT</p>
+                    <div style="display: flex; gap: var(--space-2);">
+                        <button class="btn btn-ghost" style="font-size: 13px;">编辑草稿</button>
+                        <button class="btn btn-success" style="font-size: 13px;">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                <polyline points="7 10 12 15 17 10"/>
+                                <line x1="12" y1="15" x2="12" y2="3"/>
+                            </svg>
+                            导出 PPTX
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Jobs Tab -->
+        <div id="tab-jobs" class="tab-content" style="display: none;">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">生成任务</h3>
+                </div>
+                
+                <div class="empty-state">
+                    <div class="empty-icon">
+                        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+                        </svg>
+                    </div>
+                    <h4 class="empty-title">暂无生成任务</h4>
+                    <p class="empty-text">创建草稿后，点击"生成 PPT"按钮开始生成任务</p>
+                    <button class="btn btn-primary" onclick="showTab('create')">创建新 PPT</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Files Tab -->
+        <div id="tab-files" class="tab-content" style="display: none;">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">演示文件库</h3>
+                    <button class="btn btn-ghost btn-sm">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="23 4 23 10 17 10"/>
+                            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                        </svg>
+                        刷新
+                    </button>
+                </div>
+                
+                <div class="empty-state">
+                    <div class="empty-icon">
+                        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                        </svg>
+                    </div>
+                    <h4 class="empty-title">暂无演示文件</h4>
+                    <p class="empty-text">生成的 PPT 文件将显示在这里</p>
+                    <button class="btn btn-primary" onclick="showTab('create')">创建新 PPT</button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // Tab switching functionality
+        function showTab(tabName) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.style.display = 'none';
+            });
+            
+            // Show selected tab
+            document.getElementById('tab-' + tabName).style.display = 'block';
+            
+            // Update active nav item
+            document.querySelectorAll('.nav-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            
+            // Find and activate the clicked nav item
+            event.currentTarget.classList.add('active');
+        }
+    </script>
+</body>
+</html>

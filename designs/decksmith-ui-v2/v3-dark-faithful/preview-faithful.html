@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeckSmithPPT UI 设计预览</title>
+    <style>
+        :root {
+            --primary: #8b5cf6;
+            --primary-light: #a78bfa;
+            --primary-dark: #7c3aed;
+            --bg-dark: #0a0a0a;
+            --bg-card: #111111;
+            --bg-hover: #1a1a1a;
+            --text-primary: #f3f4f6;
+            --text-secondary: #9ca3af;
+            --text-muted: #6b7280;
+            --border: #1f1f1f;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--bg-dark);
+            color: var(--text-primary);
+            line-height: 1.6;
+            padding: 40px 20px;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 48px;
+            padding: 48px 24px;
+            background: var(--bg-card);
+            border-radius: 16px;
+            border: 1px solid var(--border);
+        }
+
+        .header-logo {
+            font-size: 80px;
+            font-weight: 900;
+            letter-spacing: -4px;
+            margin-bottom: 16px;
+        }
+
+        .header-logo .d { color: var(--primary); }
+        .header-logo .s { color: var(--text-primary); }
+
+        .header-tagline {
+            font-size: 16px;
+            color: var(--text-muted);
+            letter-spacing: 4px;
+            margin-bottom: 8px;
+        }
+
+        .header-subtitle {
+            font-size: 13px;
+            color: var(--text-muted);
+            letter-spacing: 6px;
+        }
+
+        .section {
+            margin-bottom: 48px;
+        }
+
+        .section-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .section-desc {
+            font-size: 14px;
+            color: var(--text-muted);
+            margin-bottom: 20px;
+        }
+
+        .preview-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+        }
+
+        .preview-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+            transition: all 200ms ease;
+        }
+
+        .preview-card:hover {
+            border-color: var(--primary);
+            transform: translateY(-2px);
+        }
+
+        .preview-image {
+            width: 100%;
+            height: 160px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--text-primary);
+            background: linear-gradient(135deg, rgba(139, 92, 246, 0.15), rgba(139, 92, 246, 0.05));
+        }
+
+        .preview-content {
+            padding: 20px;
+        }
+
+        .preview-title {
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+        }
+
+        .preview-desc {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-bottom: 16px;
+        }
+
+        .preview-features {
+            list-style: none;
+            margin-bottom: 16px;
+        }
+
+        .preview-features li {
+            font-size: 12px;
+            color: var(--text-secondary);
+            padding: 4px 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .preview-features li::before {
+            content: '✓';
+            color: var(--primary);
+            font-size: 11px;
+        }
+
+        .preview-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 16px;
+            background: var(--primary);
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            transition: background 150ms ease;
+        }
+
+        .preview-link:hover {
+            background: var(--primary-dark);
+        }
+
+        .changes-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .changes-table th {
+            padding: 12px 16px;
+            text-align: left;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-muted);
+            background: var(--bg-hover);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .changes-table td {
+            padding: 12px 16px;
+            font-size: 13px;
+            color: var(--text-secondary);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .changes-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .token-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+        }
+
+        .token-item {
+            padding: 16px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+        }
+
+        .token-label {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+
+        .token-value {
+            font-size: 14px;
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+
+        .token-old {
+            font-size: 12px;
+            color: var(--text-muted);
+            text-decoration: line-through;
+            margin-top: 4px;
+        }
+
+        .color-swatches {
+            display: flex;
+            gap: 6px;
+            margin-top: 10px;
+        }
+
+        .color-swatch {
+            width: 24px;
+            height: 24px;
+            border-radius: 4px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            position: relative;
+        }
+
+        .color-swatch::after {
+            content: attr(data-label);
+            position: absolute;
+            bottom: -18px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 9px;
+            color: var(--text-muted);
+            white-space: nowrap;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="header-logo">
+                <span class="d">D</span><span class="s">S</span>
+            </div>
+            <div class="header-tagline">材料 × AI = 演示文件</div>
+            <div class="header-subtitle">DECKSMITHPOWER</div>
+        </div>
+
+        <div class="section">
+            <h2 class="section-title">设计说明</h2>
+            <p class="section-desc">
+                本次重新设计仅改变视觉样式（颜色、字体、间距、圆角、阴影），保持所有功能、按钮、显示完全一致。
+                新设计采用深色主题，与首页风格统一。
+            </p>
+        </div>
+
+        <div class="section">
+            <h2 class="section-title">页面预览</h2>
+            <div class="preview-grid">
+                <div class="preview-card">
+                    <div class="preview-image">工作台</div>
+                    <div class="preview-content">
+                        <h3 class="preview-title">工作台 (studio-faithful.html)</h3>
+                        <p class="preview-desc">完全对应 StudioLayout + WorkspaceTab 的功能结构</p>
+                        <ul class="preview-features">
+                            <li>顶部导航栏（Logo、Tab导航、返回首页）</li>
+                            <li>子标签页（创建向导、草稿任务、生成任务、演示文件库）</li>
+                            <li>当前项目信息显示</li>
+                            <li>RunningTasksDock 常驻进度</li>
+                        </ul>
+                        <a href="studio-faithful.html" class="preview-link">查看设计 →</a>
+                    </div>
+                </div>
+
+                <div class="preview-card">
+                    <div class="preview-image">历史项目</div>
+                    <div class="preview-content">
+                        <h3 class="preview-title">历史项目 (history-faithful.html)</h3>
+                        <p class="preview-desc">完全对应 HistoryTab 的功能结构</p>
+                        <ul class="preview-features">
+                            <li>项目列表表格（编号、名称、草稿数、文件数等）</li>
+                            <li>查看/操作按钮</li>
+                            <li>只读详情面板（复用工作台面板）</li>
+                            <li>子标签页（草稿任务、生成任务、演示文件库）</li>
+                        </ul>
+                        <a href="history-faithful.html" class="preview-link">查看设计 →</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2 class="section-title">样式变更对照</h2>
+            <table class="changes-table">
+                <thead>
+                    <tr>
+                        <th>维度</th>
+                        <th>原样式</th>
+                        <th>新样式</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>背景色</td>
+                        <td>#f5f5f5（浅灰）</td>
+                        <td>#0a0a0a（深黑）</td>
+                    </tr>
+                    <tr>
+                        <td>卡片背景</td>
+                        <td>#ffffff（白色）</td>
+                        <td>#111111（深灰）</td>
+                    </tr>
+                    <tr>
+                        <td>主色调</td>
+                        <td>#8b5cf6（紫色）</td>
+                        <td>#8b5cf6（保持一致）</td>
+                    </tr>
+                    <tr>
+                        <td>文字颜色</td>
+                        <td>#111827（深黑）</td>
+                        <td>#f3f4f6（浅白）</td>
+                    </tr>
+                    <tr>
+                        <td>边框颜色</td>
+                        <td>#e5e7eb（浅灰）</td>
+                        <td>#1f1f1f（深灰）</td>
+                    </tr>
+                    <tr>
+                        <td>导航结构</td>
+                        <td colspan="2" style="text-align:center">保持一致（顶部 Tabs + 子标签页）</td>
+                    </tr>
+                    <tr>
+                        <td>功能按钮</td>
+                        <td colspan="2" style="text-align:center">保持一致（查看、编辑、生成、下载等）</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="section">
+            <h2 class="section-title">设计令牌</h2>
+            <div class="token-grid">
+                <div class="token-item">
+                    <div class="token-label">主色调</div>
+                    <div class="token-value">#8b5cf6</div>
+                    <div class="token-old">原: #8b5cf6（保持一致）</div>
+                    <div class="color-swatches">
+                        <div class="color-swatch" style="background:#8b5cf6" data-label="primary"></div>
+                        <div class="color-swatch" style="background:#a78bfa" data-label="light"></div>
+                        <div class="color-swatch" style="background:#7c3aed" data-label="dark"></div>
+                    </div>
+                </div>
+
+                <div class="token-item">
+                    <div class="token-label">背景色</div>
+                    <div class="token-value">#0a0a0a</div>
+                    <div class="token-old">原: #f5f5f5</div>
+                    <div class="color-swatches">
+                        <div class="color-swatch" style="background:#0a0a0a" data-label="dark"></div>
+                        <div class="color-swatch" style="background:#111111" data-label="card"></div>
+                        <div class="color-swatch" style="background:#1a1a1a" data-label="hover"></div>
+                        <div class="color-swatch" style="background:#1f1f1f" data-label="border"></div>
+                    </div>
+                </div>
+
+                <div class="token-item">
+                    <div class="token-label">文字色</div>
+                    <div class="token-value">#f3f4f6</div>
+                    <div class="token-old">原: #111827</div>
+                    <div class="color-swatches">
+                        <div class="color-swatch" style="background:#f3f4f6" data-label="primary"></div>
+                        <div class="color-swatch" style="background:#9ca3af" data-label="secondary"></div>
+                        <div class="color-swatch" style="background:#6b7280" data-label="muted"></div>
+                    </div>
+                </div>
+
+                <div class="token-item">
+                    <div class="token-label">成功色</div>
+                    <div class="token-value">#10b981</div>
+                </div>
+
+                <div class="token-item">
+                    <div class="token-label">警告色</div>
+                    <div class="token-value">#f59e0b</div>
+                </div>
+
+                <div class="token-item">
+                    <div class="token-label">错误色</div>
+                    <div class="token-value">#ef4444</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeckSmithPPT UI 设计预览</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding: 40px 20px;
+            background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+            border-radius: 16px;
+            color: white;
+        }
+        
+        .header h1 {
+            font-size: 36px;
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            font-size: 18px;
+            opacity: 0.9;
+        }
+        
+        .preview-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 24px;
+            margin-bottom: 40px;
+        }
+        
+        .preview-card {
+            background: white;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        
+        .preview-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
+        }
+        
+        .preview-image {
+            width: 100%;
+            height: 200px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 24px;
+            font-weight: 600;
+        }
+        
+        .preview-content {
+            padding: 24px;
+        }
+        
+        .preview-title {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #1e293b;
+        }
+        
+        .preview-desc {
+            font-size: 14px;
+            color: #64748b;
+            margin-bottom: 16px;
+            line-height: 1.6;
+        }
+        
+        .preview-features {
+            list-style: none;
+            margin-bottom: 20px;
+        }
+        
+        .preview-features li {
+            font-size: 13px;
+            color: #475569;
+            padding: 4px 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .preview-features li::before {
+            content: '✓';
+            color: #10b981;
+            font-weight: bold;
+        }
+        
+        .preview-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 20px;
+            background: #3b82f6;
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            transition: background 0.2s ease;
+        }
+        
+        .preview-link:hover {
+            background: #2563eb;
+        }
+        
+        .design-tokens {
+            background: white;
+            border-radius: 12px;
+            padding: 32px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            margin-bottom: 40px;
+        }
+        
+        .design-tokens h2 {
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 24px;
+            color: #1e293b;
+        }
+        
+        .token-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+        }
+        
+        .token-item {
+            padding: 16px;
+            background: #f8fafc;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+        }
+        
+        .token-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+        
+        .token-value {
+            font-size: 14px;
+            color: #1e293b;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        .color-swatches {
+            display: flex;
+            gap: 8px;
+            margin-top: 8px;
+        }
+        
+        .color-swatch {
+            width: 24px;
+            height: 24px;
+            border-radius: 4px;
+            border: 1px solid rgba(0, 0, 0, 0.1);
+        }
+        
+        .instructions {
+            background: white;
+            border-radius: 12px;
+            padding: 32px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        }
+        
+        .instructions h2 {
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 24px;
+            color: #1e293b;
+        }
+        
+        .instructions ol {
+            padding-left: 20px;
+        }
+        
+        .instructions li {
+            font-size: 16px;
+            color: #475569;
+            margin-bottom: 12px;
+            line-height: 1.6;
+        }
+        
+        .instructions code {
+            background: #f1f5f9;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 14px;
+            color: #3b82f6;
+        }
+        
+        .instructions a {
+            color: #3b82f6;
+            text-decoration: none;
+        }
+        
+        .instructions a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>DeckSmithPPT UI 设计预览</h1>
+            <p>全新设计的 PPT 生成平台界面</p>
+        </div>
+        
+        <div class="preview-grid">
+            <div class="preview-card">
+                <div class="preview-image" style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);">
+                    首页
+                </div>
+                <div class="preview-content">
+                    <h3 class="preview-title">首页 (index.html)</h3>
+                    <p class="preview-desc">产品首页 - 展示价值主张和功能特性</p>
+                    <ul class="preview-features">
+                        <li>清晰的价值主张和 CTA</li>
+                        <li>功能特性展示</li>
+                        <li>使用流程说明</li>
+                        <li>响应式设计</li>
+                    </ul>
+                    <a href="index.html" class="preview-link">
+                        查看设计
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M5 12h14M12 5l7 7-7 7"/>
+                        </svg>
+                    </a>
+                </div>
+            </div>
+            
+            <div class="preview-card">
+                <div class="preview-image" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%);">
+                    工作台
+                </div>
+                <div class="preview-content">
+                    <h3 class="preview-title">工作台 (studio.html)</h3>
+                    <p class="preview-desc">PPT 创建和管理界面 - 包含创建向导、草稿任务、生成任务、文件库</p>
+                    <ul class="preview-features">
+                        <li>侧边栏导航</li>
+                        <li>创建向导流程</li>
+                        <li>草稿和任务管理</li>
+                        <li>演示文件库</li>
+                    </ul>
+                    <a href="studio.html" class="preview-link">
+                        查看设计
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M5 12h14M12 5l7 7-7 7"/>
+                        </svg>
+                    </a>
+                </div>
+            </div>
+            
+            <div class="preview-card">
+                <div class="preview-image" style="background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%);">
+                    历史项目
+                </div>
+                <div class="preview-content">
+                    <h3 class="preview-title">历史项目 (history.html)</h3>
+                    <p class="preview-desc">项目历史记录 - 统计概览和项目管理</p>
+                    <ul class="preview-features">
+                        <li>统计概览卡片</li>
+                        <li>项目列表表格</li>
+                        <li>筛选和搜索功能</li>
+                        <li>分页导航</li>
+                    </ul>
+                    <a href="history.html" class="preview-link">
+                        查看设计
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M5 12h14M12 5l7 7-7 7"/>
+                        </svg>
+                    </a>
+                </div>
+            </div>
+        </div>
+        
+        <div class="design-tokens">
+            <h2>设计令牌 (Design Tokens)</h2>
+            <div class="token-grid">
+                <div class="token-item">
+                    <div class="token-label">主色调</div>
+                    <div class="token-value">#3b82f6</div>
+                    <div class="color-swatches">
+                        <div class="color-swatch" style="background: #eff6ff;"></div>
+                        <div class="color-swatch" style="background: #dbeafe;"></div>
+                        <div class="color-swatch" style="background: #93c5fd;"></div>
+                        <div class="color-swatch" style="background: #60a5fa;"></div>
+                        <div class="color-swatch" style="background: #3b82f6;"></div>
+                        <div class="color-swatch" style="background: #2563eb;"></div>
+                        <div class="color-swatch" style="background: #1d4ed8;"></div>
+                    </div>
+                </div>
+                
+                <div class="token-item">
+                    <div class="token-label">强调色</div>
+                    <div class="token-value">#10b981</div>
+                    <div class="color-swatches">
+                        <div class="color-swatch" style="background: #dcfce7;"></div>
+                        <div class="color-swatch" style="background: #bbf7d0;"></div>
+                        <div class="color-swatch" style="background: #86efac;"></div>
+                        <div class="color-swatch" style="background: #4ade80;"></div>
+                        <div class="color-swatch" style="background: #22c55e;"></div>
+                        <div class="color-swatch" style="background: #16a34a;"></div>
+                        <div class="color-swatch" style="background: #15803d;"></div>
+                    </div>
+                </div>
+                
+                <div class="token-item">
+                    <div class="token-label">中性色</div>
+                    <div class="token-value">#64748b</div>
+                    <div class="color-swatches">
+                        <div class="color-swatch" style="background: #f8fafc;"></div>
+                        <div class="color-swatch" style="background: #f1f5f9;"></div>
+                        <div class="color-swatch" style="background: #e2e8f0;"></div>
+                        <div class="color-swatch" style="background: #cbd5e1;"></div>
+                        <div class="color-swatch" style="background: #94a3b8;"></div>
+                        <div class="color-swatch" style="background: #64748b;"></div>
+                        <div class="color-swatch" style="background: #475569;"></div>
+                    </div>
+                </div>
+                
+                <div class="token-item">
+                    <div class="token-label">字体</div>
+                    <div class="token-value">Inter, -apple-system, sans-serif</div>
+                </div>
+                
+                <div class="token-item">
+                    <div class="token-label">圆角</div>
+                    <div class="token-value">6px / 8px / 12px / 16px</div>
+                </div>
+                
+                <div class="token-item">
+                    <div class="token-label">间距</div>
+                    <div class="token-value">4px / 8px / 12px / 16px / 24px / 32px</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="instructions">
+            <h2>如何使用</h2>
+            <ol>
+                <li>点击上方的"查看设计"按钮，可以直接在浏览器中预览各个页面</li>
+                <li>所有页面都是静态 HTML 文件，不依赖后端服务</li>
+                <li>设计使用了统一的 Design Tokens，确保视觉一致性</li>
+                <li>支持响应式设计，可以在不同屏幕尺寸下查看效果</li>
+                <li>如需修改设计，可以直接编辑对应的 HTML 文件</li>
+            </ol>
+        </div>
+    </div>
+</body>
+</html>

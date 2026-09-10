@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DeckSmithPPT - 7种主题风格</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { overflow-x: hidden; }
+    
+    /* 主题切换器 */
+    .theme-switcher {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 9999;
+      display: flex;
+      gap: 6px;
+      background: rgba(0,0,0,0.9);
+      padding: 8px;
+      border-radius: 12px;
+    }
+    .theme-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      border: 2px solid transparent;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: bold;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .theme-btn.active { border-color: #fff; }
+    .theme-btn:hover { transform: scale(1.1); }
+  </style>
+</head>
+<body>
+
+<!-- 主题1: 磁性流体 - 全屏深色 + 流体光标跟随 -->
+<div id="theme-magnetic" class="theme-page" style="min-height:100vh;background:#0a0a0a;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;font-family:'Inter',sans-serif;">
+  <div id="magnetic-glow" style="position:absolute;top:0;left:0;right:0;bottom:0;pointer-events:none;transition:background 0.1s;"></div>
+  <div style="text-align:center;position:relative;z-index:10;">
+    <div style="font-size:120px;font-weight:900;line-height:1;color:#f3f4f6;letter-spacing:-4px;">
+      <span id="magnetic-char1" style="display:inline-block;transition:transform 0.3s;">D</span><span id="magnetic-char2" style="display:inline-block;transition:transform 0.3s;color:#8b5cf6;">S</span>
+    </div>
+    <div style="font-size:18px;color:#9ca3af;margin-top:20px;letter-spacing:8px;">DECKSMITH</div>
+    <button style="margin-top:40px;padding:16px 48px;background:#8b5cf6;color:#fff;border:none;font-size:16px;cursor:pointer;" id="magnetic-btn">开始使用</button>
+  </div>
+</div>
+
+<!-- 主题2: 几何解构 - 左右分栏 + 几何图形动画 -->
+<div id="theme-geometric" class="theme-page" style="min-height:100vh;background:#fff;display:none;font-family:'Space Grotesk',sans-serif;">
+  <div style="display:flex;height:100vh;">
+    <div style="flex:1;display:flex;align-items:center;justify-content:center;padding:80px;">
+      <div>
+        <div style="font-size:14px;color:#ef4444;font-family:monospace;letter-spacing:2px;margin-bottom:20px;">01 — DECKSMITH</div>
+        <h1 style="font-size:72px;font-weight:700;line-height:1.1;color:#111;margin-bottom:30px;">把材料<br>变成<span style="color:#ef4444;">演示</span></h1>
+        <p style="font-size:18px;color:#666;line-height:1.8;max-width:400px;">AI 驱动的演示文件生成工具，30秒从材料到成品</p>
+        <button style="margin-top:30px;padding:14px 32px;background:#ef4444;color:#fff;border:none;font-size:15px;cursor:pointer;">开始使用 →</button>
+      </div>
+    </div>
+    <div style="flex:1;background:#fafafa;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;">
+      <div id="geo-canvas" style="width:400px;height:400px;position:relative;"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 主题3: 复古打字机 - 纸张质感 + 打字机效果 -->
+<div id="theme-typewriter" class="theme-page" style="min-height:100vh;background:#f5f0e8;display:none;font-family:'Courier New',monospace;">
+  <div style="max-width:800px;margin:0 auto;padding:80px 40px;">
+    <div style="background:#fff;border:2px solid #d4c5a9;padding:60px;box-shadow:8px 8px 0 #d4c5a9;position:relative;">
+      <div style="position:absolute;top:-20px;left:40px;background:#f5f0e8;padding:0 20px;font-size:12px;color:#8b7355;letter-spacing:3px;">DECKSMITH PPT</div>
+      <div id="typewriter-text" style="font-size:48px;font-weight:400;line-height:1.4;color:#2c2c2c;min-height:200px;"></div>
+      <div style="margin-top:40px;padding-top:30px;border-top:1px solid #d4c5a9;">
+        <button style="padding:12px 24px;background:#8b7355;color:#fff;border:none;font-family:inherit;cursor:pointer;">▶ 开始创作</button>
+      </div>
+      <div style="position:absolute;bottom:20px;right:20px;font-size:10px;color:#b8a88a;">PAGE 01</div>
+    </div>
+  </div>
+</div>
+
+<!-- 主题4: 赛博朋克 - 全屏黑 + 霓虹 + 故障 -->
+<div id="theme-cyberpunk" class="theme-page" style="min-height:100vh;background:#000;display:none;font-family:'Share Tech Mono',monospace;position:relative;overflow:hidden;">
+  <div style="position:absolute;top:0;left:0;right:0;bottom:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,255,0,0.03) 2px,rgba(0,255,0,0.03) 4px);pointer-events:none;"></div>
+  <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:600px;height:600px;border-radius:50%;background:radial-gradient(circle,rgba(0,255,255,0.1) 0%,transparent 50%);animation:cyber-pulse 3s infinite;"></div>
+  <div style="position:relative;z-index:10;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;text-align:center;">
+    <div style="font-size:14px;color:#ff00ff;letter-spacing:8px;margin-bottom:30px;">[ SYSTEM ONLINE ]</div>
+    <h1 style="font-size:96px;font-weight:700;color:#00ff00;text-shadow:0 0 30px rgba(0,255,0,0.5);animation:cyber-glitch 4s infinite;">DECK<br><span style="color:#ff00ff;">SMITH</span></h1>
+    <div style="margin-top:40px;display:flex;gap:20px;">
+      <button style="padding:16px 32px;background:transparent;color:#00ff00;border:2px solid #00ff00;font-family:inherit;font-size:14px;cursor:pointer;letter-spacing:2px;">[ 开始 ]</button>
+      <button style="padding:16px 32px;background:transparent;color:#ff00ff;border:2px solid #ff00ff;font-family:inherit;font-size:14px;cursor:pointer;letter-spacing:2px;">[ 文档 ]</button>
+    </div>
+  </div>
+</div>
+
+<!-- 主题5: 视差星空 - 3D空间 + 鼠标视差 -->
+<div id="theme-parallax" class="theme-page" style="min-height:100vh;background:linear-gradient(180deg,#0f0f23 0%,#1a1a3e 50%,#0d0d2b 100%);display:none;font-family:'Inter',sans-serif;perspective:1000px;overflow:hidden;">
+  <canvas id="stars-canvas" style="position:absolute;top:0;left:0;width:100%;height:100%;"></canvas>
+  <div id="parallax-content" style="position:relative;z-index:10;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;transform-style:preserve-3d;">
+    <div style="font-size:16px;color:#4a9eff;letter-spacing:6px;margin-bottom:30px;transform:translateZ(50px);">WELCOME TO</div>
+    <h1 style="font-size:120px;font-weight:900;color:#fff;text-shadow:0 0 60px rgba(74,158,255,0.5);transform:translateZ(100px);letter-spacing:-4px;">DS</h1>
+    <p style="font-size:18px;color:#8ab4f8;margin-top:30px;transform:translateZ(30px);">AI 驱动的演示文件生成</p>
+    <button style="margin-top:40px;padding:16px 48px;background:linear-gradient(135deg,#4a9eff,#6366f1);color:#fff;border:none;font-size:16px;cursor:pointer;transform:translateZ(60px);">开始探索</button>
+  </div>
+</div>
+
+<!-- 主题6: 流体渐变 - 全屏渐变流动 + 毛玻璃 -->
+<div id="theme-gradient" class="theme-page" style="min-height:100vh;display:none;font-family:'Inter',sans-serif;position:relative;overflow:hidden;">
+  <canvas id="gradient-canvas" style="position:absolute;top:0;left:0;width:100%;height:100%;"></canvas>
+  <div style="position:relative;z-index:10;display:flex;align-items:center;justify-content:center;height:100vh;">
+    <div style="background:rgba(255,255,255,0.1);backdrop-filter:blur(30px);border:1px solid rgba(255,255,255,0.2);border-radius:24px;padding:60px 80px;text-align:center;">
+      <div style="font-size:14px;color:rgba(255,255,255,0.6);letter-spacing:4px;margin-bottom:20px;">DECKSMITH</div>
+      <h1 style="font-size:64px;font-weight:800;color:#fff;line-height:1.2;">一键<br>生成演示</h1>
+      <p style="font-size:16px;color:rgba(255,255,255,0.7);margin-top:20px;">上传材料，选择风格，30秒完成</p>
+      <button style="margin-top:30px;padding:14px 40px;background:rgba(255,255,255,0.2);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:8px;font-size:15px;cursor:pointer;backdrop-filter:blur(10px);">开始使用</button>
+    </div>
+  </div>
+</div>
+
+<!-- 主题7: 纸质手工 - 纸张层次 + 手绘风格 -->
+<div id="theme-paper" class="theme-page" style="min-height:100vh;background:#f0ebe3;display:none;font-family:'Georgia',serif;">
+  <div style="position:absolute;top:0;left:0;right:0;bottom:0;background:url('data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22100%22 height=%22100%22><rect width=%22100%22 height=%22100%22 fill=%22none%22/><path d=%22M0 50 Q25 30 50 50 Q75 70 100 50%22 stroke=%22%23d4c5a9%22 stroke-width=%220.5%22 fill=%22none%22/></svg>');opacity:0.3;pointer-events:none;"></div>
+  <div style="position:relative;z-index:10;display:flex;align-items:center;justify-content:center;height:100vh;padding:40px;">
+    <div style="display:flex;gap:60px;align-items:center;">
+      <div style="flex:1;">
+        <div style="font-size:12px;color:#8b7355;letter-spacing:4px;margin-bottom:30px;">✦ ✦ ✦</div>
+        <h1 style="font-size:56px;font-weight:400;line-height:1.4;color:#2c2c2c;font-style:italic;">把材料<br>变成<span style="color:#8b7355;">演示</span></h1>
+        <p style="font-size:16px;color:#666;line-height:1.8;margin-top:20px;font-style:italic;">AI 自动整理，30秒拿到成品</p>
+        <button style="margin-top:30px;padding:12px 24px;background:#fff;color:#2c2c2c;border:2px solid #d4c5a9;font-family:inherit;font-style:italic;cursor:pointer;box-shadow:4px 4px 0 #d4c5a9;">开始创作</button>
+      </div>
+      <div style="flex:1;position:relative;">
+        <div style="width:300px;height:400px;background:#fff;border:2px solid #d4c5a9;transform:rotate(-5deg);box-shadow:8px 8px 0 #d4c5a9;padding:40px;">
+          <div style="font-size:10px;color:#b8a88a;letter-spacing:2px;">SAMPLE</div>
+          <div style="margin-top:20px;font-size:14px;color:#666;line-height:2;font-style:italic;">
+            <div>• 上传材料</div>
+            <div>• 选择风格</div>
+            <div>• 生成演示</div>
+          </div>
+        </div>
+        <div style="position:absolute;top:20px;left:20px;width:300px;height:400px;background:#f5f0e8;border:2px solid #d4c5a9;transform:rotate(3deg);z-index:-1;"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 主题切换器 -->
+<div class="theme-switcher">
+  <button class="theme-btn active" data-theme="magnetic" style="background:#8b5cf6;">1</button>
+  <button class="theme-btn" data-theme="geometric" style="background:#ef4444;">2</button>
+  <button class="theme-btn" data-theme="typewriter" style="background:#8b7355;">3</button>
+  <button class="theme-btn" data-theme="cyberpunk" style="background:#00ff00;color:#000;">4</button>
+  <button class="theme-btn" data-theme="parallax" style="background:#4a9eff;">5</button>
+  <button class="theme-btn" data-theme="gradient" style="background:linear-gradient(135deg,#f093fb,#f5576c);">6</button>
+  <button class="theme-btn" data-theme="paper" style="background:#d4c5a9;color:#000;">7</button>
+</div>
+
+<style>
+  @keyframes cyber-pulse { 0%,100%{opacity:0.5;transform:translate(-50%,-50%) scale(1)} 50%{opacity:0.8;transform:translate(-50%,-50%) scale(1.1)} }
+  @keyframes cyber-glitch { 0%,100%{transform:translate(0)} 20%{transform:translate(-3px,3px)} 40%{transform:translate(3px,-3px)} 60%{transform:translate(-2px,-2px)} 80%{transform:translate(2px,2px)} }
+</style>
+
+<script>
+  // 主题切换
+  document.querySelectorAll('.theme-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+      const theme = this.dataset.theme;
+      document.querySelectorAll('.theme-btn').forEach(b => b.classList.remove('active'));
+      this.classList.add('active');
+      document.querySelectorAll('.theme-page').forEach(p => p.style.display = 'none');
+      document.getElementById('theme-' + theme).style.display = 'block';
+      initTheme(theme);
+    });
+  });
+
+  function initTheme(theme) {
+    if (theme === 'magnetic') initMagnetic();
+    if (theme === 'geometric') initGeometric();
+    if (theme === 'typewriter') initTypewriter();
+    if (theme === 'parallax') initParallax();
+    if (theme === 'gradient') initGradient();
+  }
+
+  // 主题1: 磁性流体 - 鼠标跟随 + 文字弹性
+  function initMagnetic() {
+    const page = document.getElementById('theme-magnetic');
+    const glow = document.getElementById('magnetic-glow');
+    const c1 = document.getElementById('magnetic-char1');
+    const c2 = document.getElementById('magnetic-char2');
+    const btn = document.getElementById('magnetic-btn');
+    
+    page.onmousemove = function(e) {
+      const x = e.clientX;
+      const y = e.clientY;
+      glow.style.background = 'radial-gradient(600px circle at ' + x + 'px ' + y + 'px, rgba(139,92,246,0.15), transparent 40%)';
+      
+      const rect = c1.getBoundingClientRect();
+      const cx = rect.left + rect.width/2;
+      const cy = rect.top + rect.height/2;
+      const dx = (x - cx) / 50;
+      const dy = (y - cy) / 50;
+      c1.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+      c2.style.transform = 'translate(' + (-dx) + 'px,' + (-dy) + 'px)';
+    };
+    
+    btn.onmouseenter = function() { this.style.transform = 'scale(1.1)'; this.style.boxShadow = '0 0 40px rgba(139,92,246,0.6)'; };
+    btn.onmouseleave = function() { this.style.transform = 'scale(1)'; this.style.boxShadow = 'none'; };
+  }
+
+  // 主题2: 几何解构 - 动态几何图形
+  function initGeometric() {
+    const canvas = document.getElementById('geo-canvas');
+    canvas.innerHTML = '';
+    const colors = ['#ef4444','#3b82f6','#10b981','#f59e0b','#8b5cf6'];
+    
+    for (let i = 0; i < 20; i++) {
+      const shape = document.createElement('div');
+      const size = Math.random() * 80 + 20;
+      const isCircle = Math.random() > 0.5;
+      const color = colors[Math.floor(Math.random() * colors.length)];
+      
+      shape.style.cssText = 'position:absolute;width:' + size + 'px;height:' + size + 'px;background:' + color + ';opacity:0.15;border-radius:' + (isCircle?'50%':'4px') + ';left:' + (Math.random()*350) + 'px;top:' + (Math.random()*350) + 'px;transition:all 0.4s cubic-bezier(0.175,0.885,0.32,1.275);cursor:pointer;';
+      
+      shape.onmouseenter = function() {
+        this.style.transform = 'rotate(' + (Math.random()*360) + 'deg) scale(1.8)';
+        this.style.opacity = '0.4';
+        this.style.boxShadow = '0 10px 30px ' + color + '40';
+      };
+      shape.onmouseleave = function() {
+        this.style.transform = 'rotate(0deg) scale(1)';
+        this.style.opacity = '0.15';
+        this.style.boxShadow = 'none';
+      };
+      
+      canvas.appendChild(shape);
+    }
+  }
+
+  // 主题3: 复古打字机 - 逐字打字效果
+  function initTypewriter() {
+    const el = document.getElementById('typewriter-text');
+    const text = '把材料变成专业演示文件';
+    el.textContent = '';
+    let i = 0;
+    
+    function type() {
+      if (i < text.length) {
+        el.textContent += text[i];
+        i++;
+        setTimeout(type, 100 + Math.random() * 100);
+      } else {
+        el.innerHTML += '<span style="animation:blink 1s infinite;">|</span>';
+      }
+    }
+    type();
+  }
+
+  // 主题5: 视差星空 - 3D鼠标视差
+  function initParallax() {
+    const canvas = document.getElementById('stars-canvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    
+    const stars = [];
+    for (let i = 0; i < 300; i++) {
+      stars.push({ x: Math.random()*canvas.width, y: Math.random()*canvas.height, size: Math.random()*2, speed: Math.random()*0.3 });
+    }
+    
+    const content = document.getElementById('parallax-content');
+    const page = document.getElementById('theme-parallax');
+    
+    page.onmousemove = function(e) {
+      const x = (e.clientX / window.innerWidth - 0.5) * 20;
+      const y = (e.clientY / window.innerHeight - 0.5) * 20;
+      content.style.transform = 'rotateY(' + x + 'deg) rotateX(' + (-y) + 'deg)';
+    };
+    
+    function animate() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      stars.forEach(s => {
+        ctx.fillStyle = 'rgba(74,158,255,' + (Math.random()*0.5+0.5) + ')';
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.size, 0, Math.PI*2);
+        ctx.fill();
+        s.y += s.speed;
+        if (s.y > canvas.height) s.y = 0;
+      });
+      requestAnimationFrame(animate);
+    }
+    animate();
+  }
+
+  // 主题6: 流体渐变 - 渐变流动
+  function initGradient() {
+    const canvas = document.getElementById('gradient-canvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    
+    let time = 0;
+    function animate() {
+      time += 0.005;
+      const g = ctx.createLinearGradient(
+        canvas.width * (0.5 + Math.sin(time) * 0.5), 0,
+        canvas.width * (0.5 + Math.cos(time*0.7) * 0.5), canvas.height
+      );
+      g.addColorStop(0, '#667eea');
+      g.addColorStop(0.3, '#764ba2');
+      g.addColorStop(0.6, '#f093fb');
+      g.addColorStop(1, '#f5576c');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      requestAnimationFrame(animate);
+    }
+    animate();
+  }
+
+  // 添加打字机动画样式
+  const style = document.createElement('style');
+  style.textContent = '@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}';
+  document.head.appendChild(style);
+
+  // 初始化第一个主题
+  initMagnetic();
+</script>
+</body>
+</html>

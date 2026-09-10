@@ -32,3 +32,10 @@ outputs/
 # 本地编辑器 / Agent 配置
 .claude/
 .vscode/
+
+# 备份文件
+*.bak
+*.backup
+*.v2
+*.tmp
+*.log

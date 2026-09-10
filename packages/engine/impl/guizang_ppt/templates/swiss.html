@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{title}}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --paper: {{paper}};
+            --ink: {{ink}};
+            --grey-1: {{grey_1}};
+            --grey-2: {{grey_2}};
+            --grey-3: {{grey_3}};
+            --accent: {{accent}};
+            --accent-on: {{accent_on}};
+        }
+
+        body {
+            font-family: 'Inter', 'Helvetica Neue', 'Arial', sans-serif;
+            background: var(--paper);
+            color: var(--ink);
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+        }
+
+        .presentation {
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .slide {
+            min-width: 100vw;
+            height: 100vh;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: 1fr;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* 网格背景（模拟 WebGL） */
+        .slide::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-image: 
+                linear-gradient(rgba(0, 0, 0, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 0, 0, 0.03) 1px, transparent 1px);
+            background-size: 40px 40px;
+            z-index: 0;
+        }
+
+        .slide-content {
+            position: relative;
+            z-index: 1;
+            padding: 8vh 8vw;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        /* 封面样式 */
+        .title-slide {
+            grid-template-columns: 1fr;
+            background: var(--ink);
+            color: var(--paper);
+        }
+
+        .title-slide .slide-content {
+            align-items: center;
+            text-align: center;
+        }
+
+        .title-slide h1 {
+            font-size: clamp(3rem, 6vw, 5rem);
+            font-weight: 700;
+            line-height: 1.1;
+            margin-bottom: 2rem;
+            letter-spacing: -0.03em;
+            text-transform: uppercase;
+        }
+
+        .title-slide .subtitle {
+            font-size: 1.5rem;
+            font-weight: 400;
+            opacity: 0.8;
+            margin-bottom: 1rem;
+        }
+
+        .title-slide .meta {
+            font-size: 1rem;
+            opacity: 0.6;
+        }
+
+        .title-slide .accent-bar {
+            width: 100px;
+            height: 8px;
+            background: var(--accent);
+            margin: 2rem 0;
+        }
+
+        /* 内容页样式 */
+        .content-slide {
+            grid-template-columns: 1fr 1fr;
+        }
+
+        .content-slide .content-left {
+            background: var(--paper);
+        }
+
+        .content-slide .content-right {
+            background: var(--grey-1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .content-slide h2 {
+            font-size: clamp(1.5rem, 3vw, 2.5rem);
+            font-weight: 700;
+            margin-bottom: 2rem;
+            letter-spacing: -0.02em;
+            text-transform: uppercase;
+            color: var(--ink);
+        }
+
+        .content-slide .accent-line {
+            width: 60px;
+            height: 6px;
+            background: var(--accent);
+            margin-bottom: 2rem;
+        }
+
+        .content-slide p {
+            font-size: 1.2rem;
+            line-height: 1.7;
+            color: var(--grey-3);
+            margin-bottom: 1.5rem;
+        }
+
+        .content-slide ul {
+            list-style: none;
+            padding: 0;
+        }
+
+        .content-slide li {
+            font-size: 1.1rem;
+            line-height: 1.5;
+            margin-bottom: 1rem;
+            padding-left: 1.5rem;
+            position: relative;
+            color: var(--ink);
+        }
+
+        .content-slide li::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0.5em;
+            width: 8px;
+            height: 8px;
+            background: var(--accent);
+        }
+
+        /* 数据大字报 */
+        .data-slide {
+            grid-template-columns: 1fr 1fr;
+        }
+
+        .data-slide .data-left {
+            background: var(--accent);
+            color: var(--accent-on);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+        }
+
+        .data-slide .data-number {
+            font-size: clamp(4rem, 10vw, 8rem);
+            font-weight: 700;
+            line-height: 1;
+            margin-bottom: 1rem;
+        }
+
+        .data-slide .data-label {
+            font-size: 1.5rem;
+            font-weight: 500;
+            opacity: 0.9;
+        }
+
+        .data-slide .data-right {
+            background: var(--paper);
+        }
+
+        /* 章节封面 */
+        .section-slide {
+            grid-template-columns: 1fr;
+            background: var(--grey-1);
+        }
+
+        .section-slide .section-number {
+            font-size: clamp(6rem, 15vw, 12rem);
+            font-weight: 700;
+            color: rgba(0, 0, 0, 0.05);
+            position: absolute;
+            top: 5%;
+            right: 10%;
+            z-index: 0;
+        }
+
+        .section-slide h2 {
+            font-size: clamp(2rem, 4vw, 3rem);
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: -0.02em;
+        }
+
+        /* 结束页 */
+        .end-slide {
+            grid-template-columns: 1fr;
+            background: var(--ink);
+            color: var(--paper);
+            text-align: center;
+        }
+
+        .end-slide h2 {
+            font-size: clamp(2rem, 4vw, 3rem);
+            margin-bottom: 2rem;
+            text-transform: uppercase;
+        }
+
+        .end-slide p {
+            font-size: 1.2rem;
+            opacity: 0.7;
+        }
+
+        .end-slide .accent-bar {
+            width: 100px;
+            height: 8px;
+            background: var(--accent);
+            margin: 2rem auto;
+        }
+
+        /* 导航控制 */
+        .nav {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            display: flex;
+            gap: 0.5rem;
+            z-index: 100;
+        }
+
+        .nav button {
+            width: 40px;
+            height: 40px;
+            border: 2px solid var(--ink);
+            background: transparent;
+            color: var(--ink);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+            font-size: 1.2rem;
+        }
+
+        .nav button:hover {
+            background: var(--ink);
+            color: var(--paper);
+        }
+
+        /* 页码 */
+        .page-number {
+            position: fixed;
+            bottom: 2rem;
+            left: 2rem;
+            font-size: 0.9rem;
+            color: var(--grey-3);
+            z-index: 100;
+            font-weight: 500;
+        }
+
+        /* 演讲者模式 */
+        .presenter-notes {
+            display: none;
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 1rem 2rem;
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            font-size: 0.9rem;
+            z-index: 1000;
+        }
+
+        /* 响应式 */
+        @media (max-width: 1024px) {
+            .content-slide {
+                grid-template-columns: 1fr;
+            }
+            .content-slide .content-right {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="presentation" id="presentation">
+        {{slides}}
+    </div>
+
+    <div class="page-number" id="pageNumber">1 / {{totalSlides}}</div>
+
+    <div class="nav">
+        <button onclick="prevSlide()">←</button>
+        <button onclick="nextSlide()">→</button>
+    </div>
+
+    <div class="presenter-notes" id="presenterNotes"></div>
+
+    <script>
+        let currentSlide = 0;
+        const presentation = document.getElementById('presentation');
+        const slides = document.querySelectorAll('.slide');
+        const pageNumber = document.getElementById('pageNumber');
+        const totalSlides = slides.length;
+
+        function updateSlide() {
+            presentation.style.transform = `translateX(-${currentSlide * 100}vw)`;
+            pageNumber.textContent = `${currentSlide + 1} / ${totalSlides}`;
+            
+            // 更新导航按钮状态
+            const prevBtn = document.querySelector('.nav button:first-child');
+            const nextBtn = document.querySelector('.nav button:last-child');
+            prevBtn.style.opacity = currentSlide === 0 ? '0.3' : '1';
+            nextBtn.style.opacity = currentSlide === totalSlides - 1 ? '0.3' : '1';
+            
+            // 更新演讲者备注
+            const notes = slides[currentSlide].dataset.notes;
+            document.getElementById('presenterNotes').textContent = notes || '';
+        }
+
+        function nextSlide() {
+            if (currentSlide < totalSlides - 1) {
+                currentSlide++;
+                updateSlide();
+            }
+        }
+
+        function prevSlide() {
+            if (currentSlide > 0) {
+                currentSlide--;
+                updateSlide();
+            }
+        }
+
+        // 键盘导航
+        document.addEventListener('keydown', (e) => {
+            switch (e.key) {
+                case 'ArrowRight':
+                case 'ArrowDown':
+                case ' ':
+                case 'PageDown':
+                    nextSlide();
+                    e.preventDefault();
+                    break;
+                case 'ArrowLeft':
+                case 'ArrowUp':
+                case 'PageUp':
+                    prevSlide();
+                    e.preventDefault();
+                    break;
+                case 'Home':
+                    currentSlide = 0;
+                    updateSlide();
+                    break;
+                case 'End':
+                    currentSlide = totalSlides - 1;
+                    updateSlide();
+                    break;
+                case 'Escape':
+                    document.body.style.overflow = 'auto';
+                    break;
+                case 'p':
+                case 'P':
+                    const notes = document.getElementById('presenterNotes');
+                    notes.style.display = notes.style.display === 'block' ? 'none' : 'block';
+                    break;
+            }
+        });
+
+        // 触摸支持
+        let touchStartX = 0;
+        document.addEventListener('touchstart', (e) => {
+            touchStartX = e.touches[0].clientX;
+        });
+
+        document.addEventListener('touchend', (e) => {
+            const touchEndX = e.changedTouches[0].clientX;
+            const diff = touchStartX - touchEndX;
+            if (Math.abs(diff) > 50) {
+                if (diff > 0) {
+                    nextSlide();
+                } else {
+                    prevSlide();
+                }
+            }
+        });
+
+        // 鼠标滚轮
+        document.addEventListener('wheel', (e) => {
+            if (e.deltaY > 0) {
+                nextSlide();
+            } else if (e.deltaY < 0) {
+                prevSlide();
+            }
+        }, { passive: true });
+
+        // 初始化
+        updateSlide();
+    </script>
+</body>
+</html>

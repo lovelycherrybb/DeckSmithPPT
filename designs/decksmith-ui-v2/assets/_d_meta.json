@@ -1,0 +1,109 @@
+{
+  "projectName": "decksmith-ui-v2",
+  "description": "DeckSmithPPT 全新 UI/UX 设计 - 现代化、专业的 PPT 生成平台",
+  "createdAt": "2026-09-10T12:00:00Z",
+  "updatedAt": "2026-09-10T12:00:00Z",
+  "designSystems": [],
+  "designTokens": {
+    "colors": {
+      "primary": {
+        "50": "#eff6ff",
+        "100": "#dbeafe",
+        "200": "#bfdbfe",
+        "300": "#93c5fd",
+        "400": "#60a5fa",
+        "500": "#3b82f6",
+        "600": "#2563eb",
+        "700": "#1d4ed8",
+        "800": "#1e40af",
+        "900": "#1e3a8a"
+      },
+      "accent": {
+        "500": "#10b981",
+        "600": "#059669"
+      },
+      "neutral": {
+        "50": "#f8fafc",
+        "100": "#f1f5f9",
+        "200": "#e2e8f0",
+        "300": "#cbd5e1",
+        "400": "#94a3b8",
+        "500": "#64748b",
+        "600": "#475569",
+        "700": "#334155",
+        "800": "#1e293b",
+        "900": "#0f172a"
+      }
+    },
+    "typography": {
+      "fontFamily": {
+        "sans": "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+        "mono": "'JetBrains Mono', 'Fira Code', monospace"
+      }
+    },
+    "spacing": {
+      "1": "4px",
+      "2": "8px",
+      "3": "12px",
+      "4": "16px",
+      "5": "20px",
+      "6": "24px",
+      "8": "32px",
+      "10": "40px",
+      "12": "48px",
+      "16": "64px"
+    },
+    "borderRadius": {
+      "sm": "6px",
+      "md": "8px",
+      "lg": "12px",
+      "xl": "16px",
+      "2xl": "24px",
+      "full": "9999px"
+    },
+    "shadows": {
+      "sm": "0 1px 2px 0 rgba(0, 0, 0, 0.05)",
+      "md": "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1)",
+      "lg": "0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1)",
+      "xl": "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)"
+    }
+  },
+  "assets": [
+    {
+      "path": "index.html",
+      "name": "首页",
+      "description": "产品首页 - 展示价值主张和功能特性",
+      "status": "draft",
+      "createdAt": "2026-09-10T12:00:00Z",
+      "updatedAt": "2026-09-10T12:00:00Z"
+    },
+    {
+      "path": "studio.html",
+      "name": "工作台",
+      "description": "PPT 创建和管理界面 - 包含创建向导、草稿任务、生成任务、文件库",
+      "status": "draft",
+      "createdAt": "2026-09-10T12:00:00Z",
+      "updatedAt": "2026-09-10T12:00:00Z"
+    },
+    {
+      "path": "history.html",
+      "name": "历史项目",
+      "description": "项目历史记录 - 统计概览和项目管理",
+      "status": "draft",
+      "createdAt": "2026-09-10T12:00:00Z",
+      "updatedAt": "2026-09-10T12:00:00Z"
+    }
+  ],
+  "designPrinciples": [
+    "清晰的信息层次 - 使用视觉权重引导用户注意力",
+    "一致的设计语言 - 统一的色彩、间距和组件样式",
+    "高效的工作流程 - 减少操作步骤，提升创作效率",
+    "专业的视觉呈现 - 建立品牌信任和产品认知"
+  ],
+  "features": [
+    "响应式设计 - 支持桌面和平板设备",
+    "暗色模式预留 - CSS 变量支持主题切换",
+    "组件化架构 - 可复用的 UI 组件",
+    "无障碍设计 - 符合 WCAG 标准"
+  ]
+}

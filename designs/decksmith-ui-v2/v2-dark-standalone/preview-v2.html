@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeckSmithPPT UI 设计预览</title>
+    <style>
+        :root {
+            --primary: #8b5cf6;
+            --primary-light: #a78bfa;
+            --bg-dark: #0a0a0a;
+            --bg-card: #111111;
+            --bg-hover: #1a1a1a;
+            --text-primary: #f3f4f6;
+            --text-secondary: #9ca3af;
+            --text-muted: #6b7280;
+            --border: #1f1f1f;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-dark);
+            color: var(--text-primary);
+            line-height: 1.6;
+            padding: 40px 20px;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 48px;
+            padding: 48px 24px;
+            background: var(--bg-card);
+            border-radius: 16px;
+            border: 1px solid var(--border);
+        }
+
+        .header-logo {
+            font-size: 80px;
+            font-weight: 900;
+            letter-spacing: -4px;
+            margin-bottom: 16px;
+        }
+
+        .header-logo .d { color: var(--primary); }
+        .header-logo .s { color: var(--text-primary); }
+
+        .header-tagline {
+            font-size: 16px;
+            color: var(--text-muted);
+            letter-spacing: 4px;
+            margin-bottom: 8px;
+        }
+
+        .header-subtitle {
+            font-size: 13px;
+            color: var(--text-muted);
+            letter-spacing: 6px;
+        }
+
+        .section-title {
+            font-size: 20px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 20px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .preview-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+            margin-bottom: 48px;
+        }
+
+        .preview-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+            transition: all 200ms ease;
+        }
+
+        .preview-card:hover {
+            border-color: var(--primary);
+            transform: translateY(-2px);
+        }
+
+        .preview-image {
+            width: 100%;
+            height: 160px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .preview-image.studio {
+            background: linear-gradient(135deg, rgba(139, 92, 246, 0.2), rgba(139, 92, 246, 0.05));
+        }
+
+        .preview-image.history {
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(16, 185, 129, 0.05));
+        }
+
+        .preview-content {
+            padding: 20px;
+        }
+
+        .preview-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+        }
+
+        .preview-desc {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-bottom: 16px;
+        }
+
+        .preview-features {
+            list-style: none;
+            margin-bottom: 16px;
+        }
+
+        .preview-features li {
+            font-size: 12px;
+            color: var(--text-secondary);
+            padding: 4px 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .preview-features li::before {
+            content: '•';
+            color: var(--primary);
+        }
+
+        .preview-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 16px;
+            background: var(--primary);
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            transition: background 150ms ease;
+        }
+
+        .preview-link:hover {
+            background: #7c3aed;
+        }
+
+        .tokens-section {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 48px;
+        }
+
+        .tokens-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+        }
+
+        .token-item {
+            padding: 16px;
+            background: var(--bg-hover);
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+
+        .token-label {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+
+        .token-value {
+            font-size: 13px;
+            color: var(--text-primary);
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .color-swatches {
+            display: flex;
+            gap: 6px;
+            margin-top: 8px;
+        }
+
+        .color-swatch {
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .instructions {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+        }
+
+        .instructions ol {
+            padding-left: 20px;
+        }
+
+        .instructions li {
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin-bottom: 12px;
+            line-height: 1.6;
+        }
+
+        .instructions code {
+            background: var(--bg-hover);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            color: var(--primary-light);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="header-logo">
+                <span class="d">D</span><span class="s">S</span>
+            </div>
+            <div class="header-tagline">材料 × AI = 演示文件</div>
+            <div class="header-subtitle">DECKSMITHPOWER</div>
+        </div>
+        
+        <h2 class="section-title">页面设计</h2>
+        
+        <div class="preview-grid">
+            <div class="preview-card">
+                <div class="preview-image studio">工作台</div>
+                <div class="preview-content">
+                    <h3 class="preview-title">工作台 (studio-v2.html)</h3>
+                    <p class="preview-desc">PPT 创建和管理界面</p>
+                    <ul class="preview-features">
+                        <li>侧边栏导航</li>
+                        <li>创建向导流程</li>
+                        <li>草稿任务管理</li>
+                        <li>深色主题设计</li>
+                    </ul>
+                    <a href="studio-v2.html" class="preview-link">查看设计 →</a>
+                </div>
+            </div>
+            
+            <div class="preview-card">
+                <div class="preview-image history">历史项目</div>
+                <div class="preview-content">
+                    <h3 class="preview-title">历史项目 (history-v2.html)</h3>
+                    <p class="preview-desc">项目历史记录和管理</p>
+                    <ul class="preview-features">
+                        <li>统计概览卡片</li>
+                        <li>项目列表表格</li>
+                        <li>筛选和搜索</li>
+                        <li>分页导航</li>
+                    </ul>
+                    <a href="history-v2.html" class="preview-link">查看设计 →</a>
+                </div>
+            </div>
+        </div>
+        
+        <h2 class="section-title">设计令牌</h2>
+        
+        <div class="tokens-section">
+            <div class="tokens-grid">
+                <div class="token-item">
+                    <div class="token-label">主色调</div>
+                    <div class="token-value">#8b5cf6</div>
+                    <div class="color-swatches">
+                        <div class="color-swatch" style="background: #ede9fe;"></div>
+                        <div class="color-swatch" style="background: #ddd6fe;"></div>
+                        <div class="color-swatch" style="background: #c4b5fd;"></div>
+                        <div class="color-swatch" style="background: #a78bfa;"></div>
+                        <div class="color-swatch" style="background: #8b5cf6;"></div>
+                        <div class="color-swatch" style="background: #7c3aed;"></div>
+                        <div class="color-swatch" style="background: #6d28d9;"></div>
+                    </div>
+                </div>
+                
+                <div class="token-item">
+                    <div class="token-label">背景色</div>
+                    <div class="token-value">#0a0a0a</div>
+                    <div class="color-swatches">
+                        <div class="color-swatch" style="background: #0a0a0a;"></div>
+                        <div class="color-swatch" style="background: #111111;"></div>
+                        <div class="color-swatch" style="background: #1a1a1a;"></div>
+                        <div class="color-swatch" style="background: #1f1f1f;"></div>
+                    </div>
+                </div>
+                
+                <div class="token-item">
+                    <div class="token-label">文本色</div>
+                    <div class="token-value">#f3f4f6</div>
+                    <div class="color-swatches">
+                        <div class="color-swatch" style="background: #f3f4f6;"></div>
+                        <div class="color-swatch" style="background: #9ca3af;"></div>
+                        <div class="color-swatch" style="background: #6b7280;"></div>
+                    </div>
+                </div>
+                
+                <div class="token-item">
+                    <div class="token-label">成功色</div>
+                    <div class="token-value">#10b981</div>
+                </div>
+                
+                <div class="token-item">
+                    <div class="token-label">警告色</div>
+                    <div class="token-value">#f59e0b</div>
+                </div>
+                
+                <div class="token-item">
+                    <div class="token-label">圆角</div>
+                    <div class="token-value">6px / 8px / 10px / 12px</div>
+                </div>
+            </div>
+        </div>
+        
+        <h2 class="section-title">如何使用</h2>
+        
+        <div class="instructions">
+            <ol>
+                <li>点击上方的"查看设计"按钮，直接在浏览器中预览各个页面</li>
+                <li>所有页面都是静态 HTML 文件，不依赖后端服务</li>
+                <li>设计风格与首页保持一致：深色背景、紫色主题、简洁风格</li>
+                <li>支持响应式设计，适配不同屏幕尺寸</li>
+            </ol>
+        </div>
+    </div>
+</body>
+</html>

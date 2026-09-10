@@ -1,15 +1,22 @@
 openapi: 3.1.0
 info:
   title: DeckSmithPPT API
-  version: 0.3.0
+  version: 0.6.0
   description: '前后端契约（唯一来源）。后端实现本契约，前端从本文件生成类型。
 
-    与 engine.schema.json 保持一致：通用层（DeckRequest/Job）+ 引擎参数层（ppt_master）。
+    与 engine.schema.json 保持一致：通用层（DeckRequest/Job）。引擎参数层已移至 engine.schema.json 定义。
 
-    生成流程：提交 → 产草稿(draft) → 用户确认 → 正式生成(running) → completed/failed/timeout。
+    生成流程：草稿引擎任务和输出引擎任务各自独立提交，提交即运行。草稿引擎任务：running → completed（生成草稿）。输出引擎任务：running → completed/failed/timeout。
+
+    与 vc_design 保持一致：接口定义来自 docs/vc_design/interfaces/01-系统接口-SystemAPI.md。
+
+    任务类型：明确区分草稿引擎任务和输出引擎任务。
+
+    项目管理：支持自动创建项目（首次上传时）。
 
     '
 paths:
+  # ===== 引擎相关 =====
   /api/engines:
     get:
       summary: 获取引擎列表及参数说明书
@@ -19,8 +26,20 @@ paths:
 
         用户选择引擎后，前端根据 params_schema 自动渲染对应表单控件。
 
+        支持按引擎类型筛选（草稿引擎/输出引擎）。
+
         '
       operationId: listEngines
+      parameters:
+      - name: type
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - draft
+          - output
+          description: 按引擎类型筛选（草稿引擎/输出引擎）
       responses:
         '200':
           description: 引擎列表
@@ -30,175 +49,14 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/EngineInfo'
-  /api/decks:
-    post:
-      summary: 提交 PPT 生成任务
-      operationId: submitDeck
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/DeckRequest'
-      responses:
-        '202':
-          description: 已受理，返回任务（可能处于 draft 或 running）
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Job'
-        '400':
-          description: 请求不合法（参数校验失败）
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-  /api/jobs:
-    get:
-      summary: 获取任务历史列表
-      description: 支持按状态过滤和简单分页，供历史页使用。
-      operationId: listJobs
-      parameters:
-      - name: status
-        in: query
-        required: false
-        schema:
-          type: string
-          enum:
-          - running
-          - draft
-          - timeout
-          - failed
-          - completed
-      - name: limit
-        in: query
-        required: false
-        schema:
-          type: integer
-          default: 20
-      - name: offset
-        in: query
-        required: false
-        schema:
-          type: integer
-          default: 0
-      responses:
-        '200':
-          description: 任务列表
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Job'
-  /api/jobs/{job_id}:
-    get:
-      summary: 查询任务状态
-      parameters:
-      - name: job_id
-        in: path
-        required: true
-        schema:
-          type: string
-      responses:
-        '200':
-          description: 任务状态
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Job'
-        '404':
-          description: 任务不存在
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-  /api/jobs/{job_id}/confirm:
-    post:
-      summary: 确认草稿并进入正式生成
-      description: 用户在草稿(draft)状态查看/修改内容后调用，进入 running。
-      operationId: confirmDraft
-      parameters:
-      - name: job_id
-        in: path
-        required: true
-        schema:
-          type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-              - content
-              properties:
-                content:
-                  type: string
-                  description: 用户修改确认后的 Markdown 内容
-                engine_params:
-                  type: object
-                  description: 引擎特定参数（风格/模式/尺寸等），在查看草稿后于本步选择。结构见 GET /api/engines
-                    返回的 params_schema；不在此强校验，由引擎实现校验。
-                  additionalProperties: true
-      responses:
-        '202':
-          description: 已进入正式生成
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Job'
-        '409':
-          description: 任务当前不是 draft 状态，无法确认
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-  /api/jobs/{job_id}/draft:
-    patch:
-      summary: 保存草稿（用户修改后暂存，不触发生成）
-      description: >-
-        用户在 draft 状态下编辑草稿 Markdown 后调用，仅持久化内容，不改变任务状态（仍为
-        draft），也不触发正式生成。可多次调用（前端自动保存 / 手动保存）。确认正式生成请调用
-        /api/jobs/{job_id}/confirm。
-      operationId: saveDraft
-      parameters:
-      - name: job_id
-        in: path
-        required: true
-        schema:
-          type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/SaveDraftRequest'
-      responses:
-        '200':
-          description: 已保存草稿
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Job'
-        '404':
-          description: 任务不存在
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '409':
-          description: 任务当前不是 draft 状态，无法保存草稿
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
+
+  # ===== 文件上传 =====
   /api/upload:
     post:
       summary: 上传源文件（docx/pdf 等）
       description: '上传用户本地文件，后端存到 jobs_root/uploads/<upload_id>/，返回服务器路径。
 
-        该路径作为 DeckRequest.source.value（type=file_path）提交，引擎再用 source_to_md 转成草稿。
+        该路径作为 DeckRequest.sources[].value（type=file_path）提交，引擎再用 source_to_md 转成草稿。
 
         '
       operationId: uploadFile
@@ -220,6 +78,467 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/UploadResponse'
+
+  /api/agent/execute:
+    post:
+      summary: Agent 文本处理（统一接口）
+      description: '丢一段任务给 AI、拿文本回来——所有 Agent 文本能力的统一入口。
+
+        kind 是后端注册的白名单（非任意提示词透传）。新增 AI 能力 = 注册新 kind + 提示词模板。
+
+        预置 kind：
+        - modify_draft：修改草稿（draft_id + version + prompt → 改写后的 Markdown）
+        - suggest_title：拟标题（files → 标题；单文件直接文件名，多文件 Agent 概括）
+
+        安全约束：输入内容先过安全检查（POST /api/drafts/check 同套规则），通过才调 Agent。
+
+        '
+      operationId: executeAgent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentExecuteRequest'
+      responses:
+        '200':
+          description: Agent 返回的文本
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentExecuteResult'
+        '400':
+          description: kind 未注册、参数不合法或安全检查不通过
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: 引用的资源不存在（如草稿/版本）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '502':
+          description: Agent 调用失败
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+
+  /api/agent/execute-async:
+    post:
+      summary: Agent 文本处理（异步接口）
+      description: '丢一段任务给 AI、立即返回会话ID，后台异步执行。适用于长时间运行的任务，避免前端超时。
+
+        输入参数与同步接口相同，安全约束一致。
+
+        会话ID可用于：
+        - 查询会话状态：GET /api/agent/sessions/{session_id}
+        - 获取流式输出：GET /api/agent/sessions/{session_id}/stream
+
+        '
+      operationId: executeAgentAsync
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentExecuteRequest'
+      responses:
+        '200':
+          description: 会话ID（立即返回）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentSessionResponse'
+        '400':
+          description: kind 未注册、参数不合法或安全检查不通过
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: 引用的资源不存在（如草稿/版本）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '502':
+          description: Agent 调用失败
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/agent/sessions/{session_id}:
+      summary: 查询 Agent 会话状态（代理接口）
+      description: '代理查询异步 Agent 任务的会话状态和最新输出片段。
+
+        本接口直接代理到对应 Agent 的原生查询接口，不进行额外封装。
+
+        会话状态：running（运行中）、completed（已完成）、failed（失败）。
+
+        '
+      operationId: getAgentSession
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          description: 会话ID（来自 execute-async 接口）
+      responses:
+        '200':
+          description: 会话状态信息
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentSessionStatus'
+        '404':
+          description: 会话不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/agent/sessions/{session_id}/stream:
+      summary: 获取 Agent 会话流式输出（代理接口）
+      description: '代理实时获取 Agent 的输出，支持流式显示。
+
+        本接口直接代理到对应 Agent 的原生流式输出接口，不进行额外封装。
+
+        返回 SSE（Server-Sent Events）流，每行一个 JSON 对象。
+
+        事件类型：
+        - text：文本输出片段
+        - status：状态更新（如"正在分析内容..."）
+        - error：错误信息
+        - done：完成信号
+
+        '
+      operationId: getAgentSessionStream
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          description: 会话ID（来自 execute-async 接口）
+      responses:
+        '200':
+          description: SSE 流式输出
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: |
+                  SSE 格式，每行一个 JSON 对象：
+                  - text 事件：{"type": "text", "data": "输出片段"}
+                  - status 事件：{"type": "status", "data": "状态描述"}
+                  - error 事件：{"type": "error", "data": "错误信息"}
+                  - done 事件：{"type": "done", "data": "完成"}
+        '404':
+          description: 会话不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/engines/suggest-title:
+    post:
+      deprecated: true
+      summary: '（已废弃）拟演示文件标题'
+      description: '已废弃：改用 POST /api/agent/execute（kind=suggest_title）。
+        过渡期保留兼容，后续版本删除。
+        '
+      operationId: suggestTitle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SuggestTitleRequest'
+      responses:
+        '200':
+          description: 拟题结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuggestTitleResult'
+        '400':
+          description: 输入不合法或安全检查不通过
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '502':
+          description: Agent 调用失败
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ===== 项目相关 =====
+  /api/projects:
+    get:
+      summary: 获取项目列表
+      description: '返回所有项目，支持分页。项目是顶层聚合根，管理所有相关任务。
+
+        项目自动创建：用户首次上传文件时，如未指定 project_id，系统自动创建新项目。
+
+        '
+      operationId: listProjects
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 20
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 0
+      responses:
+        '200':
+          description: 项目列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Project'
+
+  /api/projects/{project_id}:
+    get:
+      summary: 获取项目详情
+      description: '返回项目信息，包含关联的任务、草稿、演示文件列表。
+
+        支持草稿独立实体：每个草稿有唯一标识和版本管理。
+
+        '
+      operationId: getProject
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 项目详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectDetail'
+        '404':
+          description: 项目不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ===== 任务相关 =====
+  /api/decks:
+    post:
+      summary: 提交生成任务
+      description: '用户上传文件后调用，创建草稿引擎任务或输出引擎任务。
+
+        任务类型区分：
+        - 草稿引擎任务：调用草稿生成引擎，将用户文件转化为 Markdown 草稿
+        - 输出引擎任务：调用输出引擎，将草稿内容生成最终展示文件
+
+        项目自动创建：
+        - 如未指定 project_id，系统自动创建新项目
+        - 项目名称默认为上传文件名（去除扩展名）
+
+        任务状态流转：
+        - 草稿引擎任务：running → completed（生成草稿）
+        - 输出引擎任务：running → completed/failed/timeout
+
+        '
+      operationId: submitDeck
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeckRequest'
+      responses:
+        '202':
+          description: 已受理，返回任务
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '400':
+          description: 请求不合法（参数校验失败）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/jobs:
+    get:
+      summary: 获取任务历史列表
+      description: '支持按状态过滤和简单分页，供历史页使用。
+
+        支持按项目ID筛选，获取特定项目的任务列表。
+
+        任务类型：草稿引擎任务和输出引擎任务。
+
+        '
+      operationId: listJobs
+      parameters:
+      - name: project_id
+        in: query
+        required: false
+        schema:
+          type: string
+          description: 按项目ID筛选
+      - name: status
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - running
+          - timeout
+          - failed
+          - completed
+      - name: task_type
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - draft
+          - output
+          description: 按任务类型筛选（草稿引擎任务/输出引擎任务）
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 20
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 0
+      responses:
+        '200':
+          description: 任务列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Job'
+
+  /api/jobs/{job_id}:
+    get:
+      summary: 获取任务详情
+      description: '返回任务信息，包含当前状态和状态明细。
+
+        状态明细（status_detail）仅在 running 状态下有意义，内容随执行进度变化。
+
+        前端通过轮询获取最新状态。
+
+        '
+      operationId: getJob
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 任务详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '404':
+          description: 任务不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/jobs/{job_id}/retry:
+    post:
+      summary: 重试失败的任务（创建新任务）
+      description: '任务失败或超时后，创建一个新任务重新执行。
+
+        仅 failed 或 timeout 状态的任务可重试。
+
+        原任务状态不变（保持终态），新任务有独立的 job_id。
+
+        '
+      operationId: retryJob
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '202':
+          description: 重试已受理
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '404':
+          description: 任务不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: 任务状态不允许重试（非 failed/timeout）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/presentations/{presentation_id}/download:
+    get:
+      summary: 下载演示文件
+      description: 按演示文件标识下载文件。
+      operationId: downloadPresentation
+      parameters:
+      - name: presentation_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 文件流
+          content:
+            application/vnd.openxmlformats-officedocument.presentationml.presentation:
+              schema:
+                type: string
+                format: binary
+            text/html:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: 演示文件不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /api/jobs/{job_id}/download:
     get:
       summary: 下载生成的 PPTX
@@ -245,57 +564,362 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+
+  # ===== 草稿相关 =====
+  /api/projects/{project_id}/drafts:
+    get:
+      summary: 获取项目下的草稿列表
+      description: '返回指定项目下的所有草稿。
+
+        草稿是独立实体，有唯一标识和版本管理。
+
+        每个草稿对应一个草稿引擎任务。
+
+        '
+      operationId: listProjectDrafts
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 草稿列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Draft'
+        '404':
+          description: 项目不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/drafts/{draft_id}:
+    get:
+      summary: 获取草稿详情
+      description: '返回草稿信息，包含版本历史列表。
+
+        草稿版本管理：
+        - 版本号格式：年月日时分秒（如 20260907143025）
+        - 同一草稿同一秒内只能保存一次（防止版本冲突）
+        - 历史版本不可变，可随时还原
+
+        '
+      operationId: getDraft
+      parameters:
+      - name: draft_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 草稿详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DraftDetail'
+        '404':
+          description: 草稿不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/drafts/{draft_id}/versions/{version}:
+    get:
+      summary: 获取草稿指定版本
+      description: 返回指定版本的 Markdown 内容。
+      operationId: getDraftVersion
+      parameters:
+      - name: draft_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: version
+        in: path
+        required: true
+        schema:
+          type: string
+          description: 版本号（年月日时分秒格式）
+          pattern: '^[0-9]{14}$'
+      responses:
+        '200':
+          description: 草稿版本内容
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DraftVersion'
+        '404':
+          description: 草稿或版本不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/drafts/{draft_id}/modify:
+    post:
+      deprecated: true
+      summary: '（已废弃）让 Agent 修改草稿'
+      description: '已废弃：改用 POST /api/agent/execute（kind=modify_draft）。
+        过渡期保留兼容，后续版本删除。
+
+        用户确认后再调用保存接口。不直接保存，避免覆盖错误内容。
+        '
+      operationId: modifyDraft
+      parameters:
+      - name: draft_id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModifyDraftRequest'
+      responses:
+        '200':
+          description: 修改后的内容（供前端渲染）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DraftVersion'
+        '404':
+          description: 草稿不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/drafts/{draft_id}/restore:
+    post:
+      summary: 还原草稿到历史版本
+      description: '将草稿的当前版本切换为指定的历史版本。
+
+        不会删除任何版本，只是更新 current_version 指向。
+
+        '
+      operationId: restoreDraftVersion
+      parameters:
+      - name: draft_id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - version
+              properties:
+                version:
+                  type: string
+                  description: 要还原到的版本号
+                  pattern: '^[0-9]{14}$'
+      responses:
+        '200':
+          description: 还原成功，返回草稿详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Draft'
+        '404':
+          description: 草稿或版本不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/drafts/{draft_id}/versions:
+    post:
+      summary: 保存草稿新版本
+      description: '用户编辑草稿后调用，保存为新版本。
+
+        版本号自动生成（年月日时分秒格式），同一秒内不允许重复保存。
+
+        '
+      operationId: saveDraftVersion
+      parameters:
+      - name: draft_id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaveDraftVersionRequest'
+      responses:
+        '201':
+          description: 新版本已保存
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DraftVersion'
+        '404':
+          description: 草稿不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: 版本冲突（同一秒内已保存过）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ===== 演示文件相关 =====
+  /api/projects/{project_id}/presentations:
+    get:
+      summary: 获取项目下的演示文件列表
+      description: '返回指定项目下的所有演示文件。
+
+        演示文件由输出引擎任务生成。
+
+        '
+      operationId: listProjectPresentations
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 演示文件列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Presentation'
+        '404':
+          description: 项目不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ===== 安全检查 =====
+  /api/drafts/check:
+    post:
+      summary: 草稿安全检查
+      description: '在提交给 Agent 之前进行安全检查。
+
+        检查内容是否包含恶意指令、提示词注入等。
+
+        检查通过才允许调用 Agent。
+
+        '
+      operationId: checkDraftSecurity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SecurityCheckRequest'
+      responses:
+        '200':
+          description: 检查结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecurityCheckResult'
+
 components:
   schemas:
+    # ===== 引擎相关 =====
     EngineInfo:
       type: object
-      description: 引擎注册信息（含参数说明书，前端用于动态渲染表单）
+      description: 引擎信息
       required:
       - name
       - display_name
-      - params_schema
+      - engine_type
       properties:
         name:
           type: string
-          description: 引擎标识（对应 DeckRequest.engine 的值）
-          example: ppt_master
+          description: 引擎名称（唯一标识）
         display_name:
           type: string
-          description: 用户可见的名称
-          example: PPT Master
+          description: 引擎显示名称
         description:
           type: string
-          description: 简短说明
-          example: 基于 AI Agent 的 PPT 生成引擎，支持多风格/多尺寸
+          description: 引擎描述
+        engine_type:
+          type: string
+          enum:
+          - draft
+          - output
+          description: '引擎类型：draft=草稿生成引擎，output=输出引擎'
         params_schema:
           type: object
-          description: '该引擎 engine_params 的 JSON Schema。
+          description: 引擎参数说明书（JSON Schema），前端据此渲染表单。可选，不提供则使用默认参数。
+          additionalProperties: true
 
-            前端根据此 schema 渲染动态表单（下拉框/输入框/开关等）。
-
-            '
-          example:
-            type: object
-            properties:
-              style:
-                type: string
-                enum:
-                - swiss-minimal
-                - soft-rounded
-                description: 视觉风格
+    # ===== 通用层 =====
     DeckRequest:
       type: object
-      description: 提交生成请求（通用层，与 engine.schema.json 的 DeckContent 一致）。
+      description: '提交生成请求（通用层，与 engine.schema.json 的 DeckContent 一致）。
+
+        任务类型区分：
+        - 草稿引擎任务：调用草稿生成引擎，将用户文件转化为 Markdown 草稿
+        - 输出引擎任务：调用输出引擎，将草稿内容生成最终展示文件
+
+        项目自动创建：
+        - 如未指定 project_id，系统自动创建新项目
+        - 项目名称默认为上传文件名（去除扩展名）
+
+        '
       required:
       - engine
-        # title 和 pages 改为可选（引擎可从源材料推断）
+      - engine_type
       properties:
+        project_id:
+          type: string
+          description: '项目标识（可选，不提供则自动创建新项目）。自动创建时，项目名称默认为上传文件名（去除扩展名）。'
+        engine:
+          type: string
+          enum:
+          - ppt_master
+          - claude_draft
+          - ppt_master_draft
+          - guizang_ppt
+          description: 选择哪个引擎（注册表里的名字，与 GET /api/engines 返回的 name 一致）
+        engine_type:
+          type: string
+          enum:
+          - draft
+          - output
+          description: '引擎类型：draft=草稿引擎任务，output=输出引擎任务'
         title:
           type: string
           description: PPT 标题（可选，可从源材料提取或由 AI 自动生成）
         content:
           type: string
-          description: Markdown 内容。草稿确认后必传；直出模式可空（用 source）
+          description: Markdown 内容。输出引擎任务可直接提供，或通过 draft_id + version 引用草稿实体。最多15000字符。
+          maxLength: 15000
+        draft_id:
+          type: string
+          description: '草稿标识（输出引擎任务可选）。提供后系统自动从草稿版本中获取 content，无需手动传 content。'
+        version:
+          type: string
+          description: '草稿版本号（与 draft_id 配合使用）。不提供则使用草稿的当前版本。'
+          pattern: '^[0-9]{14}$'
         content_style:
           type: string
           default: marketing_promo
@@ -311,57 +935,79 @@ components:
           - codex
           - hermes
           default: claude
-          description: 驱动引擎的 AI agent（可选）。claude=Claude Code；codex=Codex CLI；hermes=Hermes
-        engine:
-          type: string
-          enum:
-          - ppt_master
-          description: 选择哪个引擎（注册表里的名字，与 GET /api/engines 返回的 name 一致）
-        source:
-          type: object
-          description: 原始素材来源（可选，提交时提供）。优先于 content，用于生成草稿。
-          required:
-          - type
-          - value
-          properties:
-            type:
-              type: string
-              enum:
-              - url
-              - file_path
-              - text
-              description: url=网页链接；file_path=上传后的服务器路径；text=直接文本
-            value:
-              type: string
-              description: URL / 上传返回的 path / 文本内容
+          description: 驱动引擎的 AI agent（通用层，可选）。claude=Claude Code；codex=Codex CLI；hermes=Hermes
+        sources:
+          type: array
+          description: '原始素材来源列表（提交时提供，用于生成草稿）。优先于 content。支持多文件上传。'
+          items:
+            type: object
+            required:
+            - type
+            - value
+            properties:
+              type:
+                type: string
+                enum:
+                - url
+                - file_path
+                - text
+                description: url=网页链接；file_path=上传返回的 path；text=直接文本
+              value:
+                type: string
+                description: URL / 上传返回的 path / 文本内容
         engine_params:
           type: object
-          description: '提交阶段选择的引擎参数（与 GET /api/engines 返回的 params_schema 对齐）。
-
-            其中 style/mode/format/notes/animation 可在此阶段预选，confirm 阶段可继续覆盖。
-
-            '
+          description: 提交阶段选择的引擎参数（与 /api/engines 返回的 params_schema 对齐）。
           additionalProperties: true
+
     JobStatus:
       type: string
-      description: 任务状态
+      description: 任务状态（与 vc_design 一致：只有4种状态）
       enum:
       - running
-      - draft
       - timeout
       - failed
       - completed
+
     Job:
       type: object
+      description: '引擎任务
+
+        任务类型：
+        - 草稿引擎任务：调用草稿生成引擎，将用户文件转化为 Markdown 草稿
+        - 输出引擎任务：调用输出引擎，将草稿内容生成最终展示文件
+
+        状态明细（status_detail）：
+        - 仅在 running 状态下有意义
+        - 内容随执行进度变化（如"正在生成第3页..."）
+        - 前端通过轮询获取最新状态
+
+        '
       required:
       - job_id
       - status
+      - task_type
       properties:
         job_id:
           type: string
           description: 任务唯一 ID
+        project_id:
+          type: string
+          description: 所属项目标识
+        task_type:
+          type: string
+          enum:
+          - draft
+          - output
+          description: '任务类型：draft=草稿引擎任务，output=输出引擎任务'
         status:
           $ref: '#/components/schemas/JobStatus'
+        status_detail:
+          type: string
+          description: '状态明细（引擎当前正在做什么，仅 running 时有意义）。前端通过轮询获取最新状态。'
+        engine_job_id:
+          type: string
+          description: '引擎任务编号（用于查询 Agent 执行状态，即 Agent 的会话标识）。非 Agent 类引擎可为空。'
         title:
           type: string
           description: PPT 标题（可选，可从源材料提取或由 AI 自动生成）
@@ -384,25 +1030,280 @@ components:
         result_path:
           type: string
           description: 生成的 PPTX 文件路径（completed 后非空）
-        draft_path:
+        draft_id:
           type: string
-          description: 草稿 Markdown 文本路径（draft 状态时有值）
+          description: 输出任务所使用的草稿标识（直接给 content 生成时为空）
+        draft_version:
+          type: string
+          pattern: '^[0-9]{14}$'
+          description: 输出任务所使用的草稿版本号（年月日时分秒），演示文件命名依据
+        draft_content:
+          type: string
+          description: 草稿 Markdown 内容（已废弃，使用 Draft 实体）
         error:
           type: string
           description: 失败/超时原因（仅 failed/timeout 时有值）
         created_at:
           type: string
           format: date-time
-          description: 任务创建时间（ISO 8601）
+          description: 创建时间（ISO 8601）
         updated_at:
           type: string
           format: date-time
-          description: 任务最后更新时间（ISO 8601）
-        draft_content:
+          description: 最后更新时间（ISO 8601）
+
+    # ===== 项目相关 =====
+    Project:
+      type: object
+      description: '项目（顶层聚合根，管理所有相关任务、草稿、演示文件）。'
+      required:
+      - project_id
+      - project_name
+      - created_at
+      - updated_at
+      properties:
+        project_id:
           type: string
-          description: 草稿 Markdown 内容（draft 状态时返回，供前端查看/编辑）
+          description: 项目标识（唯一）
+        project_name:
+          type: string
+          description: 项目名称（用户可见）
+        current_draft_id:
+          type: string
+          description: 当前草稿标识（用户正在编辑的草稿）
+        current_draft_version:
+          type: string
+          description: 当前草稿版本（用户正在编辑的版本）
+          pattern: '^[0-9]{14}$'
+        created_at:
+          type: string
+          format: date-time
+          description: 创建时间（ISO 8601）
+        updated_at:
+          type: string
+          format: date-time
+          description: 最后更新时间（ISO 8601）
+        draft_count:
+          type: integer
+          description: 项目下的草稿数量（列表接口附带统计）
+        presentation_count:
+          type: integer
+          description: 项目下的演示文件数量（列表接口附带统计）
+        running_task_count:
+          type: integer
+          description: 项目下正在运行中的任务数量（列表接口附带统计）
+
+    ProjectDetail:
+      type: object
+      description: 项目详情（包含关联的任务、草稿、演示文件列表）
+      allOf:
+      - $ref: '#/components/schemas/Project'
+      - type: object
+        properties:
+          tasks:
+            type: array
+            description: 关联的任务列表
+            items:
+              $ref: '#/components/schemas/Job'
+          drafts:
+            type: array
+            description: 关联的草稿列表（独立实体，有唯一标识和版本管理）
+            items:
+              $ref: '#/components/schemas/Draft'
+          presentations:
+            type: array
+            description: 关联的演示文件列表
+            items:
+              $ref: '#/components/schemas/Presentation'
+
+    # ===== 草稿相关 =====
+    Draft:
+      type: object
+      description: '草稿（独立实体，有唯一标识和版本管理）
+
+        草稿版本管理：
+        - 版本号格式：年月日时分秒（如 20260907143025）
+        - 同一草稿同一秒内只能保存一次（防止版本冲突）
+        - 历史版本不可变，可随时还原
+        '
+      required:
+      - draft_id
+      - project_id
+      - task_id
+      - current_version
+      - created_at
+      - updated_at
+      properties:
+        draft_id:
+          type: string
+          description: 草稿唯一 ID
+        project_id:
+          type: string
+          description: 所属项目标识
+        task_id:
+          type: string
+          description: 生成此草稿的草稿引擎任务标识
+        current_version:
+          type: string
+          description: 当前版本号（年月日时分秒格式）
+          pattern: '^[0-9]{14}$'
+        created_at:
+          type: string
+          format: date-time
+          description: 创建时间（ISO 8601）
+        updated_at:
+          type: string
+          format: date-time
+          description: 最后更新时间（ISO 8601）
+
+    DraftDetail:
+      type: object
+      description: 草稿详情（包含版本历史）
+      allOf:
+      - $ref: '#/components/schemas/Draft'
+      - type: object
+        properties:
+          content:
+            type: string
+            description: 当前版本的 Markdown 内容
+          versions:
+            type: array
+            description: 版本历史列表
+            items:
+              $ref: '#/components/schemas/DraftVersion'
+
+    DraftVersion:
+      type: object
+      description: 草稿版本
+      required:
+      - draft_id
+      - task_id
+      - version
+      - content
+      - draft_path
+      - created_at
+      properties:
+        draft_id:
+          type: string
+          description: 草稿标识
+        project_id:
+          type: string
+          description: 所属项目标识
+        task_id:
+          type: string
+          description: 生成任务（哪个草稿引擎任务创建的）
+        version:
+          type: string
+          description: 版本号（年月日时分秒格式）
+          pattern: '^[0-9]{14}$'
+        content:
+          type: string
+          description: Markdown 内容
+        draft_path:
+          type: string
+          description: 草稿文件路径（服务器上的存储位置）
+        created_at:
+          type: string
+          format: date-time
+          description: 版本创建时间（ISO 8601）
+
+    ModifyDraftRequest:
+      type: object
+      description: 修改草稿请求
+      required:
+      - current_version
+      - prompt
+      properties:
+        current_version:
+          type: string
+          description: 当前版本号（用于冲突检测）
+          pattern: '^[0-9]{14}$'
+        prompt:
+          type: string
+          description: 用户的修改提示词
+
+    SaveDraftVersionRequest:
+      type: object
+      description: 保存草稿新版本请求
+      required:
+      - content
+      properties:
+        content:
+          type: string
+          description: 用户编辑后的 Markdown 内容
+
+    # ===== 演示文件相关 =====
+    Presentation:
+      type: object
+      description: 演示文件（最终产物）
+      required:
+      - presentation_id
+      - project_id
+      - task_id
+      - file_name
+      - file_format
+      - file_path
+      - created_at
+      properties:
+        presentation_id:
+          type: string
+          description: 演示文件唯一 ID
+        project_id:
+          type: string
+          description: 所属项目标识
+        task_id:
+          type: string
+          description: 生成此文件的输出引擎任务标识
+        file_name:
+          type: string
+          description: 文件名称（默认为项目名称_年月日时分秒）
+        file_format:
+          type: string
+          description: 文件格式（PPTX、HTML等）
+          enum:
+          - pptx
+          - html
+        file_path:
+          type: string
+          description: 文件路径（服务器上的存储位置）
+        created_at:
+          type: string
+          format: date-time
+          description: 创建时间（ISO 8601）
+
+    # ===== 安全检查相关 =====
+    SecurityCheckRequest:
+      type: object
+      description: 安全检查请求
+      required:
+      - content
+      properties:
+        content:
+          type: string
+          description: 待检查的草稿 Markdown 内容
+
+    SecurityCheckResult:
+      type: object
+      description: 安全检查结果
+      required:
+      - passed
+      properties:
+        passed:
+          type: boolean
+          description: 检查是否通过
+        reason:
+          type: string
+          description: 不通过的原因（通过时为空）
+        rules_checked:
+          type: array
+          description: 已检查的规则列表
+          items:
+            type: string
+
+    # ===== 通用 =====
     Error:
       type: object
+      description: 错误响应
       required:
       - message
       properties:
@@ -412,92 +1313,7 @@ components:
         code:
           type: string
           description: 错误码（可选）
-    ppt_master:
-      type: object
-      description: ppt_master 引擎在 engine_params 中支持的参数。中文说明见 docs/contracts/style-guide.md
-      properties:
-        source:
-          type: object
-          description: 原始素材来源（可选）。优先于 content。
-          required:
-          - type
-          - value
-          properties:
-            type:
-              type: string
-              enum:
-              - url
-              - file_path
-              - text
-              description: url=网页链接；file_path=本地文件路径；text=直接文本
-            value:
-              type: string
-              description: URL / 文件路径 / 文本内容
-        style:
-          type: string
-          description: 视觉风格（18 种）。中文说明见 docs/contracts/style-guide.md
-          enum:
-          - swiss-minimal
-          - soft-rounded
-          - glassmorphism
-          - dark-tech
-          - blueprint
-          - editorial
-          - photo-editorial
-          - data-journalism
-          - brutalist
-          - chalkboard
-          - ink-notes
-          - ink-wash
-          - memphis
-          - paper-cut
-          - pixel-art
-          - sketch-notes
-          - vintage-poster
-          - zine
-        mode:
-          type: string
-          description: 叙事模式（auto=由引擎自动决定）。中文说明见 docs/contracts/style-guide.md
-          enum:
-          - auto
-          - pyramid
-          - narrative
-          - instructional
-          - showcase
-          - briefing
-          default: auto
-        format:
-          type: string
-          description: 画布/输出尺寸（默认 ppt169）。中文说明见 docs/contracts/style-guide.md
-          enum:
-          - ppt169
-          - ppt43
-          - xiaohongshu
-          - moments
-          - story
-          - wechat
-          - banner
-          - a4
-          default: ppt169
-        notes:
-          type: boolean
-          default: false
-          description: 是否生成演讲备注
-        animation:
-          type: string
-          enum:
-          - none
-          - auto
-          default: none
-          description: 动画：none=关，auto=自动
-    SaveDraftRequest:
-      type: object
-      required:
-      - content
-      properties:
-        content:
-          type: string
-          description: 用户修改后的草稿 Markdown 内容
+
     UploadResponse:
       type: object
       description: 文件上传后的返回（服务器侧路径，供后续提交引用）
@@ -514,8 +1330,156 @@ components:
           description: 原始文件名
         path:
           type: string
-          description: 服务器存储路径（jobs_root/uploads/<upload_id>/<filename>），作为 source.value
-            提交
+          description: 服务器存储路径（jobs_root/uploads/<upload_id>/<filename>），作为 sources[].value 提交
         size:
           type: integer
           description: 字节数
+
+    SuggestTitleRequest:
+      type: object
+      description: '（已废弃，过渡兼容）拟题请求——改用 AgentExecuteRequest（kind=suggest_title）'
+      required:
+      - files
+      properties:
+        files:
+          type: array
+          description: 已上传文件列表（来自 UploadResponse）
+          items:
+            type: object
+            required:
+            - filename
+            properties:
+              filename:
+                type: string
+                description: 文件名
+              path:
+                type: string
+                description: 上传返回的服务器路径（后端读内容给 Agent）
+
+    SuggestTitleResult:
+      type: object
+      description: '（已废弃，过渡兼容）拟题结果——改用 AgentExecuteResult'
+      required:
+      - title
+      properties:
+        title:
+          type: string
+          description: Agent 拟定的演示文件标题
+
+    AgentExecuteRequest:
+      type: object
+      description: 'Agent 文本处理统一请求：kind 是后端注册的白名单任务类型'
+      required:
+      - kind
+      properties:
+        kind:
+          type: string
+          enum:
+          - modify_draft
+          - suggest_title
+          description: 任务类型（白名单，后端注册；新增能力需同步契约）
+        draft_id:
+          type: string
+          description: 'modify_draft：草稿标识'
+        version:
+          type: string
+          description: 'modify_draft：草稿版本号（用于冲突检测）'
+          pattern: '^[0-9]{14}$'
+        prompt:
+          type: string
+          description: 'modify_draft：用户的修改提示词'
+        files:
+          type: array
+          description: 'suggest_title：已上传文件列表'
+          items:
+            type: object
+            required:
+            - filename
+            properties:
+              filename:
+                type: string
+                description: 文件名
+              path:
+                type: string
+                description: 上传返回的服务器路径（后端读内容给 Agent）
+
+    AgentExecuteResult:
+      type: object
+      description: Agent 文本处理统一响应（AI 返回的文本）
+      required:
+      - text
+      properties:
+        text:
+          type: string
+          description: AI 返回的文本（modify_draft 为改写后的 Markdown；suggest_title 为标题）
+        kind:
+          type: string
+          description: 本次执行的任务类型（回显）
+
+    AgentSessionResponse:
+      type: object
+      description: Agent 异步执行会话响应（立即返回会话ID和 agent 类型）
+      required:
+      - session_id
+      - agent_type
+      properties:
+        session_id:
+          type: string
+          description: 会话ID（UUID格式，用于后续查询状态和流式输出）
+        agent_type:
+          type: string
+          enum:
+          - claude
+          - codex
+          - hermes
+          description: Agent 类型，用于确定使用哪个原生接口查询会话状态
+
+    AgentSessionStatus:
+      type: object
+      description: Agent 会话状态信息
+      required:
+      - session_id
+      - status
+      properties:
+        session_id:
+          type: string
+          description: 会话ID
+        status:
+          type: string
+          enum:
+          - running
+          - completed
+          - failed
+          description: 会话状态
+        kind:
+          type: string
+          description: 任务类型（回显）
+        latest_output:
+          type: string
+          description: 最新输出片段（可选，仅在 running 状态下有意义）
+        completed_at:
+          type: string
+          format: date-time
+          description: 完成时间（仅在 completed 或 failed 状态下有值）
+        error:
+          type: string
+          description: 错误信息（仅在 failed 状态下有值）
+
+    AgentSessionStreamEvent:
+      type: object
+      description: Agent 会话流式输出事件
+      required:
+      - type
+      - data
+      properties:
+        type:
+          type: string
+          enum:
+          - text
+          - status
+          - error
+          - done
+          description: 事件类型
+        data:
+          type: string
+          description: 事件数据（text 为输出片段，status 为状态描述，error 为错误信息，done 为完成信号）

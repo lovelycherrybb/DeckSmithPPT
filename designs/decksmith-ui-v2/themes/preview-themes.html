@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeckSmithPPT - 主题切换功能预览</title>
+    <style>
+        :root {
+            --primary: #8b5cf6;
+            --primary-light: #a78bfa;
+            --primary-dark: #7c3aed;
+            --bg: #f8fafc;
+            --bg-card: #ffffff;
+            --bg-hover: #f1f5f9;
+            --text-primary: #0f172a;
+            --text-secondary: #475569;
+            --text-muted: #94a3b8;
+            --border: #e2e8f0;
+            --shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--bg);
+            color: var(--text-primary);
+            line-height: 1.6;
+            padding: 40px 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 48px;
+            padding: 48px 24px;
+            background: var(--bg-card);
+            border-radius: 16px;
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow);
+        }
+
+        .header-logo {
+            font-size: 60px;
+            font-weight: 900;
+            letter-spacing: -3px;
+            margin-bottom: 12px;
+        }
+
+        .header-logo .d { color: var(--primary); }
+        .header-logo .s { color: var(--text-primary); }
+
+        .header-title {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+        }
+
+        .header-desc {
+            font-size: 15px;
+            color: var(--text-secondary);
+        }
+
+        .section {
+            margin-bottom: 48px;
+        }
+
+        .section-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .section-desc {
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin-bottom: 24px;
+        }
+
+        .preview-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+        }
+
+        .preview-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: var(--shadow);
+            transition: all 200ms ease;
+        }
+
+        .preview-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+
+        .preview-image {
+            width: 100%;
+            height: 120px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .preview-image.dark {
+            background: #0a0a0a;
+            color: #f3f4f6;
+        }
+
+        .preview-image.light {
+            background: #f8fafc;
+            color: #0f172a;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .preview-content {
+            padding: 20px;
+        }
+
+        .preview-title {
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+        }
+
+        .preview-desc {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-bottom: 16px;
+        }
+
+        .preview-features {
+            list-style: none;
+            margin-bottom: 16px;
+        }
+
+        .preview-features li {
+            font-size: 12px;
+            color: var(--text-secondary);
+            padding: 4px 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .preview-features li::before {
+            content: '✓';
+            color: var(--primary);
+            font-size: 11px;
+        }
+
+        .preview-links {
+            display: flex;
+            gap: 8px;
+        }
+
+        .preview-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 14px;
+            background: var(--primary);
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 500;
+            transition: background 150ms ease;
+        }
+
+        .preview-link:hover {
+            background: var(--primary-dark);
+        }
+
+        .preview-link.secondary {
+            background: transparent;
+            color: var(--primary);
+            border: 1px solid var(--primary);
+        }
+
+        .preview-link.secondary:hover {
+            background: rgba(139, 92, 246, 0.1);
+        }
+
+        .demo-section {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: var(--shadow);
+        }
+
+        .demo-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 16px;
+        }
+
+        .theme-switcher {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+
+        .theme-btn {
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 200ms ease;
+            border: 1px solid var(--border);
+            background: var(--bg-card);
+            color: var(--text-secondary);
+        }
+
+        .theme-btn:hover {
+            background: var(--bg-hover);
+            color: var(--text-primary);
+        }
+
+        .theme-btn.active {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+        }
+
+        .demo-preview {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .demo-header {
+            padding: 12px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .demo-header.dark {
+            background: #111111;
+            color: #f3f4f6;
+            border-bottom: 1px solid #1f1f1f;
+        }
+
+        .demo-header.light {
+            background: #ffffff;
+            color: #0f172a;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .demo-body {
+            padding: 16px;
+            font-size: 13px;
+        }
+
+        .demo-body.dark {
+            background: #0a0a0a;
+            color: #9ca3af;
+        }
+
+        .demo-body.light {
+            background: #f8fafc;
+            color: #475569;
+        }
+
+        .color-comparison {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+            margin-top: 20px;
+        }
+
+        .color-item {
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+
+        .color-item .label {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            margin-bottom: 8px;
+        }
+
+        .color-item .swatches {
+            display: flex;
+            gap: 6px;
+        }
+
+        .color-item .swatch {
+            width: 28px;
+            height: 28px;
+            border-radius: 4px;
+            border: 1px solid rgba(0,0,0,0.1);
+        }
+
+        .color-item .swatch-label {
+            font-size: 10px;
+            color: var(--text-muted);
+            text-align: center;
+            margin-top: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="header-logo">
+                <span class="d">D</span><span class="s">S</span>
+            </div>
+            <h1 class="header-title">主题切换功能</h1>
+            <p class="header-desc">支持深色/浅色主题切换，保持一致的用户体验</p>
+        </div>
+
+        <div class="section">
+            <h2 class="section-title">页面预览</h2>
+            <p class="section-desc">点击右上角的主题切换按钮（🌙/☀️）可以在深色和浅色主题之间切换</p>
+            
+            <div class="preview-grid">
+                <div class="preview-card">
+                    <div class="preview-image dark">🌙 深色主题</div>
+                    <div class="preview-content">
+                        <h3 class="preview-title">深色主题</h3>
+                        <p class="preview-desc">适合夜间使用，减少眼睛疲劳</p>
+                        <ul class="preview-features">
+                            <li>背景: #0a0a0a</li>
+                            <li>卡片: #111111</li>
+                            <li>文字: #f3f4f6</li>
+                        </ul>
+                        <div class="preview-links">
+                            <a href="index-with-theme.html" class="preview-link">首页</a>
+                            <a href="studio-faithful.html" class="preview-link secondary">工作台</a>
+                            <a href="history-faithful.html" class="preview-link secondary">历史</a>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="preview-card">
+                    <div class="preview-image light">☀️ 浅色主题</div>
+                    <div class="preview-content">
+                        <h3 class="preview-title">浅色主题</h3>
+                        <p class="preview-desc">适合白天使用，清晰明亮</p>
+                        <ul class="preview-features">
+                            <li>背景: #f8fafc</li>
+                            <li>卡片: #ffffff</li>
+                            <li>文字: #0f172a</li>
+                        </ul>
+                        <div class="preview-links">
+                            <a href="studio-light.html" class="preview-link">工作台</a>
+                            <a href="history-light.html" class="preview-link secondary">历史</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2 class="section-title">主题切换演示</h2>
+            <div class="demo-section">
+                <h3 class="demo-title">实时预览</h3>
+                
+                <div class="theme-switcher">
+                    <button class="theme-btn active" onclick="switchDemo('dark')">深色主题</button>
+                    <button class="theme-btn" onclick="switchDemo('light')">浅色主题</button>
+                </div>
+
+                <div class="demo-preview">
+                    <div id="demo-header" class="demo-header dark">
+                        <span>DeckSmithPower</span>
+                        <span>🌙</span>
+                    </div>
+                    <div id="demo-body" class="demo-body dark">
+                        这是主题切换的演示效果。点击上方按钮切换主题。
+                    </div>
+                </div>
+
+                <div class="color-comparison">
+                    <div class="color-item">
+                        <div class="label">深色主题色板</div>
+                        <div class="swatches">
+                            <div>
+                                <div class="swatch" style="background:#0a0a0a"></div>
+                                <div class="swatch-label">#0a0a0a</div>
+                            </div>
+                            <div>
+                                <div class="swatch" style="background:#111111"></div>
+                                <div class="swatch-label">#111111</div>
+                            </div>
+                            <div>
+                                <div class="swatch" style="background:#1f1f1f"></div>
+                                <div class="swatch-label">#1f1f1f</div>
+                            </div>
+                            <div>
+                                <div class="swatch" style="background:#f3f4f6"></div>
+                                <div class="swatch-label">#f3f4f6</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="color-item">
+                        <div class="label">浅色主题色板</div>
+                        <div class="swatches">
+                            <div>
+                                <div class="swatch" style="background:#f8fafc"></div>
+                                <div class="swatch-label">#f8fafc</div>
+                            </div>
+                            <div>
+                                <div class="swatch" style="background:#ffffff"></div>
+                                <div class="swatch-label">#ffffff</div>
+                            </div>
+                            <div>
+                                <div class="swatch" style="background:#e2e8f0"></div>
+                                <div class="swatch-label">#e2e8f0</div>
+                            </div>
+                            <div>
+                                <div class="swatch" style="background:#0f172a"></div>
+                                <div class="swatch-label">#0f172a</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2 class="section-title">使用说明</h2>
+            <div class="demo-section">
+                <ul class="preview-features" style="margin-bottom:0">
+                    <li>每个页面右上角都有主题切换按钮（🌙 或 ☀️）</li>
+                    <li>点击按钮后，页面会自动跳转到对应主题的版本</li>
+                    <li>主题偏好会保存到 localStorage，下次访问自动应用</li>
+                    <li>首页、工作台、历史项目页面都支持主题切换</li>
+                    <li>所有功能、按钮、显示保持完全一致，只改变视觉样式</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function switchDemo(theme) {
+            const header = document.getElementById('demo-header');
+            const body = document.getElementById('demo-body');
+            
+            if (theme === 'dark') {
+                header.className = 'demo-header dark';
+                body.className = 'demo-body dark';
+                header.innerHTML = '<span>DeckSmithPower</span><span>🌙</span>';
+            } else {
+                header.className = 'demo-header light';
+                body.className = 'demo-body light';
+                header.innerHTML = '<span>DeckSmithPower</span><span>☀️</span>';
+            }
+
+            document.querySelectorAll('.theme-btn').forEach(btn => btn.classList.remove('active'));
+            event.currentTarget.classList.add('active');
+        }
+    </script>
+</body>
+</html>

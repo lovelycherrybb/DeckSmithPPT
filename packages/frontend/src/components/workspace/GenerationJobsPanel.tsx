@@ -28,6 +28,8 @@ import {
 } from '@/lib/api';
 import { StatusTag, contentStyleLabel } from '@/components/ui/StatusTag';
 import ProgressDisplay from '@/components/features/job/ProgressDisplay';
+import PagePreviewGrid from '@/components/features/job/PagePreviewGrid';
+import { useJobPages } from '@/hooks/useJobPages';
 import { formatDate } from '@/lib/formatDate';
 import { engineParamEntries } from '@/lib/engineParams';
 
@@ -65,6 +67,12 @@ export default function GenerationJobsPanel({
   const drawer = drawerJob
     ? jobs.find((j) => j.job_id === drawerJob.job_id) ?? drawerJob
     : null;
+
+  // 终态（completed/failed/timeout）抽屉的成品页墙；running 的页墙由 ProgressDisplay 内部按需拉，不双拉同一任务
+  const { data: drawerPages } = useJobPages(
+    drawer && drawer.status !== 'running' ? drawer.job_id : null,
+    drawer?.status
+  );
 
   // 外部请求打开任务详情（浮窗/URL 跳转）
   useEffect(() => {
@@ -237,7 +245,12 @@ export default function GenerationJobsPanel({
                 </>
               );
             })()}
-            {drawer.status === 'running' && <ProgressDisplay progress={drawer.progress} />}
+            {drawer.status === 'running' && <ProgressDisplay progress={drawer.progress} jobId={drawer.job_id} />}
+            {drawerPages && drawerPages.supports_page_preview && (
+              <div style={{ marginTop: 16 }}>
+                <PagePreviewGrid data={drawerPages} />
+              </div>
+            )}
             {drawer.error && (
               <Alert
                 type="error"

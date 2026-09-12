@@ -71,6 +71,29 @@ claude -p --dangerously-skip-permissions "请使用 ppt-master 技能...
 
 ---
 
+## 逐页预览呈现（生成过程中的页面墙）
+
+生成期间，输出引擎每写出一张 SVG 页，前端「任务详情」的页面墙就如实长出一格；不预测总页数（确定性口径见 constraints/逐页预览约束）。
+
+```
+任务 running
+    ↓ 前端按需轮询 /jobs/{id}/pages（仅在 pages_generated 或 stage 变化时重取）
+返回 JobPages：已完成页 pages[] + status + stage
+    ↓ 渲染
+[页1][页2]…[页N]  +  末尾一格（按 stage 决定语义）
+    ├─ stage=generating → 转圈格「正在生成第 N+1 页」
+    └─ stage=exporting  → 「正在导出成品」格（不谎报新页）
+    ↓ 每完成一张 svg，pages[] 多一项、末尾格顺延到 N+2
+任务 completed
+    ↓ 末尾格消失，pages[] 即最终整套页；每格可点开用内置预览左右翻页放大
+```
+
+- 数据来源单一：`pages_generated` 与页面列表都来自引擎的逐页枚举钩子（见 constraints），轮询里的「已生成 N 页」与页面墙天然对齐。
+- 完成后的演示文件复用同一能力：按 `presentation.task_id` 调 `/jobs/{id}/pages` 展示成品页墙 + 下载。
+- 引擎不实现逐页钩子（单文件 HTML/草稿类）时该流程整体跳过，界面维持原有下载/新标签打开。
+
+---
+
 ## 参数说明
 
 ### 用户选择的参数

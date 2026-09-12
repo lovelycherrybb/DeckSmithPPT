@@ -565,6 +565,83 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+  /api/jobs/{job_id}/pages:
+    get:
+      summary: 获取任务逐页预览
+      description: '返回某输出引擎任务的逐页预览快照（易失读模型，不落库）。只列已完成页，不含预测总数、不含 pending 占位。引擎未实现逐页枚举能力时 supports_page_preview=false、pages=[]。演示文件可按其 task_id 复用本端点。'
+      operationId: getJobPages
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 任务逐页预览视图
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobPages'
+        '404':
+          description: 任务不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/jobs/{job_id}/preview/{path}:
+    get:
+      summary: 获取任务某页/资源文件
+      description: '以引擎为该任务声明的产物根目录为挂载根，返回 svg_output/xxx.svg 或页内引用的 ../images 等资源文件流，使页内相对引用能同源解析。请求路径解析后必须落在该根目录内否则 400（防路径穿越）；仅放行受支持扩展名，否则 415。'
+      operationId: getJobPreviewFile
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: path
+        in: path
+        required: true
+        description: 相对产物根目录的路径（可含子目录，如 svg_output/01_cover.svg）
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 文件流
+          content:
+            image/svg+xml:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: 非法路径（越界，防路径穿越）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: 任务或文件不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '415':
+          description: 不支持的文件类型
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   # ===== 草稿相关 =====
   /api/projects/{project_id}/drafts:
     get:
@@ -870,6 +947,12 @@ components:
           type: object
           description: 引擎参数说明书（JSON Schema），前端据此渲染表单。可选，不提供则使用默认参数。
           additionalProperties: true
+        capabilities:
+          type: array
+          description: '引擎能力位声明，前端据此决定可用交互，与具体引擎名解耦。已知值：page_preview=支持逐页产物预览（由引擎实现逐页枚举钩子自动派生）。默认空数组。'
+          items:
+            type: string
+          default: []
 
     # ===== 通用层 =====
     DeckRequest:
@@ -1270,6 +1353,67 @@ components:
           type: string
           format: date-time
           description: 创建时间（ISO 8601）
+
+    # ===== 逐页预览相关（易失读模型，不落库）=====
+    PageItem:
+      type: object
+      description: 单个已完成页的轻量描述（仅描述已生成页；运行中的转圈格由前端按 status+stage 条件渲染，不在此）。
+      required:
+      - index
+      - name
+      - url
+      properties:
+        index:
+          type: integer
+          description: 页序，从 1 开始（按文件名数字前缀 int 升序，不依赖 mtime）
+        name:
+          type: string
+          description: 页文件名（如 03_overview.svg）
+        url:
+          type: string
+          description: 预览地址，指向 /api/jobs/{job_id}/preview/{相对产物根目录的路径}
+        kind:
+          type: string
+          enum:
+          - image
+          - html
+          default: image
+          description: 出图方式，引擎无关。image=内联 SVG/位图走 <Image>；html=整段 HTML 页走 iframe（本期未启用）
+    JobPages:
+      type: object
+      description: 某输出引擎任务的逐页预览快照。只承载已确定的事实，不预测总页数、不含 pending 占位。
+      required:
+      - job_id
+      - supports_page_preview
+      - status
+      - pages_generated
+      - pages
+      properties:
+        job_id:
+          type: string
+          description: 任务标识
+        engine:
+          type: string
+          description: 使用的引擎名
+        supports_page_preview:
+          type: boolean
+          description: 是否支持逐页预览（由引擎是否实现逐页枚举钩子派生，非按引擎名硬判）
+        status:
+          allOf:
+          - $ref: '#/components/schemas/JobStatus'
+          description: 任务状态，供前端决定是否追加末尾转圈/导出格
+        stage:
+          type: string
+          nullable: true
+          description: 引擎阶段（generating/exporting 等），供前端决定末尾格语义
+        pages_generated:
+          type: integer
+          description: 已完成页数（= len(pages)，单一读盘事实源）
+        pages:
+          type: array
+          description: 已完成页列表（引擎不支持逐页时为空数组）
+          items:
+            $ref: '#/components/schemas/PageItem'
 
     # ===== 安全检查相关 =====
     SecurityCheckRequest:

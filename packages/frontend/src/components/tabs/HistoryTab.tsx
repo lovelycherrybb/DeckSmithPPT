@@ -39,6 +39,7 @@ import { usePollingJobs } from '@/hooks/usePollingJobs';
 import DraftsPanel from '@/components/workspace/DraftsPanel';
 import GenerationJobsPanel from '@/components/workspace/GenerationJobsPanel';
 import PresentationsPanel from '@/components/workspace/PresentationsPanel';
+import { collectPreviewableTaskIds } from '@/components/features/job/PagePreviewGrid';
 import { formatDate } from '@/lib/formatDate';
 
 interface Props {
@@ -111,6 +112,11 @@ export default function HistoryTab({ onOpenInWorkspace }: Props) {
   const fileNameByTaskId = useMemo(
     () => Object.fromEntries(presentations.map((p) => [p.task_id, p.file_name])),
     [presentations]
+  );
+  // 逐页预览入口集合：由引擎 capabilities（钩子实现派生）决定，非引擎名硬判
+  const previewableTaskIds = useMemo(
+    () => collectPreviewableTaskIds(jobs, outputEngines),
+    [jobs, outputEngines]
   );
 
   const columns = [
@@ -267,6 +273,7 @@ export default function HistoryTab({ onOpenInWorkspace }: Props) {
                     <PresentationsPanel
                       presentations={presentations}
                       loading={viewLoading}
+                      previewableTaskIds={previewableTaskIds}
                       onRefresh={() => loadViewData(viewProjectId)}
                     />
                   ),

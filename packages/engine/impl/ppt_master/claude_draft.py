@@ -31,6 +31,12 @@ _CLAUDE_DRAFT_TIMEOUT = 900  # AI 理解 + 生成草稿上限 15 分钟
 class ClaudeDraftEngine(PptMasterEngine):
     """claude_draft：素材提取 + Claude 生成结构化草稿。"""
 
+    # 显式退出「逐页预览」可选钩子（父类 PptMasterEngine 的真实实现不适用于草稿）：
+    # 草稿引擎只产 draft.md，无逐页产物。置 None 后，能力探测
+    # （registry.implements_hook / /pages 路由）按「未实现」对待，界面维持原下载形态。
+    get_pages = None  # type: ignore[assignment]
+    get_preview_root = None  # type: ignore[assignment]
+
     def submit(
         self,
         content: str | None = None,

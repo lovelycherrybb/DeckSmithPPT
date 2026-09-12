@@ -20,7 +20,7 @@ from ..core.schemas import (
     DeckRequest, JobOut, EngineInfo, UploadResponse,
     ProjectOut, ProjectDetailOut, DraftOut, DraftDetailOut, DraftVersionOut, ModifyDraftRequest, SaveDraftVersionRequest,
     PresentationOut, SecurityCheckRequest, SecurityCheckResult,
-    SuggestTitleRequest, SuggestTitleResult
+    SuggestTitleRequest, SuggestTitleResult, JobPages
 )
 
 router = APIRouter()
@@ -232,6 +232,26 @@ def api_download(job_id: str, db: Session = Depends(get_db)):
         filename=filename,
         media_type=media_type,
     )
+
+
+@router.get("/api/jobs/{job_id}/pages", response_model=JobPages)
+def api_job_pages(job_id: str, db: Session = Depends(get_db)):
+    """获取任务逐页预览快照（引擎无关，能力由钩子实现派生）。
+
+    只列已完成页，不含预测总数与 pending 占位；演示文件按其 task_id 复用本端点。
+    """
+    return service.list_pages(db, job_id)
+
+
+@router.get("/api/jobs/{job_id}/preview/{path:path}")
+def api_job_preview(job_id: str, path: str, db: Session = Depends(get_db)):
+    """内联返回任务产物根目录内的页/资源文件（svg、页内 ../images 相对引用等）。
+
+    安全校验（越界 400 / 类型 415 / 不存在 404）在 service.resolve_preview_file；
+    不给 filename——预览是内联展示，不触发下载。
+    """
+    target, media_type = service.resolve_preview_file(db, job_id, path)
+    return FileResponse(target, media_type=media_type)
 
 
 # ===== 草稿相关 =====

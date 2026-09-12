@@ -51,6 +51,31 @@ class ProgressInfo(BaseModel):
     last_log: str | None = None  # 最近日志输出
 
 
+class PageItem(BaseModel):
+    """单个已完成页（对齐 openapi.yaml 的 PageItem）。
+
+    只描述已确定落盘的页；运行中的转圈格由前端按 status+stage 条件渲染，不在数据里。
+    """
+    index: int  # 页序，从 1 开始（按文件名数字前缀 int 升序，不依赖 mtime）
+    name: str  # 页文件名（如 03_overview.svg）
+    url: str  # 指向 /api/jobs/{job_id}/preview/{相对产物根目录的路径}
+    kind: str = "image"  # image=内联 SVG/位图走 <Image>；html=整段 HTML 页走 iframe（本期未启用）
+
+
+class JobPages(BaseModel):
+    """逐页预览快照（对齐 openapi.yaml 的 JobPages）。
+
+    只承载已确定的事实：不预测总页数、不含 pending 占位。
+    """
+    job_id: str
+    engine: str | None = None  # 使用的引擎名
+    supports_page_preview: bool = False  # 由引擎是否实现逐页枚举钩子派生，非按引擎名硬判
+    status: str  # running / timeout / failed / completed，供前端决定末尾格
+    stage: str | None = None  # 引擎阶段（generating/exporting 等），决定末尾格语义
+    pages_generated: int = 0  # 已完成页数（= len(pages)，单一读盘事实源）
+    pages: list[PageItem] = Field(default_factory=list)  # 已完成页列表（不支持逐页时为空数组）
+
+
 class JobOut(BaseModel):
     """任务响应（对齐 openapi.yaml 的 Job）。
     
@@ -100,6 +125,8 @@ class EngineInfo(BaseModel):
     description: str = ""
     engine_type: str = "draft"  # draft=草稿生成引擎，output=输出引擎
     params_schema: dict[str, Any]
+    # 能力位（如 page_preview）：由「引擎是否真实实现逐页枚举钩子」自动派生，不按引擎名写死
+    capabilities: list[str] = Field(default_factory=list)
 
 
 class UploadResponse(BaseModel):

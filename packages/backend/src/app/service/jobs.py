@@ -10,13 +10,15 @@ import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import BackgroundTasks, HTTPException
 from sqlalchemy.orm import Session
 
 from ..core.db import SessionLocal, JOBS_ROOT
 from ..repository.jobs import ProjectRepo, JobRepo, DraftRepo, DraftVersionRepo, PresentationRepo
-from ..core.schemas import DeckRequest, JobOut, ProgressInfo
+from ..core.schemas import DeckRequest, JobOut, ProgressInfo, PageItem, JobPages
+from ..engines.registry import implements_hook
 
 
 def _now() -> str:
@@ -230,6 +232,95 @@ class JobService:
             raise HTTPException(status_code=404, detail="任务不存在")
         job = JobOut(**row)
         return self._enrich_with_progress(job, self._get_engine_safe(job.engine))
+
+    # ── 逐页预览（引擎无关：能力由钩子实现派生，无引擎名分支）──
+    def list_pages(self, db: Session, job_id: str) -> JobPages:
+        """组装任务逐页预览快照。只承载已确定落盘的页：无预测总数、无 pending。
+
+        末尾「生成中/导出中」转圈格不在数据里，由前端按 status+stage 渲染。
+        """
+        row = self.repo.get(db, job_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="任务不存在")
+
+        status = row.get("status") or "running"
+        engine_name = row.get("engine")
+        engine = self._get_engine_safe(engine_name)
+        supports = engine is not None and implements_hook(engine, "get_pages")
+        if not supports:
+            return JobPages(job_id=job_id, engine=engine_name, supports_page_preview=False,
+                            status=status, stage=None, pages_generated=0, pages=[])
+
+        pages: list[PageItem] = []
+        stage: str | None = None
+        try:
+            if status == "running" and implements_hook(engine, "get_progress"):
+                stage = (engine.get_progress(job_id) or {}).get("stage")
+
+            root = engine.get_preview_root(job_id) if implements_hook(engine, "get_preview_root") else None
+            refs = engine.get_pages(job_id) or []
+            if root is not None:
+                root_resolved = root.resolve()
+                for ref in refs:
+                    rel = Path(str(ref["path"])).resolve().relative_to(root_resolved).as_posix()
+                    # url 用 quote 保留 / 分隔符（文件名可能含中文/空格）
+                    pages.append(PageItem(
+                        index=int(ref["index"]),
+                        name=str(ref["name"]),
+                        url=f"/api/jobs/{job_id}/preview/{quote(rel)}",
+                        kind=str(ref.get("kind") or "image"),
+                    ))
+        except Exception:
+            # 产物目录被清理等读盘异常：如实返回已确定的状态 + 空页，不整墙报错
+            pages = []
+        return JobPages(job_id=job_id, engine=engine_name, supports_page_preview=True,
+                        status=status, stage=stage, pages_generated=len(pages), pages=pages)
+
+    # preview 允许的扩展名 -> MIME（页内 ../images 相对引用的位图同源可解析）
+    _PREVIEW_MEDIA_TYPES = {
+        ".svg": "image/svg+xml",
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".webp": "image/webp",
+        ".gif": "image/gif",
+    }
+
+    def resolve_preview_file(self, db: Session, job_id: str, rel_path: str) -> tuple[Path, str]:
+        """把 /preview/{path} 解析到引擎声明的产物根目录内并校验安全。
+
+        返回 (绝对路径, media_type)；错误按契约：越界 400、不支持类型 415、
+        任务/引擎无产物根/文件不存在 404。挂整个根目录（而非单文件）正是为了
+        让页内相对引用（../images/xxx）同源解析——路径换算必须走 resolve()+
+        is_relative_to 双保险。
+        """
+        row = self.repo.get(db, job_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="任务不存在")
+        engine = self._get_engine_safe(row.get("engine"))
+        root = None
+        if engine is not None and implements_hook(engine, "get_preview_root"):
+            try:
+                root = engine.get_preview_root(job_id)
+            except Exception:
+                root = None
+        if root is None:
+            raise HTTPException(status_code=404, detail="该任务无可预览产物（引擎不支持或已被清理）")
+
+        root_resolved = root.resolve()
+        try:
+            target = (root_resolved / rel_path).resolve()
+        except (OSError, ValueError):
+            raise HTTPException(status_code=400, detail="非法预览路径")
+        if not target.is_relative_to(root_resolved):
+            raise HTTPException(status_code=400, detail="非法预览路径")
+
+        media_type = self._PREVIEW_MEDIA_TYPES.get(target.suffix.lower())
+        if media_type is None:
+            raise HTTPException(status_code=415, detail="不支持的预览文件类型")
+        if not target.is_file():
+            raise HTTPException(status_code=404, detail="预览文件不存在")
+        return target, media_type
 
     # ── retry：重试失败的任务（创建新任务）──
     def retry(self, db: Session, job_id: str, background_tasks: BackgroundTasks) -> JobOut:

@@ -8,11 +8,13 @@
 
 文件布局（jobs_root 来自 engine.core.config，默认 outputs/jobs）：
   <job_id>/
-    job.json     # 引擎内部状态（pid/status/result_path/started_at/error）—— 兜底/审计用
+    job.json     # 引擎内部状态（pid/status/result_path/started_at/error/svg_output_dir）
+                 # —— 兜底/审计用；svg_output_dir 为首次解析到的产物目录，落定一次防串页
     draft.md     # 草稿 Markdown
     prompt.md    # 生成 prompt
     run.log      # claude stdout/stderr 落盘
   lib/ppt-master/projects/<project>_ppt169_<date>/exports/*.pptx  # 最终产物
+                 # 同目录 svg_output/NN_slug.svg 为逐页产物（逐页预览数据源）
 
 AGENTS.md 规则：本文件只实现 PptEngine 协议，不修改任何调用方（后端 service 层）。
 """
@@ -51,6 +53,9 @@ def _now() -> str:
 _RE_EMPTY_ANCHOR = re.compile(r'<a id="[^"]*"></a>')
 _RE_TOC_LINK_LINE = re.compile(r'^\[.*\]\(#_Toc[^)]*\)\s*$')
 _RE_TOC_HEADING = re.compile(r'^目\s*录$')
+
+# 逐页产物命名规则：NN_slug.svg（数字前缀 = 页序）。不匹配者视为临时/非页 SVG。
+_RE_PAGE_SVG = re.compile(r'^\d+_.*\.svg$')
 
 
 def strip_source_noise(md: str) -> str:
@@ -154,36 +159,49 @@ class PptMasterEngine(PptEngine):
         pool = matched or candidates
         return max(pool, key=lambda p: p.stat().st_mtime)
 
-    def _get_svg_progress(self, job_id: Any, since_ts: float = 0) -> dict:
-        """扫描 svg_output 目录，返回本任务的真实生成进度。
+    def resolve_svg_output_dir(self, job_id: Any, data: dict | None = None) -> Path | None:
+        """定位本任务的逐页产物目录 svg_output/，返回 Path；无法定位返回 None。
 
-        目录名由 ppt-master 从标题派生（不一定带 decksmith_ 前缀），故：
-        1) 只看项目目录 mtime >= since_ts（任务启动之后被写过的），排除历史遗留目录；
-        2) 其中优先取目录名含 job_id 的，取不到再退化为"最新被修改的那个"（与 _find_pptx 同策略）；
-        3) 只统计 svg mtime >= since_ts 的文件，避免把旧目录里历史 svg 计进页数。
+        单一事实来源 + 落定一次：
+        1) 若 job.json 已回写 svg_output_dir 且目录仍在 → 固定读它
+           （根治并发 job / 历史目录的「最新目录」退化匹配串页问题）；
+        2) 否则启发式定位：只看项目目录 mtime >= started_at（任务启动后被写过的），
+           其中优先目录名含 job_id，取不到退化为「最新被修改的那个」（与 _newest_export 同策略）；
+        3) 首次解析到**已存在**的 svg_output 目录后回写进 job.json 的 svg_output_dir，
+           映射就此落定；目录尚未生成时不回写，下次再试。
         """
+        if data is None:
+            data = self._read_job(job_id)
+
+        pinned = data.get("svg_output_dir")
+        if pinned:
+            p = Path(pinned)
+            if p.is_dir():
+                return p
+            # 钉住的目录已被清理 → 退回启发式重新定位
+
+        since_ts = data.get("started_at", 0) or 0
+        if not since_ts:
+            # 输出任务的 job.json 必有 started_at（submit 时写入）；缺失说明是
+            # 草稿类任务（engine_type=draft 分支不产逐页），不做启发式猜测，
+            # 否则 since_ts=0 会把历史最新目录误钉为本任务产物（冒领旧任务）。
+            return None
         fresh = [
             p for p in _PPT_MASTER_DIR.glob("projects/*")
             if p.is_dir() and p.stat().st_mtime >= since_ts
         ]
         if not fresh:
-            return {"pages_generated": 0, "current_page": None}
+            return None
         matched = [p for p in fresh if str(job_id) in p.name]
         pool = matched or fresh
         project_dir = max(pool, key=lambda p: p.stat().st_mtime)
 
         svg_dir = project_dir / "svg_output"
-        if not svg_dir.exists():
-            return {"pages_generated": 0, "current_page": None}
-
-        svg_files = sorted(
-            (p for p in svg_dir.glob("*.svg") if p.stat().st_mtime >= since_ts),
-            key=lambda p: p.stat().st_mtime,
-        )
-        return {
-            "pages_generated": len(svg_files),
-            "current_page": svg_files[-1].name if svg_files else None,
-        }
+        if not svg_dir.is_dir():
+            return None
+        if not pinned or Path(pinned) != svg_dir:
+            self._write_job(job_id, svg_output_dir=str(svg_dir))
+        return svg_dir
 
     # ── 草稿构建（优先调 source_to_md 确定性转换，失败则模板兜底）──
     def _run_source_to_md(self, path_or_url: str) -> str | None:
@@ -277,6 +295,11 @@ class PptMasterEngine(PptEngine):
 
 内容：
 {content}
+
+【重要·无人值守自动运行】本次为后台自动化任务，没有任何人会回复你：
+- 不要在任何阶段停下来向我确认或提问（包括 Stage 1 的传播合约 / 模板 / 设计方向）。
+- Stage 1 你给出的传播合约与设计选择，直接采用你自己推荐的最优值，视为已确认。
+- 请一路连续执行到最终导出 PPTX 文件为止，中途绝不等待人工输入，也不要只输出计划就结束。
 """
 
     # ── PptEngine 协议 ──
@@ -486,22 +509,63 @@ class PptMasterEngine(PptEngine):
         except OSError:
             return None
 
+    def get_pages(self, job_id: Any) -> list[dict] | None:
+        r"""逐页预览钩子：枚举本任务已确定落盘的完成页（单一读盘事实源）。
+
+        确定性规则（不依赖 mtime 排序、不预测总数、无 pending）：
+        1) 命名规则筛选：^\d+_.*\.svg，排除临时/非页 SVG；
+        2) 按 int(数字前缀) 升序（防 1_ 排到 10_ 前）；同一前缀多个文件时
+           取 mtime 最新的一份（视作该页的重写版本），天然去重；
+        3) index 为 1 起的连续页序；path 为绝对路径（路由换算成相对
+           preview_root 的 url）。
+        目录尚未生成时返回 []（还没写出任何页，属正常中间态）。
+        """
+        svg_dir = self.resolve_svg_output_dir(job_id)
+        if svg_dir is None:
+            return []
+        by_prefix: dict[int, Path] = {}
+        for p in svg_dir.glob("*.svg"):
+            if not _RE_PAGE_SVG.match(p.name):
+                continue
+            prefix = int(p.name.split("_", 1)[0])
+            prev = by_prefix.get(prefix)
+            if prev is None or p.stat().st_mtime > prev.stat().st_mtime:
+                by_prefix[prefix] = p
+        pages = [
+            {"index": i, "name": p.name, "path": p, "kind": "image"}
+            for i, p in enumerate((by_prefix[k] for k in sorted(by_prefix)), start=1)
+        ]
+        return pages
+
+    def get_preview_root(self, job_id: Any) -> Path | None:
+        """逐页预览钩子：返回产物根目录（svg_output 的项目父目录）。
+
+        挂整个项目目录而非 svg_output，使页内 ../images/xxx 相对引用
+        能经 preview 路由同源解析。无法定位时返回 None。
+        """
+        svg_dir = self.resolve_svg_output_dir(job_id)
+        return svg_dir.parent if svg_dir else None
+
     def get_progress(self, job_id: Any) -> dict | None:
-        """获取任务进度信息，仅在 running 状态时返回。"""
+        """获取任务进度信息，仅在 running 状态时返回。
+
+        计数与逐页预览共用同一读盘事实源 get_pages()（「已生成 N 页」与
+        页墙天然对齐，杜绝两套 mtime/命名口径边界差 1）。
+        """
         data = self._read_job(job_id)
         if data.get("status") != "running":
             return None
-        
+
         started_at = data.get("started_at", 0)
         elapsed = int(time.time() - started_at) if started_at else 0
-        
-        svg_progress = self._get_svg_progress(job_id, since_ts=started_at)
-        
+
+        pages = self.get_pages(job_id) or []
+
         return {
             "stage": "generating",
             "stage_label": "正在生成 PPT（ppt-master）",
-            "pages_generated": svg_progress.get("pages_generated", 0),
+            "pages_generated": len(pages),
             "elapsed_seconds": elapsed,
-            "current_page": svg_progress.get("current_page"),
+            "current_page": pages[-1]["name"] if pages else None,
             "last_log": self._tail_run_log(job_id) or "引擎运行中，暂无输出日志",
         }

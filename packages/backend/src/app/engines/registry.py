@@ -6,13 +6,22 @@
 引擎类型：
 - draft：草稿生成引擎，将用户文件转化为 Markdown 草稿
 - output：输出引擎，将草稿内容生成最终展示文件
+
+能力位（capabilities）不写死：由「引擎类是否真实实现逐页枚举钩子 get_pages」
+自动派生（见 implements_hook），新增引擎只要实现钩子就自动点亮，
+前端与路由零改动——这是鸭子类型探测，不是按引擎名门控。
 """
+import importlib
 import json
+import sys
 from pathlib import Path
 
 # 本文件位于 packages/backend/src/app/engines/registry.py
 # parents[0]=engines [1]=app [2]=src [3]=backend [4]=packages [5]=仓库根
 REPO_ROOT = Path(__file__).resolve().parents[5]
+_PACKAGES_DIR = Path(__file__).resolve().parents[4]
+if str(_PACKAGES_DIR) not in sys.path:
+    sys.path.insert(0, str(_PACKAGES_DIR))
 SCHEMA_PATH = REPO_ROOT / "docs" / "contracts" / "engine.schema.json"
 
 
@@ -40,6 +49,52 @@ PPT_MASTER_PARAMS = _load_ppt_master_params()
 PPT_MASTER_DRAFT_PARAMS = _load_ppt_master_draft_params()
 CLAUDE_DRAFT_PARAMS = _load_claude_draft_params()
 GUIZANG_PPT_PARAMS = _load_guizang_ppt_params()
+
+# 引擎注册名 -> 实现类（模块路径, 类名）。只用于能力探测（查类上的钩子定义），
+# 不用于任何业务分支；实例化仍走 factory.get_engine。
+_ENGINE_CLASSES: dict[str, tuple[str, str]] = {
+    "ppt_master": ("engine.impl.ppt_master.engine", "PptMasterEngine"),
+    "ppt_master_draft": ("engine.impl.ppt_master.engine", "PptMasterEngine"),
+    "claude_draft": ("engine.impl.ppt_master.claude_draft", "ClaudeDraftEngine"),
+    "guizang_ppt": ("engine.impl.guizang_ppt", "GuizangPptEngine"),
+}
+
+# 逐页预览的枚举钩子；实现它即点亮 page_preview 能力
+PAGE_PREVIEW_HOOK = "get_pages"
+
+
+def implements_hook(target: object, hook: str) -> bool:
+    """target（引擎类或实例）是否**真实实现**可选钩子 hook。
+
+    hasattr 语义的精细化（保持鸭子类型、不按引擎名门控）：
+    - 沿 MRO 找到第一个在类 __dict__ 里定义该钩子的类：
+      - 定义在 Protocol 上（如 OutputEngine 文档化的可选钩子占位）→ 不算实现；
+      - 显式置 None（如 ClaudeDraftEngine 声明退出）→ 不算实现；
+      - 其余 → 算真实实现。
+    - 找不到定义 → 未实现。
+    """
+    cls = target if isinstance(target, type) else type(target)
+    for klass in getattr(cls, "__mro__", (cls,)):
+        if hook in vars(klass):
+            fn = vars(klass)[hook]
+            if fn is None:
+                return False
+            return not getattr(klass, "_is_protocol", False)
+    return False
+
+
+def _derive_capabilities(name: str) -> list[str]:
+    """按引擎实现类的钩子实现情况派生能力位；类不可用时保守返回空。"""
+    caps: list[str] = []
+    try:
+        module_path, cls_name = _ENGINE_CLASSES[name]
+        engine_cls = getattr(importlib.import_module(module_path), cls_name)
+    except Exception:
+        return caps
+    if implements_hook(engine_cls, PAGE_PREVIEW_HOOK):
+        caps.append("page_preview")
+    return caps
+
 
 # 引擎注册表：name 必须与 DeckRequest.engine 的枚举值一致
 ENGINE_REGISTRY = {
@@ -72,6 +127,10 @@ ENGINE_REGISTRY = {
         "params_schema": GUIZANG_PPT_PARAMS,
     },
 }
+
+# 能力位自动派生（同上，不写死任何引擎名 -> 能力的映射）
+for _entry in ENGINE_REGISTRY.values():
+    _entry["capabilities"] = _derive_capabilities(_entry["name"])
 
 
 def list_engines(engine_type: str | None = None) -> list[dict]:

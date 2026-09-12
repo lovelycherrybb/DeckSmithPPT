@@ -7,6 +7,7 @@
 - 输出引擎（OutputEngine）：将 Markdown 内容生成最终展示文件
 """
 
+from pathlib import Path
 from typing import Protocol
 
 from engine.core.models import Job, JobId, JobStatus, EngineType
@@ -76,7 +77,12 @@ class DraftEngine(Protocol):
 
 
 class OutputEngine(Protocol):
-    """输出引擎协议：将 Markdown 内容生成最终展示文件。"""
+    """输出引擎协议：将 Markdown 内容生成最终展示文件。
+
+    逐页预览为全局可选能力：实现 get_pages / get_preview_root 即自动接入
+    （框架以 hasattr 鸭子类型探测，不按引擎名门控）；不实现则界面维持
+    原下载形态。
+    """
 
     def submit(
         self,
@@ -103,6 +109,32 @@ class OutputEngine(Protocol):
 
     def result(self, job_id: JobId) -> str:
         """取回生成的 PPTX 文件路径。"""
+
+    def get_pages(self, job_id: JobId) -> list[dict] | None:
+        """【可选钩子】枚举该任务「一页一页可预览的已完成产物」。
+
+        不强制实现：框架（后端路由 / 前端）通过 hasattr(engine, "get_pages")
+        鸭子类型探测，实现即自动接入逐页预览（EngineInfo.capabilities
+        含 page_preview），未实现的引擎返回空、界面维持原下载形态。
+        与 get_progress 的既有鸭子类型用法同风格，不按引擎名门控。
+
+        Returns:
+            PageRef 列表，每项为 dict：
+            {index: int, name: str, path: Path, kind: "image"|"html"}；
+            仅描述已确定落盘的完成页，不预测总数、无 pending 占位。
+            无逐页概念或暂无法定位时返回 None / 空列表。
+        """
+
+    def get_preview_root(self, job_id: JobId) -> Path | None:
+        """【可选钩子】返回该任务可预览产物的根目录（与 get_pages 配套实现）。
+
+        preview 静态路由挂载此目录（而非单个文件），使页内相对引用
+        （如 ../images/xxx）能同源解析。调用方须以
+        target.resolve().is_relative_to(root.resolve()) 防路径穿越。
+
+        Returns:
+            产物根目录 Path；无法定位时返回 None。
+        """
 
     def resume(self, job_id: JobId) -> Job:
         """恢复中断的任务。"""

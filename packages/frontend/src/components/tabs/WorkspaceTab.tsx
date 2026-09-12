@@ -33,6 +33,7 @@ import DraftsPanel from '@/components/workspace/DraftsPanel';
 import GenerationJobsPanel from '@/components/workspace/GenerationJobsPanel';
 import PresentationsPanel from '@/components/workspace/PresentationsPanel';
 import RunningTasksDock from '@/components/workspace/RunningTasksDock';
+import { collectPreviewableTaskIds } from '@/components/features/job/PagePreviewGrid';
 
 interface Props {
   /** 从历史项目「操作」跳入时携带的项目 ID */
@@ -179,6 +180,11 @@ export default function WorkspaceTab({ initialProjectId = null }: Props) {
     () => Object.fromEntries(presentations.map((p2) => [p2.task_id, p2.file_name])),
     [presentations]
   );
+  // 逐页预览入口集合：由 GET /api/engines 的 capabilities（引擎钩子实现派生）决定，非引擎名硬判
+  const previewableTaskIds = useMemo(
+    () => collectPreviewableTaskIds(jobs, outputEngines),
+    [jobs, outputEngines]
+  );
   const currentProject = projects.find((p) => p.project_id === currentProjectId);
 
   const subtabs = [
@@ -248,6 +254,7 @@ export default function WorkspaceTab({ initialProjectId = null }: Props) {
         <PresentationsPanel
           presentations={presentations}
           loading={presentationsLoading}
+          previewableTaskIds={previewableTaskIds}
           onRefresh={refreshPresentations}
         />
       )}

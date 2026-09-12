@@ -19,6 +19,8 @@ export type UploadResponse = components['schemas']['UploadResponse'];
 export type SecurityCheckResult = components['schemas']['SecurityCheckResult'];
 export type JobStatus = components['schemas']['JobStatus'];
 export type TaskType = components['schemas']['Job']['task_type'];
+export type PageItem = components['schemas']['PageItem'];
+export type JobPages = components['schemas']['JobPages'];
 
 /** 后端 JobOut 的超集字段（进度信息，运行中任务附带） */
 export interface ProgressInfo {
@@ -294,6 +296,11 @@ export function retryJob(jobId: string): Promise<Job> {
 
 export function jobDownloadUrl(jobId: string): string {
   return `${API_BASE}/api/jobs/${jobId}/download`;
+}
+
+/** 逐页预览快照：只列已完成页（无预测总数、无 pending）；演示文件按 task_id 复用 */
+export function getJobPages(jobId: string): Promise<JobPages> {
+  return requestJson(`/api/jobs/${jobId}/pages`);
 }
 
 export function presentationDownloadUrl(presentationId: string): string {

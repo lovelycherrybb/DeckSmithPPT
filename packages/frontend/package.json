@@ -5,7 +5,6 @@
   "dependencies": {
     "@ant-design/nextjs-registry": "^1.0.2",
     "@ant-design/v5-patch-for-react-19": "^1.0.3",
-    "@next/swc-darwin-arm64": "^15.5.24",
     "@next/swc-wasm-nodejs": "^15.5.24",
     "@uiw/react-md-editor": "^4.1.2",
     "antd": "^5.27.0",

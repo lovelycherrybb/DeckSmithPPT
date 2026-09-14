@@ -2,6 +2,13 @@
 
 包含项目、任务、草稿、草稿版本、演示文件的 CRUD 操作。
 """
+# 须为文件首条语句。本模块的类里定义了名为 `list` 的方法（ProjectRepo.list 等），
+# 同名之后、同类中方法的注解 `list[str]` 会在类作用域解析到该函数对象而非内建类型：
+# Python 3.11/3.12 在 import 期即抛 `TypeError: 'function' object is not subscriptable`，
+# 而 3.14 起注解默认惰性求值（PEP 649）恰好把它掩盖了——开发机因此从未暴露。
+# 本行让各版本行为一致，也是 pyproject 里 requires-python ">=3.11" 能成立的前提。
+from __future__ import annotations
+
 import json
 from datetime import datetime, timezone
 from sqlalchemy import select

@@ -4,6 +4,10 @@
 - 草稿引擎任务和输出引擎任务各自独立提交，提交即运行。
 - 支持项目自动创建、草稿版本管理、状态明细（status_detail）。
 """
+# 与 repository/jobs.py 同源：本类有名为 list 的方法，注解里再用 `list[...]` 在
+# Python 3.11/3.12 下会解析到该方法对象。此行使注解惰性求值，跨版本行为一致。
+from __future__ import annotations
+
 import json
 import re
 import time

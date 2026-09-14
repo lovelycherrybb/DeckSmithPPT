@@ -134,7 +134,7 @@ cd deploy && docker compose build && docker compose up -d
 ```
 
 回滚：切回上一代码版本，重新构建后启动即可。建议每次交付都为镜像保留旧标签
-（如先 `docker tag decksmith/app:0.1.0 decksmith/app:0.1.0-prev` 再构建新版），
+（如 `docker tag decksmith/app:$IMAGE_TAG decksmith/app:$IMAGE_TAG-prev` 后再构建新版），
 使回滚不必重新构建。
 
 ## 八、故障排查
@@ -152,14 +152,35 @@ cd deploy && docker compose build && docker compose up -d
 ## 九、离线（无外网）部署
 
 无外网环境可以安装，但**模型调用仍需可达端点**，请先确认第二节第 1 项以内部兼容网关形式
-满足。构建与传输步骤：
+满足。交付包由仓库自带脚本产出，它按"镜像 × 平台"分别导出、并生成校验和与清单：
 
-1. 在可联网机器上构建：`docker compose build`；
-2. 导出镜像：`docker save decksmith/app:0.1.0 decksmith/web:0.1.0 | gzip > decksmith-images.tgz`；
-3. 连同代码仓库一并搬运（须先在该机器执行 `git submodule update --init --recursive`，
-   确保 `lib/` 下两份技能内容是完整的）；
-4. 目标机导入：`docker load < decksmith-images.tgz`，随后 `docker compose up -d`
-   （本地已有镜像则无需再构建）。
+1. 在可联网机器上执行（版本号与 git tag 对齐，省略则取最近 tag）：
+
+   ```bash
+   git submodule update --init --recursive
+   bash scripts/release.sh 0.2.0
+   # 目标机是 x86_64 时：PLATFORMS=linux/amd64 bash scripts/release.sh 0.2.0
+   # 有内网加速器时：  BASE_IMAGE=<内网仓库>/node:20-slim bash scripts/release.sh 0.2.0
+   ```
+
+2. 产物在 `dist/`：`decksmith-{app,web}-<版本>-linux-<架构>.tar.gz`、`SHA256SUMS`、
+   `MANIFEST.txt`（内含构建时间、git 提交、架构与校验和）。连同代码仓库一并搬运。
+3. 目标机先自验完整性再导入（客户只需自己架构那一份）：
+
+   ```bash
+   shasum -a 256 -c SHA256SUMS
+   gzip -dc decksmith-app-0.2.0-linux-aarch64.tar.gz | docker load
+   gzip -dc decksmith-web-0.2.0-linux-aarch64.tar.gz  | docker load
+   cd deploy && IMAGE_TAG=0.2.0 docker compose up -d
+   ```
+
+脚本会在前置自检失败时直接停下（缺 Docker、缺 buildx、上游技能不完整、编排配置不合法都
+不产出半成品包）。若确实无法使用脚本，手工命令为
+`docker save decksmith/app:<版本> decksmith/web:<版本> | gzip > decksmith-images.tgz`，
+但它不产生校验和、也不区分架构，只在应急时使用。
+
+**注意架构必须匹配**：`MANIFEST.txt` 里记录的是实际构建架构，交付前必须核对它与目标机
+`uname -m` 一致；不一致时导入的镜像无法运行。
 
 ## 十、卸载
 
@@ -177,12 +198,20 @@ rm -rf data/                                # 确认无需历史数据后再执�
 
 **已实测通过**：镜像构建、编排启动、启动预检的正反两向（含技能缺失时确实拒绝启动并返回
 非零码）、界面入口与接口代理接线、逐页预览、依赖在 Linux 上全部命中预编译轮子、
-数据卷读写边界、`lib/` 只读保护生效。验证平台为 **Linux / aarch64**，Docker 29.4。
+数据卷读写边界、`lib/` 只读保护生效；**交付包链路本身也已跑通**——`scripts/release.sh`
+产出 tar 与校验和，`shasum -c` 通过、`docker load` 导入成功，并用导入的镜像
+（`IMAGE_TAG=0.2.0 docker compose up -d`）重新起服务后回验入口、代理与预检。
+验证平台为 **Linux / aarch64**，Docker 29.4。
+
+**版本锚定**：交付以 **`v0.2.0`** 为锚点（附注 tag，含容器化全部内容与本指南）。
+`v0.1.0` 早于容器化工作，不含 Dockerfile、依赖清单与引擎前置钩子，**按它交付无法安装**；
+该 tag 已推送到远端故保持不动，不要以它作为交付依据。
 
 **须在交付现场核验**：
 
 1. `linux/amd64`（x86_64 客户机）上的构建与运行。验证环境拉不到任何 amd64 基础镜像，
-   该架构的依赖轮子可得性**未经验证**；首次装机请先单独演练一次 `docker compose build`。
+   该架构的依赖轮子可得性**未经验证**；首次交付前先执行
+   `PLATFORMS=linux/amd64 bash scripts/release.sh <版本>` 确认能构建成功。
 2. 带真实凭证的端到端出片。本轮验证使用占位凭证，只覆盖到工具可执行、卷可写、
    技能可发现，未覆盖真实生成链路。
 3. 长期运行下的并发与数据库表现。SQLite 加后台线程的组合未在目标环境压测。

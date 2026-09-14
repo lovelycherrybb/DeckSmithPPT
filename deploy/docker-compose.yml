@@ -2,12 +2,15 @@
 #
 #   cd deploy && cp .env.example .env && 编辑 .env 填凭证 && docker compose up -d --build
 #   访问 http://localhost:3000
+#   用交付包导入的镜像启动：IMAGE_TAG=0.2.0 docker compose up -d
 #
 # 设计约束：
 #   * 镜像无状态，全部可写状态落 ./data；删容器不丢数据（决策 5）。
 #   * 凭证只经 env_file 注入，绝不写进镜像层（决策 4）。
 #   * web 的 API 代理目标是**构建期**烘焙的，故 BACKEND_HOST 走 build arg、
 #     且必须等于 service 名 `app`——容器里 127.0.0.1 打不到后端（决策 6 同源问题）。
+#   * 镜像标签不写死：scripts/release.sh 按版本产出 :$VERSION，写死会与交付包对不上；
+#     升级后显式设置 IMAGE_TAG（或写进 deploy/.env）。
 
 name: decksmith
 
@@ -18,7 +21,7 @@ services:
       dockerfile: packages/backend/Dockerfile
       args:
         BASE_IMAGE: ${BASE_IMAGE:-node:20-slim}
-    image: decksmith/app:0.1.0
+    image: decksmith/app:${IMAGE_TAG:-0.2.0}
     env_file: .env
     environment:
       BACKEND_PORT: "8080"
@@ -48,7 +51,7 @@ services:
         BASE_IMAGE: ${BASE_IMAGE:-node:20-slim}
         BACKEND_HOST: app               # 构建期烘焙，必须等于上面的 service 名
         BACKEND_PORT: "8080"
-    image: decksmith/web:0.1.0
+    image: decksmith/web:${IMAGE_TAG:-0.2.0}
     ports:
       - "${WEB_PORT:-3000}:3000"
     depends_on:

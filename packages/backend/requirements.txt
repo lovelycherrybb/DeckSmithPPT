@@ -6,8 +6,8 @@
 # 直接抄进镜像会在 Linux 上失效）。需要完全可复现时，在目标平台执行：
 #     pip freeze > requirements-lock.txt   # 构建镜像时用 -r requirements-lock.txt
 #
-# 现状订正：本文件此前不存在，而 docs/DEPLOYMENT.md:20 与 :246 一直在教人
-# `pip install -r requirements.txt` —— 那是一条指向不存在文件的命令。
+# 历史订正：本文件此前不存在，而旧版 DEPLOYMENT.md（开发向底稿）曾两处教人执行
+# `pip install -r requirements.txt`，那条命令当时指向的是不存在的文件。现已成立。
 
 fastapi==0.141.1
 uvicorn==0.52.4

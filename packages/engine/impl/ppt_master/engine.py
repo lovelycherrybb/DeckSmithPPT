@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -108,6 +109,56 @@ class PptMasterEngine(PptEngine):
         self.agent = agent
         self.claude_bin = claude_bin
         self.timeout_seconds = timeout_seconds
+
+    # ── 运行前置条件（协议可选钩子，见 engine.core.protocol.OutputEngine）──
+    def prepare_runtime(self, job_dir: Path | None = None) -> str | None:
+        """检查本引擎在当前环境可运行的前置条件。只读探测，不写任何状态（天然幂等）。
+
+        分级依据（都来自 ADR-012 决策 1 之后的实测）：
+
+        * **技能文件不可读 = 硬缺失。** `cwd` 已归位到任务目录，技能发现完全依赖
+          `_runtime_anchor()` 注入给 agent 的绝对路径。若这两个文件读不到，任务不会报错，
+          而是**静默降级**成"agent 凭感觉做 PPT"、状态照样 completed——这种失败从接口上
+          看不出来，必须在启动期拦住。
+        * **claude 不可解析 = 硬缺失。** 本引擎无离线退路（ADR-011 决策 2）。
+        * **agent 侧 python3 缺上游 C 扩展 = 可降级告警。** 只影响用到 shape 布尔运算的
+          页面（`svg_to_pptx/shape_boolean.py`），其余页仍可正常导出；但镜像若做到
+          解释器唯一（ADR-012 决策 8），此项自然通过。
+        """
+        agents_md = _PPT_MASTER_DIR / "AGENTS.md"
+        skill_md = _PPT_MASTER_DIR / "skills" / "ppt-master" / "SKILL.md"
+        missing = [str(p) for p in (agents_md, skill_md) if not p.is_file()]
+        if missing:
+            raise RuntimeError(
+                f"ppt_master 技能说明书缺失：{missing}。"
+                "请先执行 git submodule update --init --recursive。"
+                "cwd 归位任务目录后技能发现依赖这些绝对路径，缺失会静默降级为无流程生成。"
+            )
+        if shutil.which(self.claude_bin) is None and not Path(self.claude_bin).is_file():
+            raise RuntimeError(
+                f"未找到可执行的 claude CLI（解析名 {self.claude_bin!r}）；本引擎无离线退路。"
+            )
+
+        notices: list[str] = []
+        py3 = shutil.which("python3")
+        if py3 is None:
+            notices.append("PATH 上没有 python3，agent 无法调用技能脚本（project_manager 等）。")
+        else:
+            probe = subprocess.run(
+                [py3, "-c", "import pathops"], capture_output=True, text=True, timeout=30,
+            )
+            if probe.returncode != 0:
+                notices.append(
+                    f"PATH 上的 python3（{py3}）缺 skia-pathops，"
+                    "涉及 shape 布尔运算的页面会失败；同一镜像应只保留一个 Python 环境"
+                    "并把其 bin 置于 PATH 首位（ADR-012 决策 8）。"
+                )
+            if Path(py3).resolve() != Path(sys.executable).resolve():
+                notices.append(
+                    f"解释器分裂：引擎用 {sys.executable}，agent 用 {py3}，"
+                    "两者包集合可能不一致（ADR-012 决策 8）。"
+                )
+        return " | ".join(notices) or None
 
     # ── 内部工具 ──
     def _job_dir(self, job_id: Any) -> Path:
@@ -396,8 +447,15 @@ class PptMasterEngine(PptEngine):
             # 技能绝对路径 + 只写 cwd 下的 projects/。
             prompt += self._runtime_anchor(job_dir)
             (job_dir / "prompt.md").write_text(prompt, encoding="utf-8")
-            
+
+            # 运行前置条件走 prepare_runtime 钩子（与 guizang 同形状）：硬缺失直接抛出，
+            # 让任务在拉起子进程之前就失败——宁可红一条记录，也不要 spawn 一个会
+            # "静默做成无流程 PPT" 的子进程；可降级告警写进 run.log 留痕。
+            runtime_notice = self.prepare_runtime(job_dir)
             run_log = open(job_dir / "run.log", "w", encoding="utf-8")
+            if runtime_notice:
+                run_log.write(f"[warn] {runtime_notice}\n")
+                run_log.flush()
             proc = subprocess.Popen(
                 # stream-json：claude -p 默认把输出憋到最后一次写完，运行中日志为空；
                 # 流式事件由 _pump_run_stream 边跑边蒸馏写 run.log，前端轮询即可看到实时日志

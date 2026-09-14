@@ -136,5 +136,30 @@ class OutputEngine(Protocol):
             产物根目录 Path；无法定位时返回 None。
         """
 
+    def prepare_runtime(self, job_dir: Path | None = None) -> str | None:
+        """【可选钩子】备齐本引擎跑一个任务所需的**运行前置条件**。
+
+        与 `get_pages` 同风格：框架以 `implements_hook()` 鸭子类型探测，**不按引擎名
+        分支**，因此新增引擎只需在自己类里实现本方法，entrypoint、后端启动与业务调用方
+        一律无需改动（ADR-012 决策 2）。注：本钩子虽只在 OutputEngine 上文档化，
+        继承 `PptEngine` 的实现类同样可以定义它，探测机制不依赖继承关系。
+
+        典型职责：把仓库内锁定的技能目录软链到 Claude 的技能发现目录（幂等完成）、
+        校验技能脚本所需的解释器与依赖是否齐备。不做业务分支、不产出内容。
+
+        Args:
+            job_dir: 本次任务目录。传 None 表示**启动期预检**（不属于任何具体任务），
+                由 `app.engines.runtime` 在进程启动与容器 entrypoint 中调用。
+                该参数同时是"产物落点契约"的前向接入点（ADR-012 决策 3）：
+                将来若把落点升级为强制契约，无需改签名。
+
+        Returns:
+            None: 前置条件齐备。
+            str : 人读的**可降级告警**（任务仍可尝试），调用方记入日志与 `run.log`。
+        Raises:
+            任何异常: **硬缺失**，即该引擎在当前环境不可运行。调用方须计为失败而非告警；
+                容器 entrypoint 据此拒绝启动。
+        """
+
     def resume(self, job_id: JobId) -> Job:
         """恢复中断的任务。"""

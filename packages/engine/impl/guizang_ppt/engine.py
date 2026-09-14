@@ -210,6 +210,23 @@ class GuizangPptEngine(OutputEngine):
         # 无锁会互相覆盖（例如 pump 写 session_id 时把 supervisor 写的状态抹掉）。
         self._lock = threading.Lock()
 
+    # ── 运行前置条件（协议可选钩子，见 engine.core.protocol.OutputEngine）──
+    def prepare_runtime(self, job_dir: Path | None = None) -> str | None:
+        """把仓库内锁定的上游技能软链到 Claude 的技能发现目录。
+
+        分级依据：技能**文件缺失**是硬缺失（抛异常）——没有 SKILL.md 本引擎根本无法
+        出片，绝不能只留一行 warn；而**软链建不上**只是可降级告警，因为 prompt 里
+        同时给了技能绝对路径，agent 可按路径自行读取（ADR-011 决策 5 的降级设计）。
+
+        幂等：`ensure_skill_installed()` 自身已保证（已链好则直接返回 None）。
+        """
+        if not (_SKILL_DIR / "SKILL.md").is_file():
+            raise RuntimeError(
+                f"未找到上游技能 {_SKILL_DIR}（SKILL.md 缺失）。"
+                "请先执行 git submodule update --init --recursive，否则本引擎无法生成。"
+            )
+        return ensure_skill_installed()
+
     # ── 内部工具 ──
     def _job_dir(self, job_id: Any) -> Path:
         return self.jobs_root / str(job_id)
@@ -381,7 +398,9 @@ class GuizangPptEngine(OutputEngine):
         )
         (job_dir / "prompt.md").write_text(prompt, encoding="utf-8")
 
-        skill_notice = ensure_skill_installed()
+        # 运行前置条件统一走 prepare_runtime 钩子：启动期预检与任务前检查共用同一实现，
+        # 避免出现"entrypoint 链好了、submit 里又是另一套"的第二路径
+        skill_notice = self.prepare_runtime(job_dir)
         run_log = open(job_dir / "run.log", "w", encoding="utf-8")
         if skill_notice:
             run_log.write(f"[warn] {skill_notice}\n")

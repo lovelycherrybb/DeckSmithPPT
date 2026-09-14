@@ -447,6 +447,20 @@
     "OutputEngine": {
       "type": "object",
       "description": "输出引擎接口（将 Markdown 内容生成最终展示文件）",
+      "x-runtime-hooks": {
+        "prepare_runtime": {
+          "optional": true,
+          "signature": "prepare_runtime(job_dir: Path | None = None) -> str | None",
+          "description": "可选钩子：备齐本引擎跑一个任务所需的运行前置条件（如把仓库内技能目录软链到 Claude 的技能发现目录、校验技能脚本所需解释器与依赖）。由调用方在启动期与提交任务前遍历注册表逐个调用，探测方式与 get_pages 相同（沿 MRO 判真实实现，不按引擎名分支），因此新增引擎不必改动 entrypoint 或后端任何调用方。job_dir 传 None 表示启动期预检、传具体任务目录表示任务前检查。",
+          "semantics": {
+            "None": "前置条件齐备",
+            "string": "可降级的告警（任务仍可尝试），文本为人读描述，进日志与 run.log",
+            "raises": "硬缺失：该引擎在当前环境不可运行。调用方须把它计为失败而非告警"
+          },
+          "idempotent": true,
+          "notes": "产物落点须位于调用方分配的 job_dir 内（ADR-012 决策 3）；本钩子的 job_dir 入参即该落点契约的前向接入点，将来若升级为强制契约无需改签名。"
+        }
+      },
       "properties": {
         "content": {
           "type": "string",

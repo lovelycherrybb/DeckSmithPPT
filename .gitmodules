@@ -1,3 +1,6 @@
 [submodule "lib/ppt-master"]
 	path = lib/ppt-master
 	url = https://github.com/hugohe3/ppt-master.git
+[submodule "lib/guizang-ppt-skill"]
+	path = lib/guizang-ppt-skill
+	url = https://github.com/op7418/guizang-ppt-skill.git

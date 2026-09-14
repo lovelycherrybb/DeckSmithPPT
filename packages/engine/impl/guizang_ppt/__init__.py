@@ -1,9 +1,9 @@
-"""guizang_ppt 引擎：将 Markdown 内容生成 HTML 演示文稿。
+"""guizang_ppt 引擎：驱动 Claude Code 执行 guizang-ppt-skill，输出单文件 HTML 演示文稿。
 
-基于 guizang-ppt-skill，支持两种风格：
-- magazine：电子杂志风格
-- swiss：瑞士国际主义风格
+支持上游技能的两种风格（参数契约见 docs/contracts/engine.schema.json $defs.guizang_ppt）：
+- magazine：电子杂志 × 电子墨水
+- swiss：瑞士国际主义
 """
-from .engine import GuizangPptEngine
+from .engine import GuizangPptEngine, ensure_skill_installed
 
-__all__ = ["GuizangPptEngine"]
+__all__ = ["GuizangPptEngine", "ensure_skill_installed"]

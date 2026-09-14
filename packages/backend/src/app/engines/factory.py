@@ -17,7 +17,6 @@ if str(_PACKAGES_DIR) not in sys.path:
     sys.path.insert(0, str(_PACKAGES_DIR))
 
 from ..engines.stub import StubPptMasterEngine  # noqa: E402
-from engine.impl.guizang_ppt import GuizangPptEngine
 
 
 def get_engine(name: str | None = None):
@@ -27,6 +26,7 @@ def get_engine(name: str | None = None):
     - ppt_master：真实输出引擎（claude 子进程）
     - ppt_master_draft / claude_draft：草稿引擎（当前阶段实现复用
       PptMasterEngine 的草稿逻辑，source_to_md 确定性转换）
+    - guizang_ppt：HTML 输出引擎（同为 claude 子进程，执行 guizang-ppt-skill）
     - 其余名：不静默降级，直接抛 ValueError（调用方/前端应只发注册过的引擎名）
     """
     name = name or os.environ.get("DECKSMITH_ENGINE", "stub")
@@ -37,6 +37,7 @@ def get_engine(name: str | None = None):
         from engine.impl.ppt_master.claude_draft import ClaudeDraftEngine
         return ClaudeDraftEngine()
     if name == "guizang_ppt":
+        from engine.impl.guizang_ppt import GuizangPptEngine
         return GuizangPptEngine()
     if name == "stub":
         return StubPptMasterEngine()
@@ -45,15 +46,15 @@ def get_engine(name: str | None = None):
 
 # 测试/开发钩子：DECKSMITH_FORCE_STUB=1 时所有引擎请求都落到 stub（不进子进程）。
 # 但未知引擎名仍然报错（保证校验语义不被钩子绕过）。
+# guizang_ppt 与 ppt_master 一样依赖 claude 子进程，故同样必须落到 stub。
 _original_get_engine = get_engine
 
 
 def _patched_get_engine(name: str | None = None):
     if os.environ.get("DECKSMITH_FORCE_STUB") == "1":
-        if name in (None, "stub", "ppt_master", "ppt_master_draft", "claude_draft"):
+        effective = name or os.environ.get("DECKSMITH_ENGINE", "stub")
+        if effective in ("stub", "ppt_master", "ppt_master_draft", "claude_draft", "guizang_ppt"):
             return StubPptMasterEngine()
-        if name == "guizang_ppt":
-            return GuizangPptEngine()
     return _original_get_engine(name)
 
 

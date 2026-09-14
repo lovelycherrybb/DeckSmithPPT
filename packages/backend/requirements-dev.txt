@@ -1,0 +1,13 @@
+# 开发/测试依赖
+#
+# ⚠️ 现状与本文件的分歧（如实记录，勿当已修）：本机 `.venv` 里**没有 pytest**，
+# 单测实际是用**系统 python3**（pytest 9.1.1 / httpx 0.28.1）跑的。
+# 也就是说测试解释器 ≠ 应用解释器 —— 这正是 ADR-012 里"两个解释器分裂"那类
+# 故障的温床（本机已实测到 sys.executable 与 PATH python3 的包集合不一致）。
+# 收敛做法：`python -m venv .venv && .venv/bin/pip install -r requirements-dev.txt`，
+# 之后一律用 `.venv/bin/python -m pytest`，不再用系统 python3 跑测试。
+
+-r requirements.txt
+
+pytest==9.1.1
+httpx==0.28.1    # starlette TestClient 的运行前提（tests 里 from fastapi.testclient import TestClient）

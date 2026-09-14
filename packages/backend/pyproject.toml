@@ -3,6 +3,11 @@ name = "deck-ppt-backend"
 version = "0.1.0"
 description = "DeckSmithPPT 后端服务"
 requires-python = ">=3.11"
+# 运行时依赖**故意不写在这里**：唯一事实来源是 packages/backend/requirements.txt
+# （它再 `-r` 引 engine 与只读上游）。在此重复声明会制造第二份清单口径。
 
 [tool.setuptools]
 packages = ["app", "app.core", "app.repository", "app.service", "app.engines", "app.api"]
+# 注意：当前运行期并非靠本声明安装 —— 后端在 app/engines/{factory,registry,stub}.py 三处
+# 用 sys.path.insert(packages/) 直接 import engine。本 packages 列表只为让 `pip install .`
+# 可用。收敛该 hack 属 ADR-012 的 P1 未决项。

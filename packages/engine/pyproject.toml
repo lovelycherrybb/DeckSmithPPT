@@ -3,6 +3,18 @@ name = "deck-ppt-engine"
 version = "0.1.0"
 description = "DeckSmithPPT PPT 生成引擎（抽象层 + 实现）"
 requires-python = ">=3.11"
+# 运行时依赖**故意不写在这里**：引擎自身零第三方 import，实际需要的是上游技能依赖树，
+# 唯一事实来源是 packages/engine/requirements.txt（它只 `-r` 引用只读上游，不复制）。
+# 在此重复声明会制造第二份清单口径。见 docs/adr/ADR-012 与 requirements.txt 头部注释。
 
 [tool.setuptools]
-packages = ["engine", "engine.core", "engine.impl", "engine.impl.ppt_master"]
+# 本目录即 `engine` 包本体（packages/engine/{core,impl}，没有内层 engine/ 目录），
+# 故需显式映射，否则 packages 列表与实际布局不符、`pip install .` 装不出可导入的包。
+package-dir = { engine = "." }
+packages = [
+    "engine",
+    "engine.core",
+    "engine.impl",
+    "engine.impl.ppt_master",
+    "engine.impl.guizang_ppt",
+]

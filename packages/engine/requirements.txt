@@ -1,0 +1,20 @@
+# engine 运行时依赖
+#
+# 实测结论：packages/engine 自身**零第三方 import**（AST 扫描 core/ 与 impl/，
+# 全部落在标准库）。所以本文件不声明任何属于 engine 自己的包。
+#
+# 但引擎需要上游技能的整套 Python 依赖，原因有两条，且两条必须同一解释器同一套包：
+#   1) impl/ppt_master/engine.py:231 用 `sys.executable` 在本进程解释器里执行
+#      上游的 source_to_md.py（docx/pptx/pdf → Markdown 的确定性转换）；
+#   2) claude 子进程按 PATH 上的 `python3` 调技能脚本（project_manager.py、
+#      svg_to_pptx.py、svg_quality_checker.py …）。
+# 二者若解析到不同解释器，就会出现"后端能跑、agent 跑不动"的分裂故障
+# （本机已实测到一例：PATH python3 缺 skia-pathops，只有走 shape_boolean 时才炸）。
+# 部署口径见 docs/adr/ADR-012-交付形态与引擎运行时数据布局.md。
+#
+# 上游只读（AGENTS 规则 4）：这里**只引用、不复制、不改写**。pip 会按本文件所在目录
+# 解析下面的相对路径，而 lib/ppt-master/requirements.txt 内部又以自身目录解析它的
+# `-r skills/ppt-master/requirements.txt`，故必须引仓库根那一份、不要直引 skill 内那份。
+-r ../../lib/ppt-master/requirements.txt
+
+# guizang-ppt-skill 无 Python 依赖：其 scripts/ 全为 .mjs，运行时需求是 Node（见 ADR-012 决策 4）。

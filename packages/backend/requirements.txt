@@ -1,0 +1,23 @@
+# 后端运行时依赖 —— 单一安装入口
+#
+# 来源：对 packages/backend/src 与 packages/engine 做 AST 顶层 import 扫描所得的
+# **直接**依赖，版本取自本机 .venv（Python 3.14.0）实测。只声明直接依赖，
+# 传递依赖交由 pip 解析，以保证跨平台可解析（本机 freeze 是 macOS arm64 的结果，
+# 直接抄进镜像会在 Linux 上失效）。需要完全可复现时，在目标平台执行：
+#     pip freeze > requirements-lock.txt   # 构建镜像时用 -r requirements-lock.txt
+#
+# 现状订正：本文件此前不存在，而 docs/DEPLOYMENT.md:20 与 :246 一直在教人
+# `pip install -r requirements.txt` —— 那是一条指向不存在文件的命令。
+
+fastapi==0.141.1
+uvicorn==0.52.4
+sqlalchemy==2.0.52
+pydantic==2.13.4
+
+# 以下两项 import 扫描扫不出来，但确实是运行时必需：
+python-multipart==0.0.32    # api/routes.py:58 用了 File(...)/UploadFile，FastAPI 靠它解析 multipart
+python-pptx==1.0.2          # app/engines/stub.py:16 直接 from pptx import Presentation
+
+# 引擎层（含上游技能依赖树）。后端经 sys.path 注入 import engine，与引擎同进程同解释器，
+# 故必须一起装 —— 这是"共用一个解释器"口径的落点，见 ADR-012。
+-r ../engine/requirements.txt

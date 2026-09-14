@@ -1,0 +1,46 @@
+# 构建上下文排除清单（docker build 的 context = 仓库根）
+#
+# 原则：只排除"运行时不读、且会撑爆上下文或污染上游只读约定"的东西。
+# 两个反直觉的点写在下面，改动前务必先读：
+#   1) lib/ppt-master 与 lib/guizang-ppt-skill 的 SKILL.md / AGENTS.md **必须保留**——
+#      引擎在 prompt 里显式要求 claude 去读它们（见 packages/engine/impl/ppt_master/
+#      engine.py 的 _runtime_anchor），排除等于静默废掉技能发现。
+#   2) docs/contracts 必须保留——engine.schema.json 是后端注册表在运行期读取的事实源
+#      （app/engines/registry.py 直接读 SCHEMA_PATH），不能当文档排掉。
+
+# 版本控制与开发环境
+.git
+**/.git
+.venv
+**/node_modules
+**/.next
+**/__pycache__
+**/*.pyc
+**/*.pyo
+.DS_Store
+
+# 运行期产物与本地状态（属数据卷，不属镜像）
+outputs
+.trash
+**/backup
+# 上游只读副本里的历史项目工作区：归位前的旧产物走数据卷挂载。
+# 顺带让"lib 只读"在构建期就成立——镜像里根本没有可写的 projects
+lib/ppt-master/projects
+
+# 纯文档（运行期不读；contracts 是例外，见上）
+docs/adr
+docs/research
+docs/vc_design
+docs/*.md
+designs
+logos
+
+# 密钥与本地配置：绝不进镜像层（ADR-012 决策 4）
+.env
+**/.env
+*.log
+
+# 契约生成物：本就不入库（.gitignore:31）。若让它进上下文，开发机残留会被悄悄烤进
+# 镜像、掩盖"构建期必须生成"这一前提，还可能带进过期类型。
+# packages/frontend/Dockerfile 的 build 阶段会跑 scripts/generate-types.sh 重新产出。
+packages/shared/types

@@ -22,13 +22,19 @@ const nextConfig = {
     middlewareClientMaxBodySize: 50 * 1024 * 1024,
   },
 
-  // 重写规则 (API 代理到后端；后端端口读 BACKEND_PORT，默认 8080)
+  // 重写规则 (API 代理到后端；主机与端口分别读 BACKEND_HOST / BACKEND_PORT)
+  //
+  // ⚠️ rewrites() 在 `next build` 时求值并烘焙进 .next/standalone 的路由清单，
+  //    **运行期改环境变量无效**。容器构建必须用 build arg 传入；且容器里 127.0.0.1
+  //    是 web 自己，打不到后端，故 Docker 下 BACKEND_HOST 必须等于后端 service 名（app）。
+  //    默认 127.0.0.1 保持开发环境行为不变。
   async rewrites() {
+    const backendHost = process.env.BACKEND_HOST || '127.0.0.1';
     const backendPort = process.env.BACKEND_PORT || '8080';
     return [
       {
         source: '/api/:path*',
-        destination: `http://127.0.0.1:${backendPort}/api/:path*`,
+        destination: `http://${backendHost}:${backendPort}/api/:path*`,
       },
     ];
   },

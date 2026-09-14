@@ -1,0 +1,57 @@
+# DeckSmith 交付编排（ADR-012 决策 4：2 服务 + 4 数据卷）
+#
+#   cd deploy && cp .env.example .env && 编辑 .env 填凭证 && docker compose up -d --build
+#   访问 http://localhost:3000
+#
+# 设计约束：
+#   * 镜像无状态，全部可写状态落 ./data；删容器不丢数据（决策 5）。
+#   * 凭证只经 env_file 注入，绝不写进镜像层（决策 4）。
+#   * web 的 API 代理目标是**构建期**烘焙的，故 BACKEND_HOST 走 build arg、
+#     且必须等于 service 名 `app`——容器里 127.0.0.1 打不到后端（决策 6 同源问题）。
+
+name: decksmith
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: packages/backend/Dockerfile
+      args:
+        BASE_IMAGE: ${BASE_IMAGE:-node:20-slim}
+    image: decksmith/app:0.1.0
+    env_file: .env
+    environment:
+      BACKEND_PORT: "8080"
+      DECKSMITH_JOBS_ROOT: /data/jobs
+      DATABASE_URL: sqlite:////data/db/decksmith.db
+      HOME: /data/home
+    volumes:
+      - ./data/jobs:/data/jobs          # 两引擎产物 + job.json + run.log
+      - ./data/db:/data/db              # SQLite（项目/任务/草稿历史）
+      - ./data/home:/data/home          # HOME：收编 ~/.claude（技能软链+会话 jsonl）与 ~/.ppt-master
+      # 归位前的历史产物；新任务不再写这里。留这个挂载有两个作用：
+      # 旧演示文件库仍可读，且万一 cwd 回归旧行为，产物会落在这里而不是污染只读代码树
+      - ./data/decks:/app/lib/ppt-master/projects
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/docs"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 25s
+
+  web:
+    build:
+      context: ..
+      dockerfile: packages/frontend/Dockerfile
+      args:
+        BASE_IMAGE: ${BASE_IMAGE:-node:20-slim}
+        BACKEND_HOST: app               # 构建期烘焙，必须等于上面的 service 名
+        BACKEND_PORT: "8080"
+    image: decksmith/web:0.1.0
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    depends_on:
+      app:
+        condition: service_healthy
+    restart: unless-stopped

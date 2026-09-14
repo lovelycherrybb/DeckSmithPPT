@@ -38,9 +38,13 @@
    小文件（截断/占位）判失败，杜绝冒领旧产物。
 5. **技能发现用软链**：`lib/guizang-ppt-skill` → `$CLAUDE_CONFIG_DIR|~/.claude/skills/guizang-ppt-skill`，
    幂等、遇到用户自有副本只提示不覆盖；prompt 同时给出技能绝对路径，链接失败仅降级不阻断。
-6. **不点亮 `page_preview`**：单文件 HTML 无逐页落盘产物，故有意不实现
+6. ~~**不点亮 `page_preview`**~~ → **已被提交 `f3a953e` 推翻**（本条保留为当时的决策原貌）：
+   单文件 HTML 无逐页落盘产物，故有意不实现
    `get_pages` / `get_preview_root`；`get_progress` 亦不报 `pages_generated`，
    避免给出等于编造的数字。
+   *现行事实：两钩子均已实现——页是扫出来的 `<section class="slide">`（只收已闭合页），
+   PageRef 的 path 一律指向 `result.html`；`get_progress` 直接取 `len(get_pages())`，
+   与 pages 接口同口径。当年"不报数=不编造"的顾虑由**真实读盘**满足，而非靠不实现规避。*
 7. **`DECKSMITH_FORCE_STUB=1` 下 guizang 一并落 stub**（此前它因是纯 Python 被放行到真引擎，
    归位后会拉起子进程，必须收进离线测试钩子）。
 

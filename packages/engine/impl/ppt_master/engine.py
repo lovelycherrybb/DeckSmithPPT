@@ -142,6 +142,18 @@ class PptMasterEngine(PptEngine):
         except Exception:
             return False
 
+    def _project_roots(self, job_id: Any) -> list[Path]:
+        """产物项目目录的搜索根，按优先级排列（ADR-012 决策 1）。
+
+        1) `<jobs_root>/<job_id>/projects/`：新口径，claude 的 cwd 即任务目录，
+           `project_manager` 的 `Path.cwd() / "projects"` 落在此处，天然按 job 隔离；
+        2) `lib/ppt-master/projects/`：归位前的历史口径，仅供旧任务继续可读。
+
+        命中即止（调用方按 root 顺序取第一个有结果的），**不与历史目录混合比较**，
+        否则「最新 mtime」会在两处之间乱选，重新引入串页风险。
+        """
+        return [self._job_dir(job_id), _PPT_MASTER_DIR]
+
     def _newest_export(self, job_id: Any, since_ts: float) -> Path | None:
         """返回自 since_ts 起、属于本 job 的最新 .pptx；无则 None。
 
@@ -149,10 +161,13 @@ class PptMasterEngine(PptEngine):
         匹配不到时退化为「since 之后的最新产物」。
         """
         candidates: list[Path] = []
-        for p in _PPT_MASTER_DIR.glob("projects/*/exports/*.pptx"):
-            if p.stat().st_mtime < since_ts:
-                continue
-            candidates.append(p)
+        for root in self._project_roots(job_id):
+            for p in root.glob("projects/*/exports/*.pptx"):
+                if p.stat().st_mtime < since_ts:
+                    continue
+                candidates.append(p)
+            if candidates:
+                break  # 新口径命中即止，不回退历史目录
         if not candidates:
             return None
         matched = [p for p in candidates if str(job_id) in p.parent.parent.name]
@@ -186,15 +201,20 @@ class PptMasterEngine(PptEngine):
             # 草稿类任务（engine_type=draft 分支不产逐页），不做启发式猜测，
             # 否则 since_ts=0 会把历史最新目录误钉为本任务产物（冒领旧任务）。
             return None
-        fresh = [
-            p for p in _PPT_MASTER_DIR.glob("projects/*")
-            if p.is_dir() and p.stat().st_mtime >= since_ts
-        ]
-        if not fresh:
+        project_dir: Path | None = None
+        for root in self._project_roots(job_id):
+            fresh = [
+                p for p in root.glob("projects/*")
+                if p.is_dir() and p.stat().st_mtime >= since_ts
+            ]
+            if not fresh:
+                continue  # 该根下没有本任务时间窗内的目录，再看下一个根
+            matched = [p for p in fresh if str(job_id) in p.name]
+            pool = matched or fresh
+            project_dir = max(pool, key=lambda p: p.stat().st_mtime)
+            break  # 高优先级根一旦有结果即定，不回退历史目录
+        if project_dir is None:
             return None
-        matched = [p for p in fresh if str(job_id) in p.name]
-        pool = matched or fresh
-        project_dir = max(pool, key=lambda p: p.stat().st_mtime)
 
         svg_dir = project_dir / "svg_output"
         if not svg_dir.is_dir():
@@ -302,6 +322,27 @@ class PptMasterEngine(PptEngine):
 - 请一路连续执行到最终导出 PPTX 文件为止，中途绝不等待人工输入，也不要只输出计划就结束。
 """
 
+    @staticmethod
+    def _runtime_anchor(job_dir: Path) -> str:
+        """技能仓库与任务目录的运行锚点说明，追加到 prompt 末尾。
+
+        必需性：claude 的 `cwd` 已是任务目录（ADR-012 决策 1），不再位于技能仓库内，
+        「靠 cwd 自动读 AGENTS.md」这条发现链路断开，因此技能位置必须由本段显式告知。
+        """
+        root = _PPT_MASTER_DIR
+        return f"""
+
+【运行锚点·必读】
+- 技能仓库绝对根：{root}
+- 先完整阅读 {root / 'AGENTS.md'}，再按其指向阅读 {root / 'skills' / 'ppt-master' / 'SKILL.md'}，
+  然后才开始任何生成动作。该说明书规定的流程、阶段与门禁优先于本提示中的其他表述。
+- 说明书内的所有仓库相对路径记号一律按上面的技能仓库绝对根解析；调用脚本时使用形如
+  `python3 {root / 'skills' / 'ppt-master' / 'scripts' / '<脚本>.py'} ...` 的绝对路径，
+  不要用相对路径，也不要 `cd` 进 skills/ 或 projects/ 子目录。
+- **产物落点（硬约束）**：本次任务的工作目录是 {job_dir}。项目初始化与全部中间产物、
+  导出文件都必须落在该目录下的 `projects/` 内；**严禁**向技能仓库 {root} 内写入或创建任何文件。
+"""
+
     # ── PptEngine 协议 ──
     def submit(
         self,
@@ -349,6 +390,11 @@ class PptMasterEngine(PptEngine):
             content_style = (engine_params or {}).get("content_style", "marketing_promo")
             prompt = self._build_prompt(effective_title, style, int(effective_pages), draft)
             prompt += f"\n- 内容风格：{content_style}\n"
+            # ADR-012 决策 1：cwd 改为任务目录后，claude 不再位于技能仓库内，
+            # 原先「cwd 落在 lib/ppt-master → 自动读到该目录 AGENTS.md」这条技能发现
+            # 链路就此断开。故把运行锚点显式写进 prompt（与 guizang 引擎同构）：
+            # 技能绝对路径 + 只写 cwd 下的 projects/。
+            prompt += self._runtime_anchor(job_dir)
             (job_dir / "prompt.md").write_text(prompt, encoding="utf-8")
             
             run_log = open(job_dir / "run.log", "w", encoding="utf-8")
@@ -360,7 +406,7 @@ class PptMasterEngine(PptEngine):
                     "--output-format", "stream-json", "--include-partial-messages", "--verbose",
                     prompt,
                 ],
-                cwd=str(_PPT_MASTER_DIR),
+                cwd=str(job_dir),  # ADR-012 决策 1：产物落 <jobs_root>/<job_id>/projects/
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,

@@ -5,11 +5,8 @@
 ### 1. 启动开发环境
 
 ```bash
-# 使用增强版启动脚本（推荐）
-./start-dev-enhanced.sh
-
-# 或者使用原始脚本
-./start-dev.sh
+# 启动开发环境（后端 + 前端，端口读取根目录 .env）
+./scripts/dev.sh
 ```
 
 ### 2. 访问应用
@@ -69,7 +66,7 @@ const response = await fetch('/api/jobs');  // 自动代理到 http://localhost:
 
 ### 全栈开发
 
-1. 启动开发环境：`./start-dev-enhanced.sh`
+1. 启动开发环境：`./scripts/dev.sh`
 2. 前端代码修改 → 浏览器自动刷新
 3. 后端代码修改 → 服务器自动重启
 4. 无需手动重启任何服务

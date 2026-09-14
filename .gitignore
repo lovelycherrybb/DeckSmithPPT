@@ -23,11 +23,17 @@ out/
 dist/
 coverage/
 
+# 构建缓存 / 自动生成的类型文件（next dev/build 会重新生成，无需入库）
+*.tsbuildinfo
+next-env.d.ts
+
 # 生成产物（契约代码生成，禁止手写提交）
 packages/shared/types/
 
 # 输出
 outputs/
+# compose 起的宿主侧数据卷（jobs/db/home/decks），运行期状态，且由容器内 uid 1000 写入
+deploy/data/
 
 # 本地编辑器 / Agent 配置
 .claude/

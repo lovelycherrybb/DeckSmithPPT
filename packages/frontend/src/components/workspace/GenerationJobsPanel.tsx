@@ -4,7 +4,7 @@
  */
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Button,
@@ -57,6 +57,18 @@ export default function GenerationJobsPanel({
 }: Props) {
   const [filter, setFilter] = useState<FilterKey>('all');
   const [drawerJob, setDrawerJob] = useState<JobWithProgress | null>(null);
+
+  // 只有声明了 page_preview 能力的引擎才有「逐页产物」可数；单文件 HTML 引擎
+  // 无逐页落盘，渲染「0 页」会被读成卡死。按 capabilities 派生，不按引擎名硬编码。
+  const pagePreviewEngines = useMemo(
+    () =>
+      new Set(
+        outputEngines
+          .filter((e) => (e.capabilities || []).includes('page_preview'))
+          .map((e) => e.name),
+      ),
+    [outputEngines],
+  );
 
   // 任务标题优先用生成的演示文件名（项目名_草稿版本号.pptx），未完成时退回任务标题
   const jobTitle = (job: JobWithProgress) =>
@@ -167,7 +179,8 @@ export default function GenerationJobsPanel({
                     <StatusTag status={job.status} />
                     {job.status === 'running' && (
                       <Tag color="gold" style={{ fontSize: 12 }}>
-                        {(job.progress?.pages_generated ?? 0)} 页 ·{' '}
+                        {pagePreviewEngines.has(job.engine || '') &&
+                          `${job.progress?.pages_generated ?? 0} 页 · `}
                         {job.progress?.elapsed_seconds != null
                           ? `${Math.floor((job.progress.elapsed_seconds || 0) / 60)}分${(job.progress.elapsed_seconds || 0) % 60}秒`
                           : '执行中'}
@@ -203,7 +216,7 @@ export default function GenerationJobsPanel({
                 href={jobDownloadUrl(drawer.job_id)}
                 target="_blank"
               >
-                下载 PPTX
+                下载
               </Button>
             )}
           </Space>

@@ -137,6 +137,7 @@ class JobService:
         # 如果提供了 draft_id，从草稿版本中获取 content
         content = req.content
         used_version: str | None = None  # 本任务实际使用的草稿版本号（演示文件命名用）
+        effective_title = req.title
         if req.draft_id and req.engine_type == "output":
             draft = self.draft_repo.get(db, req.draft_id)
             if draft is None:
@@ -152,6 +153,14 @@ class JobService:
 
             content = draft_version.get("content")
             used_version = version
+
+            # 标题继承：草稿→输出交接原本只带 content 不带 title，于是 running 期
+            # 列表只能显示「未命名」（产物出来后靠文件名掩盖）。标题挂在生成该草稿
+            # 的任务上（drafts.task_id → jobs.title），这里顺链取回。
+            if not effective_title and draft.get("task_id"):
+                src_job = self.repo.get(db, draft.get("task_id"))
+                if src_job:
+                    effective_title = src_job.get("title") or None
 
         job_id = uuid.uuid4().hex
         sources = [s.model_dump() for s in req.sources] if req.sources else []
@@ -175,7 +184,7 @@ class JobService:
             task_type=req.engine_type,
             status="running",
             status_detail="正在启动引擎",
-            title=req.title,
+            title=effective_title,
             pages=req.pages,
             engine=req.engine,
             agent=req.agent,
@@ -189,7 +198,7 @@ class JobService:
         )
 
         try:
-            self.engine_submit(engine, content=content, title=req.title, pages=req.pages,
+            self.engine_submit(engine, content=content, title=effective_title, pages=req.pages,
                                engine_params=engine_params, sources=sources,
                                job_id=job_id, engine_type=req.engine_type)
         except Exception as exc:
@@ -211,9 +220,9 @@ class JobService:
         params = sig.parameters
         # 旧签名引擎（单数 source、无 engine_type）
         if "sources" not in params:
-            source = kwargs.get("sources") or None
+            # 重试路径不传 sources，必须 pop 容错（硬 del 会 KeyError 让任务秒失败）
+            source = kwargs.pop("sources", None) or None
             kwargs["source"] = source[0] if source else None
-            del kwargs["sources"]
         if "engine_type" not in params:
             kwargs.pop("engine_type", None)
         engine.submit(**kwargs)

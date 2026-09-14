@@ -293,7 +293,79 @@ class JobService:
         ".jpeg": "image/jpeg",
         ".webp": "image/webp",
         ".gif": "image/gif",
+        # 单文件 HTML 引擎（guizang_ppt）的逐页预览：页 = 同一文件里的第 N 个
+        # <section class="slide">，靠下面 build_html_preview 注入的引导脚本定位。
+        # 注意：job 目录里还有 prompt.md / run.log / job.json 等审计文件，
+        # 这张白名单就是它们不被同源读走的唯一屏障——加类型前先想清楚。
+        ".html": "text/html",
+        ".htm": "text/html",
     }
+
+    # 预览引导脚本：必须早于 deck 自身脚本执行（注入在 <head> 开标签之后）。
+    # 1) 存储垫片：预览 iframe 用严格沙箱（allow-scripts，不给 allow-same-origin），
+    #    此时访问 localStorage 抛 SecurityError；实测模板 18 处 localStorage 用法里
+    #    9 处无 try/catch 且位于顶层 IIFE（如 low-power key、noteSize），会让整页崩。
+    #    故先探测，不可用就换成内存实现，既保住 deck 能跑，也绝不放开同源权限。
+    # 2) 页定位：?slide=N 轮询等待 window.__playSlide 就绪后跳到第 N 页；
+    #    ?static=1 调 __setLowPowerMode(true) 关 WebGL 背景，供页墙缩略图省 GPU。
+    _PREVIEW_BOOTSTRAP = """<script id="decksmith-preview-boot">
+(function () {
+  function memStorage() {
+    var mem = {};
+    return {
+      getItem: function (k) { k = String(k); return Object.prototype.hasOwnProperty.call(mem, k) ? mem[k] : null; },
+      setItem: function (k, v) { mem[String(k)] = String(v); },
+      removeItem: function (k) { delete mem[String(k)]; },
+      clear: function () { mem = {}; },
+      key: function (i) { return Object.keys(mem)[i] || null; }
+    };
+  }
+  ['localStorage', 'sessionStorage'].forEach(function (name) {
+    try { window[name].getItem('__decksmith_probe__'); } catch (e) {
+      var shim = memStorage();
+      Object.defineProperty(shim, 'length', { get: function () { return 0; } });
+      try { Object.defineProperty(window, name, { value: shim, configurable: true }); } catch (e2) {}
+    }
+  });
+  try {
+    var q = new URLSearchParams(location.search);
+    var slide = parseInt(q.get('slide') || '0', 10) || 0;
+    var lowPower = q.get('static') === '1';
+    if (slide > 0 || lowPower) {
+      var tries = 0;
+      var locate = function () {
+        if (lowPower && typeof window.__setLowPowerMode === 'function') {
+          try { window.__setLowPowerMode(true); } catch (e) {}
+        }
+        if (slide > 0 && typeof window.__playSlide === 'function') {
+          try { window.__playSlide(slide - 1); } catch (e) {}
+          return;
+        }
+        if (slide > 0 && tries++ < 50) setTimeout(locate, 100);
+      };
+      if (document.readyState === 'complete') setTimeout(locate, 0);
+      else window.addEventListener('load', function () { setTimeout(locate, 0); });
+    }
+  } catch (e) {}
+})();
+</script>"""
+
+    @classmethod
+    def build_html_preview(cls, target: Path) -> str:
+        """读产物 HTML 并注入预览引导脚本（只改响应，**不改磁盘上的产物**）。"""
+        src = target.read_text(encoding="utf-8", errors="ignore")
+        if 'id="decksmith-preview-boot"' in src:
+            return src
+        head = re.search(r"<head[^>]*>", src, re.IGNORECASE)
+        if head:
+            pos = head.end()
+            return src[:pos] + "\n" + cls._PREVIEW_BOOTSTRAP + src[pos:]
+        html = re.search(r"<html[^>]*>", src, re.IGNORECASE)
+        if html:
+            pos = html.end()
+            return src[:pos] + "\n" + cls._PREVIEW_BOOTSTRAP + src[pos:]
+        # 找不到锚点：追加在末尾（此时 slide 定位可能失效，但不会破坏文档结构）
+        return src + "\n" + cls._PREVIEW_BOOTSTRAP
 
     def resolve_preview_file(self, db: Session, job_id: str, rel_path: str) -> tuple[Path, str]:
         """把 /preview/{path} 解析到引擎声明的产物根目录内并校验安全。

@@ -61,14 +61,41 @@ def engine_factory(tmp_path):
     return _make
 
 
-# ── 运行时形态：必须是子进程驱动，且不得复活逐页预览能力 ──
-def test_不实现_get_pages_能力位不点亮():
-    from engine.core.protocol import OutputEngine
+# ── 逐页预览：解析真实页（含注释假页与半截页干扰） ──
+def test_逐页预览解析真实页并点亮能力位(engine_factory):
+    eng = engine_factory()
+    job_id = "pg01"
+    job_dir = eng._job_dir(job_id)  # noqa: SLF001
+    job_dir.mkdir(parents=True, exist_ok=True)
+    (job_dir / "result.html").write_text(
+        "<!doctype html><html><head><title>t</title></head><body>"
+        '<!-- SLIDES_HERE · 在此处粘贴 <section class="slide ..."> 页面块 -->'
+        '<section class="slide hero dark" data-slide-id="cover"><div><section class="x"></section></div></section>'
+        '<section class="slide light" data-slide-id="body"></section>'
+        '<section class="slide" data-slide-id="tail"><div>写到一半'  # 未闭合，不该入墙
+        "</body></html>",
+        encoding="utf-8",
+    )
 
-    assert not hasattr(GuizangPptEngine, "get_pages") or "get_pages" not in vars(GuizangPptEngine)
-    assert "get_preview_root" not in vars(GuizangPptEngine)
-    # Protocol 上的占位定义存在，但不算实现（registry.implements_hook 语义）
-    assert "get_pages" in vars(OutputEngine)
+    pages = eng.get_pages(job_id)
+    assert [p["index"] for p in pages] == [1, 2]
+    assert [p["name"] for p in pages] == ["01_cover.html", "02_body.html"]
+    assert all(p["kind"] == "html" for p in pages)
+    assert all(Path(p["path"]).name == "result.html" for p in pages)
+    assert eng.get_preview_root(job_id) == job_dir.resolve()
+
+    # 无产物时返回空页而非报错（产物被清理 / 尚未写出的中间态）
+    assert eng.get_pages("nonexistent") == []
+    assert eng.get_preview_root("nonexistent") is None
+
+    # 能力位由钩子实现自动派生（不按引擎名硬编码）
+    import sys
+
+    backend_src = Path(__file__).resolve().parents[2] / "backend" / "src"
+    sys.path.insert(0, str(backend_src))
+    from app.engines.registry import ENGINE_REGISTRY
+
+    assert "page_preview" in ENGINE_REGISTRY["guizang_ppt"]["capabilities"]
 
 
 def test_引擎不再自带模板副本():
@@ -210,8 +237,8 @@ def test_缺claude_CLI时明确失败(engine_factory):
     assert "claude" in eng._read_job(job_id)["error"]  # noqa: SLF001
 
 
-# ── get_progress：只报真实信息，不编造页数 ──
-def test_进度不编造页数(engine_factory, tmp_path):
+# ── get_progress：页数与页墙同源，且不预测、不编造 ──
+def test_进度页数与页墙同源(engine_factory, tmp_path):
     eng = engine_factory(
         claude_bin=_fake_claude(tmp_path, "echo '{\"type\":\"stream_event\",\"event\":{\"delta\":{\"type\":\"text_delta\",\"text\":\"hi\"}}}'; sleep 5"),
     )
@@ -219,8 +246,19 @@ def test_进度不编造页数(engine_factory, tmp_path):
     prog = eng.get_progress(job_id)
     assert prog and prog["stage"] == "generating"
     assert "swiss" in prog["stage_label"]
-    assert "pages_generated" not in prog and "current_page" not in prog
     assert prog["last_log"]
+    # 产物还没落盘：如实 0 页，不预测目标页数、不塞 pending 占位
+    assert prog["pages_generated"] == 0 and prog["current_page"] is None
+
+    # 写出 3 个已闭合页后，进度数字必须等于页墙长度（同一读盘事实源）
+    body = "".join(f'<section class="slide" data-slide-id="s{i}">x</section>' for i in range(1, 4))
+    (eng._job_dir(job_id) / "result.html").write_text(  # noqa: SLF001
+        f"<html><head></head><body>{body}</body></html>", encoding="utf-8"
+    )
+    prog = eng.get_progress(job_id)
+    assert prog["pages_generated"] == len(eng.get_pages(job_id)) == 3
+    assert prog["current_page"] == "03_s3.html"
+
     eng._write_job(job_id, status="completed")  # noqa: SLF001
     assert eng.get_progress(job_id) is None
 

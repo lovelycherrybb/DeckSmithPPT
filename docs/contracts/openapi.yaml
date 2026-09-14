@@ -949,7 +949,7 @@ components:
           additionalProperties: true
         capabilities:
           type: array
-          description: '引擎能力位声明，前端据此决定可用交互，与具体引擎名解耦。已知值：page_preview=支持逐页产物预览（由引擎实现逐页枚举钩子自动派生）。默认空数组。'
+          description: '引擎能力位声明，前端据此决定可用交互，与具体引擎名解耦。已知值：page_preview=支持逐页产物预览（由引擎实现逐页枚举钩子自动派生）；页可以是独立文件（如逐页 SVG），也可以是同一份单文件 HTML 里的第 N 个页面（由预览路由注入引导脚本按 ?slide=N 定位），能力位本身不对应「每页一个文件」。默认空数组。'
           items:
             type: string
           default: []
@@ -1378,7 +1378,7 @@ components:
           - image
           - html
           default: image
-          description: 出图方式，引擎无关。image=内联 SVG/位图走 <Image>；html=整段 HTML 页走 iframe（本期未启用）
+          description: 出图方式，引擎无关。image=内联 SVG/位图走 <Image>；html=整段 HTML 页走 iframe（已启用：单文件 HTML 引擎的每页是同一份产物里的第 N 个页面，前端按 ?slide={index}&static=1 请求，预览路由注入引导脚本定位并支持关闭 WebGL 背景；iframe 沙箱只给 allow-scripts，配合同源响应的 CSP sandbox 头保持隔离）
     JobPages:
       type: object
       description: 某输出引擎任务的逐页预览快照。只承载已确定的事实，不预测总页数、不含 pending 占位。

@@ -8,7 +8,7 @@ from pathlib import Path
 import uuid
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, UploadFile, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 
 from ..core.db import SessionLocal, JOBS_ROOT
@@ -251,6 +251,19 @@ def api_job_preview(job_id: str, path: str, db: Session = Depends(get_db)):
     不给 filename——预览是内联展示，不触发下载。
     """
     target, media_type = service.resolve_preview_file(db, job_id, path)
+    if media_type == "text/html":
+        # 产物 HTML 由 agent 生成，同源内联返回就是存储型 XSS 面。用响应头强制
+        # CSP sandbox（opaque origin）+ nosniff，即使前端 iframe 忘了写 sandbox
+        # 属性也仍然隔离；引导脚本（存储垫片 + 页定位）由 service.build_html_preview 注入。
+        return Response(
+            service.build_html_preview(target),
+            media_type="text/html",
+            headers={
+                "Content-Security-Policy": "sandbox allow-scripts",
+                "X-Content-Type-Options": "nosniff",
+                "Referrer-Policy": "no-referrer",
+            },
+        )
     return FileResponse(target, media_type=media_type)
 
 

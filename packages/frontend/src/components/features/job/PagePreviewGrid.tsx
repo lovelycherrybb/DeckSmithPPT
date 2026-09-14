@@ -10,10 +10,74 @@
  */
 'use client';
 
+import { useEffect, useRef, useState } from 'react';
 import { Image, Spin, Tooltip, Typography } from 'antd';
 import type { EngineInfo, JobPages, PageItem } from '@/lib/api';
 
 const { Text } = Typography;
+
+/** 元素首次进入视口后返回 true（用于缩略图懒加载，避免整墙 iframe 同时拉起 deck） */
+function useInView<T extends HTMLElement>(rootMargin = '200px') {
+  const ref = useRef<T | null>(null);
+  const [seen, setSeen] = useState(false);
+  useEffect(() => {
+    if (seen) return;
+    const el = ref.current;
+    if (!el || typeof IntersectionObserver === 'undefined') {
+      setSeen(true);
+      return;
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setSeen(true);
+          io.disconnect();
+        }
+      },
+      { rootMargin },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [seen, rootMargin]);
+  return { ref, seen };
+}
+
+/**
+ * 单文件 HTML 引擎（guizang_ppt）的页格：每格都是同一个 result.html，
+ * 由后端注入的引导脚本按 ?slide=N 定位到该页；?static=1 让模板关掉 WebGL 背景
+ * （__setLowPowerMode），缩略格不必各跑一份 shader。
+ *
+ * 沙箱口径：只给 allow-scripts、**不给 allow-same-origin** —— 产物是 agent 生成的
+ * HTML，放开同源就等于让它读主应用的 localStorage。后端同时对预览响应下发
+ * `Content-Security-Policy: sandbox allow-scripts`，双保险保持 opaque origin。
+ */
+function SlideIframeCell({ page }: { page: PageItem }) {
+  const { ref, seen } = useInView<HTMLDivElement>();
+  const base = `${page.url}${page.url.includes('?') ? '&' : '?'}slide=${page.index}`;
+  return (
+    <div
+      ref={ref}
+      style={{ ...cellBase, border: '1px solid var(--border)', cursor: 'pointer' }}
+      onClick={() => window.open(base, '_blank', 'noopener')}
+      title="点击在新标签放映"
+    >
+      <PageBadge index={page.index} />
+      {seen ? (
+        <iframe
+          src={`${base}&static=1`}
+          title={page.name}
+          style={{ width: '100%', height: '100%', border: 'none', pointerEvents: 'none' }}
+          sandbox="allow-scripts"
+          loading="lazy"
+        />
+      ) : (
+        <div style={{ width: '100%', height: '100%', display: 'grid', placeItems: 'center' }}>
+          <Spin size="small" />
+        </div>
+      )}
+    </div>
+  );
+}
 
 /** 图片加载失败（产物目录被清理等）的占位图：仅该格降级，不整墙报错 */
 const CLEANED_FALLBACK_SRC =
@@ -56,22 +120,21 @@ function PageBadge({ index }: { index: number }) {
 }
 
 function PageCard({ page }: { page: PageItem }) {
+  if (page.kind === 'html') {
+    // 单文件 HTML 引擎：整段 deck 由引导脚本定位到本页（见 SlideIframeCell）
+    return <SlideIframeCell page={page} />;
+  }
   return (
     <Tooltip title={page.name}>
       <div style={{ ...cellBase, border: '1px solid var(--border)' }}>
         <PageBadge index={page.index} />
-        {page.kind === 'html' ? (
-          // 契约预留：整段 HTML 页走 iframe（本期无引擎产出该 kind）
-          <iframe src={page.url} title={page.name} style={{ width: '100%', height: '100%', border: 'none' }} sandbox="" />
-        ) : (
-          <Image
-            src={page.url}
-            alt={page.name}
-            fallback={CLEANED_FALLBACK_SRC}
-            wrapperStyle={{ width: '100%', height: '100%' }}
-            style={{ objectFit: 'contain', width: '100%', height: '100%', cursor: 'zoom-in' }}
-          />
-        )}
+        <Image
+          src={page.url}
+          alt={page.name}
+          fallback={CLEANED_FALLBACK_SRC}
+          wrapperStyle={{ width: '100%', height: '100%' }}
+          style={{ objectFit: 'contain', width: '100%', height: '100%', cursor: 'zoom-in' }}
+        />
       </div>
     </Tooltip>
   );

@@ -12,8 +12,8 @@
 2. 产物路径**在 prompt 里显式钉死**为 `<job_dir>/result.html`，状态判定直接
    查这个文件（存在 + mtime 晚于任务启动 + 非空），不再像 ppt_master 那样靠
    「mtime 猜最新导出」，从根上避免并发/历史任务冒领旧产物；
-3. 产物是**单个 HTML**、没有逐页落盘文件，因此本类**不实现** get_pages /
-   get_preview_root 钩子，registry 的能力派生自然不点亮 page_preview。
+3. 产物是**单个 HTML**，没有逐页落盘文件；逐页预览靠**解析该文件读出真实页
+   序列**（见 get_pages），页 url 由预览路由注入的引导脚本驱动 `__playSlide` 定位。
 
 文件布局（jobs_root 来自 engine.core.config）：
   <job_id>/
@@ -35,6 +35,7 @@ import threading
 import time
 import uuid
 from datetime import datetime, timezone
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 
@@ -86,6 +87,61 @@ _THEME_LABEL = {
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+class _SlideScanner(HTMLParser):
+    """扫描 HTML 里真实存在的 `<section class="slide ...">` 页序列。
+
+    为什么必须用解析器而不是字符串计数（真跑取证）：
+    - magazine 骨架的 `<!-- SLIDES_HERE … -->` 注释里写着示例文字
+      `<section class="slide ...">`，grep 计数会多出一页（产物 grep=6、真实=5）；
+    - swiss 骨架自带 2 个**真实**示例页（data-slide-id=cover/closing，不在注释内），
+      agent 通常就地改写它们而非删除。
+    解析器天然跳过注释，并按标签嵌套配对闭合，因此数出来就是浏览器会渲染的页。
+    """
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.slides: list[list[Any]] = []   # [[data-slide-id, 是否已闭合], ...]
+        self._in_slide = False
+        self._nested = 0
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        if tag != "section":
+            return
+        a = dict(attrs)
+        if not self._in_slide and "slide" in (a.get("class") or "").split():
+            self._in_slide = True
+            self._nested = 0
+            self.slides.append(
+                [a.get("data-slide-id") or f"slide-{len(self.slides) + 1}", False]
+            )
+        elif self._in_slide:
+            self._nested += 1
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag != "section" or not self._in_slide:
+            return
+        if self._nested == 0:
+            self.slides[-1][1] = True     # 本页闭合
+            self._in_slide = False
+        else:
+            self._nested -= 1
+
+
+def scan_slides(html_text: str) -> list[str]:
+    """返回产物中**已完整闭合**的页 data-slide-id 列表（顺序即页序）。
+
+    未闭合的尾页被剔除：agent 分批写入时最后页可能只写了一半，塞进页墙会渲染成
+    破版假页。（html.parser 不强制闭合标签，所以必须在结尾按 closed 过滤。）
+    """
+    scanner = _SlideScanner()
+    try:
+        scanner.feed(html_text)
+        scanner.close()
+    except Exception:  # noqa: BLE001 畸形 HTML 不应让预览接口整墙报错
+        return []
+    return [sid for sid, closed in scanner.slides if closed]
 
 
 def _claude_skills_dir() -> Path:
@@ -669,11 +725,46 @@ class GuizangPptEngine(OutputEngine):
         except OSError:
             return None
 
-    def get_progress(self, job_id: Any) -> dict | None:
-        """运行中进度：只报已耗时与真实日志尾行。
+    def get_pages(self, job_id: Any) -> list[dict]:
+        r"""逐页预览钩子：解析单文件产物，读出**浏览器实际会渲染的页序列**。
 
-        刻意不报 pages_generated / current_page：本引擎产物是单个 HTML，
-        没有逐页落盘文件可数，给出数字即等于编造（见 AGENTS 质量原则）。
+        与 ppt_master 的 `svg_output/NN_*.svg` 不同，这里没有逐页文件可枚举，
+        页是同一文件里的第 N 个 `<section class="slide">`。因此：
+        - 只收**已完整闭合**的页（半截页不入墙，见 _SlideScanner）；
+        - 所有 PageRef 的 path 都指向 result.html，由预览路由注入的引导脚本按
+          `?slide=N` 驱动 `window.__playSlide(N-1)` 定位到该页；
+        - 口径已知：swiss 骨架自带 cover/closing 两个真实页位，agent 就地改写，
+          所以 running 初期页数可能从 2 起算——这是文件真实内容，不做基线扣减，
+          避免出现第二套计数逻辑。
+        进度与页墙共用本方法（get_progress 直接取 len），天然对齐。
+        """
+        p = self._result_path(job_id)
+        try:
+            if not p.is_file():
+                return []
+            ids = scan_slides(p.read_text(encoding="utf-8", errors="ignore"))
+        except OSError:
+            return []
+        return [
+            {"index": i, "name": f"{i:02d}_{sid}.html", "path": p, "kind": "html"}
+            for i, sid in enumerate(ids, start=1)
+        ]
+
+    def get_preview_root(self, job_id: Any) -> Path | None:
+        """逐页预览钩子：产物根目录即 job 目录（预览路由据此限制可读类型）。
+
+        注意：job 目录里还有 prompt.md / run.log / job.json 等审计文件，
+        靠 service._PREVIEW_MEDIA_TYPES 白名单挡住（只放行图片与 html），
+        不靠目录隔离——新增可预览类型时必须复核这张表。
+        """
+        p = self._result_path(job_id)
+        return p.parent if p.is_file() else None
+
+    def get_progress(self, job_id: Any) -> dict | None:
+        """运行中进度：页数直接取自 get_pages（单一读盘事实源）。
+
+        与 pages 接口的 pages_generated=len(pages) 同口径，不会出现「进度说 4 页、
+        页墙只有 3 格」这种两套计数逻辑的边界差。
         """
         data = self._read_job(job_id)
         if data.get("status") != "running":
@@ -681,14 +772,12 @@ class GuizangPptEngine(OutputEngine):
         started_at = data.get("started_at", 0)
         elapsed = int(time.time() - started_at) if started_at else 0
         style = (data.get("engine_params") or {}).get("style", "magazine")
+        pages = self.get_pages(job_id)
         return {
             "stage": "generating",
             "stage_label": f"正在生成 HTML 演示文稿（guizang-ppt-skill · {style}）",
+            "pages_generated": len(pages),
+            "current_page": pages[-1]["name"] if pages else None,
             "elapsed_seconds": elapsed,
             "last_log": self._tail_run_log(job_id) or "引擎运行中，暂无输出日志",
         }
-
-    # 逐页预览钩子（get_pages / get_preview_root）**有意不实现**：
-    # 产物为单文件 HTML，无逐页文件可枚举；registry.implements_hook 沿 MRO 只会
-    # 找到 OutputEngine 上的 Protocol 占位定义，故 page_preview 能力不点亮，
-    # 前端维持下载形态（后端 jobs.py 已按 result.html 识别 file_format=html）。

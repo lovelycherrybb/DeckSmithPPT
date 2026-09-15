@@ -52,7 +52,14 @@ for probe in lib/ppt-master/AGENTS.md lib/ppt-master/skills/ppt-master/SKILL.md 
     exit 2
   }
 done
-( cd deploy && docker compose config --quiet ) || { echo "错误：deploy/docker-compose.yml 校验未通过" >&2; exit 2; }
+# 校验编排时必须带上本次版本号：compose 的 IMAGE_TAG 是必填项（不给兜底默认），
+# 不带就会被自家守卫拦下。
+( cd deploy && IMAGE_TAG="$VERSION" docker compose config --quiet ) \
+  || { echo "错误：deploy/docker-compose.yml 校验未通过" >&2; exit 2; }
+# 顺带提醒：模板里的 IMAGE_TAG 应随发版更新，否则运维 cp 出来的 .env 指向旧镜像
+if [ -f deploy/.env.example ] && ! grep -q "^IMAGE_TAG=$VERSION\$" deploy/.env.example; then
+  echo "提醒：deploy/.env.example 的 IMAGE_TAG 不是 $VERSION，发版后请同步更新" >&2
+fi
 
 mkdir -p "$OUT"
 : > "$OUT/SHA256SUMS"

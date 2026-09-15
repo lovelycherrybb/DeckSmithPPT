@@ -50,11 +50,13 @@ PPT_MASTER_DRAFT_PARAMS = _load_ppt_master_draft_params()
 CLAUDE_DRAFT_PARAMS = _load_claude_draft_params()
 GUIZANG_PPT_PARAMS = _load_guizang_ppt_params()
 
-# 引擎注册名 -> 实现类（模块路径, 类名）。只用于能力探测（查类上的钩子定义），
-# 不用于任何业务分支；实例化仍走 factory.get_engine。
+# 引擎注册名 -> 实现类（模块路径, 类名）。经 `engine_class()` 作为**唯一解析入口**，
+# 同时供实例化（factory.get_engine）与能力探测（_derive_capabilities）使用；
+# 新增引擎只需在此与 ENGINE_REGISTRY 各加一项，factory 与 entrypoint 无需改动。
 _ENGINE_CLASSES: dict[str, tuple[str, str]] = {
     "ppt_master": ("engine.impl.ppt_master.engine", "PptMasterEngine"),
-    "ppt_master_draft": ("engine.impl.ppt_master.engine", "PptMasterEngine"),
+    # 草稿与输出分属两个类：能力位按实现类探测，同类注册两名会让草稿被误标 page_preview
+    "ppt_master_draft": ("engine.impl.ppt_master.engine", "PptMasterDraftEngine"),
     "claude_draft": ("engine.impl.ppt_master.claude_draft", "ClaudeDraftEngine"),
     "guizang_ppt": ("engine.impl.guizang_ppt", "GuizangPptEngine"),
 }

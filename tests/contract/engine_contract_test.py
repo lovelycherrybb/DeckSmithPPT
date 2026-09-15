@@ -28,7 +28,14 @@ for _p in (REPO_ROOT / "packages", REPO_ROOT / "packages" / "backend" / "src"):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
-from app.engines.registry import engine_class, implements_hook, output_engine_names  # noqa: E402
+from app.engines.registry import (  # noqa: E402
+    ENGINE_REGISTRY,
+    _ENGINE_CLASSES,
+    _derive_capabilities,
+    engine_class,
+    implements_hook,
+    output_engine_names,
+)
 from app.engines.runtime import RUNTIME_HOOK, prepare_all, report  # noqa: E402
 from engine.core.protocol import OutputEngine  # noqa: E402
 from engine.impl import guizang_ppt  # noqa: E402
@@ -216,3 +223,84 @@ def test_runtime_iteration_skips_engines_without_hook(monkeypatch) -> None:
     monkeypatch.setenv("DECKSMITH_FORCE_STUB", "1")
     assert prepare_all() == [], "未实现钩子的引擎被误计入结果"
     assert report() == 0, "无前置条件需求时预检不应判失败"
+
+
+# ── 3. 工厂与能力位（注册表驱动，加引擎只改注册表） ─────────────────
+
+def test_draft_engines_never_claim_page_preview() -> None:
+    """草稿任务不产逐页物，故草稿注册名一律不得带 page_preview 标签。
+
+    这条曾经是真的：`ppt_master_draft` 与 `ppt_master` 同类注册两名，而能力位按**实现类**
+    探测，导致草稿被误标。修法不是按名字分支，而是给草稿一个声明退出钩子的薄子类
+    （PptMasterDraftEngine）。本用例守住这个不变量，防止再退回去。
+    """
+    from app.engines.registry import _derive_capabilities
+
+    drafts = [n for n, v in ENGINE_REGISTRY.items() if v.get("engine_type") == "draft"]
+    wrong = [n for n in drafts if "page_preview" in _derive_capabilities(n)]
+    assert not wrong, f"草稿引擎被误标 page_preview：{wrong}"
+
+
+@pytest.mark.parametrize("engine_name", sorted(ENGINE_REGISTRY))
+def test_factory_resolves_every_registered_engine(engine_name: str) -> None:
+    """每个注册名都必须能被工厂解析出实例，且具备协议基本方法。
+
+    枚举取自注册表：新增引擎不需要在本文件登记即可被覆盖（这是 factory 收口后的验收面）。
+    """
+    from app.engines.factory import get_engine
+
+    engine = get_engine(engine_name)
+    for attr in ("submit", "status", "result"):
+        assert callable(getattr(engine, attr, None)), (
+            f"{engine_name} 的实例缺少协议方法 {attr}"
+        )
+
+
+def test_unknown_engine_still_raises() -> None:
+    """未注册名不静默降级（含 stub 兜底也不允许吞掉拼错的引擎名）。"""
+    from app.engines.factory import get_engine
+
+    with pytest.raises(ValueError):
+        get_engine("no_such_engine")
+
+
+@pytest.mark.parametrize("engine_name", sorted(ENGINE_REGISTRY))
+def test_force_stub_covers_every_registered_engine(engine_name: str, monkeypatch) -> None:
+    """DECKSMITH_FORCE_STUB 必须覆盖每个注册引擎——离线 CI 漏一个就会真拉子进程烧额度。
+
+    这条是变异验证暴露出来的缺陷：factory 原先维护一张硬编码白名单，新引擎不在表里就绕过
+    钩子。现判据取自注册表本身，故本用例按注册表枚举，新引擎自动纳入。
+    """
+    from app.engines.factory import get_engine
+    from app.engines.stub import StubPptMasterEngine
+
+    monkeypatch.setenv("DECKSMITH_FORCE_STUB", "1")
+    assert isinstance(get_engine(engine_name), StubPptMasterEngine), (
+        f"{engine_name} 在 FORCE_STUB 下仍会落真引擎（检查 factory 的注册表判据）"
+    )
+
+
+def test_factory_seamlessly_admits_a_new_engine(monkeypatch) -> None:
+    """收口的自证：只往注册表加一个引擎，解析/能力派生/stub 钩子三项立刻自动生效。
+
+    若哪天有人把名字清单搬回 factory，这条会红。
+    """
+    extra = "temp_added_engine"
+    # 注入两张表 = 模拟"开发者只改注册表"这一唯一动作
+    monkeypatch.setitem(_ENGINE_CLASSES, extra,
+                        ("engine.impl.guizang_ppt", "GuizangPptEngine"))
+    monkeypatch.setitem(ENGINE_REGISTRY, extra,
+                        {"name": extra, "display_name": "临时", "description": "",
+                         "engine_type": "output", "params_schema": {}})
+
+    from app.engines.factory import get_engine
+    from app.engines.registry import _derive_capabilities
+
+    assert engine_class(extra).__name__ == "GuizangPptEngine", "解析未覆盖新注册名"
+    assert get_engine(extra) is not None, "工厂未覆盖新注册名（是否残留名字分支？）"
+    assert "page_preview" in _derive_capabilities(extra), "能力位未随实现自动派生"
+
+    monkeypatch.setenv("DECKSMITH_FORCE_STUB", "1")
+    from app.engines.stub import StubPptMasterEngine
+
+    assert isinstance(get_engine(extra), StubPptMasterEngine), "stub 钩子未覆盖新注册名"

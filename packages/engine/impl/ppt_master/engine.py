@@ -673,3 +673,21 @@ class PptMasterEngine(PptEngine):
             "current_page": pages[-1]["name"] if pages else None,
             "last_log": self._tail_run_log(job_id) or "引擎运行中，暂无输出日志",
         }
+
+
+class PptMasterDraftEngine(PptMasterEngine):
+    """注册名 `ppt_master_draft` 专用类：实现全继承，仅声明**退出逐页钩子**。
+
+    为什么要多这层薄子类而不是直接复用 `PptMasterEngine`：能力位是按**实现类**做鸭子类型
+    探测派生的（`implements_hook`），草稿与输出两个注册名此前指向同一个类，于是
+    `GET /api/engines` 会把草稿引擎也标成具备 `page_preview`——一个与实际能力不符的标签。
+    按注册名分支被 ADR-001 第 4 条禁止，所以正确的分离手段就是这个子类，
+    与 `ClaudeDraftEngine` 同一手法。
+
+    `prepare_runtime` 有意沿用父类：草稿路径只跑确定性的 `source_to_md.py`，严格说不需要
+    claude CLI，故该检查对草稿偏严。保留的理由是本产品交付目标就是出片，一个装不出
+    claude 的环境里草稿也没有实际意义；放宽只会让启动预检少一道真实信号。
+    """
+
+    get_pages = None  # type: ignore[assignment]
+    get_preview_root = None  # type: ignore[assignment]

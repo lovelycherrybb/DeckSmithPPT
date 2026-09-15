@@ -11,6 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # prepare_runtime 契约测试用真实 lib/ 子模块验证软链幂等（异常信息也提示
+          # 需 submodule update），故契约 CI 必须拉子模块
+          submodules: recursive
       - name: 检查契约漂移
         run: bash scripts/check-drift.sh
       - name: 安装测试依赖

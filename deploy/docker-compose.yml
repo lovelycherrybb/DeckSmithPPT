@@ -2,15 +2,17 @@
 #
 #   cd deploy && cp .env.example .env && 编辑 .env 填凭证 && docker compose up -d --build
 #   访问 http://localhost:3000
-#   用交付包导入的镜像启动：IMAGE_TAG=0.2.0 docker compose up -d
+#   用交付包导入的镜像启动：docker compose up -d --no-build   （IMAGE_TAG 取自 deploy/.env）
 #
 # 设计约束：
 #   * 镜像无状态，全部可写状态落 ./data；删容器不丢数据（决策 5）。
 #   * 凭证只经 env_file 注入，绝不写进镜像层（决策 4）。
 #   * web 的 API 代理目标是**构建期**烘焙的，故 BACKEND_HOST 走 build arg、
 #     且必须等于 service 名 `app`——容器里 127.0.0.1 打不到后端（决策 6 同源问题）。
-#   * 镜像标签不写死：scripts/release.sh 按版本产出 :$VERSION，写死会与交付包对不上；
-#     升级后显式设置 IMAGE_TAG（或写进 deploy/.env）。
+#   * IMAGE_TAG **必填**、不给兜底默认值：写死默认会把人静默引向旧版本，而标签指向的镜像
+#     不存在时 compose 会转头去构建（离线环境随即失败）。值随发版更新，写在 deploy/.env。
+#   * 离线导入场景一律带 --no-build：本文件保留 build 段供源码构建用，但只用镜像时
+#     不该让 compose 有机会去解析构建上下文。
 
 name: decksmith
 
@@ -23,7 +25,7 @@ services:
   # 的首装阻塞项（已在 Debian 12 干净机器实测到并据此修复）。
   # 复用 app 镜像故不额外交付；每次启动都跑：幂等，且从备份 tar 恢复后属主往往已变。
   data-init:
-    image: decksmith/app:${IMAGE_TAG:-0.2.0}
+    image: decksmith/app:${IMAGE_TAG:?set IMAGE_TAG in deploy/.env}
     user: root
     entrypoint:
       - sh
@@ -43,7 +45,8 @@ services:
       dockerfile: packages/backend/Dockerfile
       args:
         BASE_IMAGE: ${BASE_IMAGE:-node:20-slim}
-    image: decksmith/app:${IMAGE_TAG:-0.2.0}
+        CLAUDE_VERSION: ${CLAUDE_VERSION:-2.1.197}
+    image: decksmith/app:${IMAGE_TAG:?set IMAGE_TAG in deploy/.env}
     # 必须等属主修好再启动，否则 entrypoint 的 mkdir 会失败
     depends_on:
       data-init:
@@ -77,7 +80,7 @@ services:
         BASE_IMAGE: ${BASE_IMAGE:-node:20-slim}
         BACKEND_HOST: app               # 构建期烘焙，必须等于上面的 service 名
         BACKEND_PORT: "8080"
-    image: decksmith/web:${IMAGE_TAG:-0.2.0}
+    image: decksmith/web:${IMAGE_TAG:?set IMAGE_TAG in deploy/.env}
     ports:
       - "${WEB_PORT:-3000}:3000"
     depends_on:

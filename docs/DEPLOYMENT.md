@@ -82,6 +82,8 @@ docker compose logs app | grep runtime   # 应逐条输出「前置条件就绪�
 | `ANTHROPIC_DEFAULT_SONNET_MODEL`<br>`..._OPUS_MODEL` `..._HAIKU_MODEL` | `deploy/.env` | 第三方网关必填 | claude 内部还按 sonnet/opus/haiku 三档挑模型，默认值是官方 `claude-*` 名；网关上不存在这几档时，**填对 key 也会在后续调用失败**，需一并指到网关自己的模型名。实测这些变量名硬编码在 claude 原生二进制内，容器无需 settings.json |
 | `WEB_PORT` | `deploy/.env` | 否 | 对外端口，默认 3000 |
 | `BASE_IMAGE` | 构建参数 | 否 | 基础镜像地址，默认 `node:20-slim` |
+| `IMAGE_TAG` | `deploy/.env` | **是** | 镜像标签。**故意不给兜底默认值**——写死默认会把人引向旧版本，且标签所指镜像不存在时 compose 会转头构建（离线环境随即失败）。每次发版同步更新 |
+| `CLAUDE_VERSION` | `deploy/.env`／构建参数 | 否 | 钉住的 claude CLI 版本（默认 `2.1.197`，即端到端验证过的那个）。构建期会断言实际装到的版本，不符即失败 |
 | `HTTPS_PROXY` | `deploy/.env` | 否 | 仅能走代理出网的环境填写 |
 
 **改完 `.env` 必须重建容器才生效**：`env_file` 只在容器创建时读取一次，`up -d` 若判定配置
@@ -172,9 +174,11 @@ cd deploy && docker compose build && docker compose up -d
 
    ```bash
    git submodule update --init --recursive
-   bash scripts/release.sh 0.2.0
-   # 目标机是 x86_64 时：PLATFORMS=linux/amd64 bash scripts/release.sh 0.2.0
-   # 有内网加速器时：  BASE_IMAGE=<内网仓库>/node:20-slim bash scripts/release.sh 0.2.0
+   bash scripts/release.sh <版本>
+   # 目标机是 x86_64 时：PLATFORMS=linux/amd64 bash scripts/release.sh <版本>
+   # 有内网加速器时：  BASE_IMAGE=<内网仓库>/node:20-slim bash scripts/release.sh <版本>
+   # 要换 claude CLI 版本：CLAUDE_VERSION=<版本> bash scripts/release.sh <版本>
+   #   （版本被钉住且构建期断言实际安装版本，装错即构建失败；改版本需重新端到端验证）
    ```
 
 2. 产物在 `dist/`：`decksmith-{app,web}-<版本>-linux-<架构>.tar.gz`、`SHA256SUMS`、
@@ -183,9 +187,10 @@ cd deploy && docker compose build && docker compose up -d
 
    ```bash
    shasum -a 256 -c SHA256SUMS
-   gzip -dc decksmith-app-0.2.0-linux-aarch64.tar.gz | docker load
-   gzip -dc decksmith-web-0.2.0-linux-aarch64.tar.gz  | docker load
-   cd deploy && IMAGE_TAG=0.2.0 docker compose up -d
+   gzip -dc decksmith-app-<版本>-linux-<架构>.tar.gz | docker load
+   gzip -dc decksmith-web-<版本>-linux-<架构>.tar.gz | docker load
+   cd deploy && cp .env.example .env && 编辑 .env 填凭证与 IMAGE_TAG=<版本>
+   docker compose up -d --no-build     # 必须 --no-build：只用镜像，不给 compose 构建的机会
    ```
 
 脚本会在前置自检失败时直接停下（缺 Docker、缺 buildx、上游技能不完整、编排配置不合法都
@@ -247,11 +252,11 @@ dockerd 首装；`v0.1.0` 早于容器化工作，**按它交付无法安装**�
 
 **已知待修（不影响能否安装，影响可复现性）**：
 
-1. **claude CLI 版本未锁定。** `packages/backend/Dockerfile:65` 是
+1. ~~claude CLI 版本未锁定~~ **已修**： `packages/backend/Dockerfile:65` 是
    `npm install -g @anthropic-ai/claude-code`，取的是**构建当时** npm 上的最新版，与开发机上
    装的那个 claude 无关（实测三处各异：npm 注册表 2.1.272 / 镜像内 2.1.197 / 开发机 CLI
    2.1.105）。后果是重建镜像会**静默更换生成引擎的实际执行者**，出片质量或行为一变，
-   无法区分是我们的改动还是 claude 升版。应改为 `CLAUDE_VERSION` build-arg 钉死，
-   并把实际版本写进 `release.sh` 的 MANIFEST。
-2. **镜像内没有 `git`。** claude 会 shell 出去调它（会话记录里的 `gitBranch` 即其所写），
-   缺失属静默降级。补进 `apt-get install` 即可。
+   无法区分是我们的改动还是 claude 升版。现由 `CLAUDE_VERSION` build-arg 钉死（默认 2.1.197），
+   构建期断言实际安装版本、不符即失败，版本同时写入镜像 label 与 `release.sh` 产出信息。
+2. ~~镜像内没有 `git`~~ **已修**： claude 会 shell 出去调它（会话记录里的 `gitBranch` 即其所写），
+   缺失属静默降级。已补进 `apt-get install`。

@@ -29,6 +29,8 @@ fi
 SERVER_ARCH="$(docker info --format '{{.Architecture}}')"
 PLATFORMS="${PLATFORMS:-linux/${SERVER_ARCH}}"
 BASE_IMAGE="${BASE_IMAGE:-node:20-slim}"
+# 与 packages/backend/Dockerfile 的 ARG 默认值保持一致；升版需重新端到端验证
+CLAUDE_VERSION="${CLAUDE_VERSION:-2.1.197}"
 OUT="$ROOT/dist"
 IMAGE_PREFIX="${IMAGE_PREFIX:-decksmith}"
 
@@ -36,6 +38,7 @@ echo "=== DeckSmith 交付包产出 ==="
 echo "版本      : $VERSION"
 echo "目标平台  : $PLATFORMS"
 echo "基础镜像  : $BASE_IMAGE"
+echo "claude    : ${CLAUDE_VERSION}（构建期钉住；装到别的版本会让构建当场失败）"
 echo "产物目录  : $OUT"
 echo
 
@@ -86,6 +89,7 @@ for platform in $PLATFORMS; do
           --output "type=docker,dest=$staging")
     # web 的接口代理目标在构建期固化，必须显式传后端 service 名与端口
     [ "$svc" = "web" ] && args+=(--build-arg BACKEND_HOST=app --build-arg BACKEND_PORT=8080)
+    [ "$svc" = "app" ] && args+=(--build-arg "CLAUDE_VERSION=$CLAUDE_VERSION")
 
     if ! docker "${args[@]}" .; then
       echo "!!! 失败：$svc [$platform]" >&2

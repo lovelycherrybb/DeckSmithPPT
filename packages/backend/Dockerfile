@@ -18,12 +18,25 @@
 ARG BASE_IMAGE=node:20-slim
 FROM ${BASE_IMAGE}
 
+# claude CLI 必须钉版本。不钉则 `npm install -g @anthropic-ai/claude-code` 取的是
+# **构建当时** registry 的最新版，与开发机上装的 CLI 无关——实测三处各异：
+# npm 注册表 2.1.272 / 我们镜像 2.1.197 / 开发机 CLI 2.1.105。
+# 默认值取"已在 Debian 12 虚拟机上端到端出片验证过"的那个版本；
+# 升版须显式 --build-arg CLAUDE_VERSION=... 并重新验证，不接受静默替换。
+ARG CLAUDE_VERSION=2.1.197
+
+# 版本随镜像留痕：现场用 `docker inspect decksmith/app:<版本>` 即可核对实际 CLI 版本
+LABEL decksmith.claude-version="${CLAUDE_VERSION}" \
+      decksmith.components="backend,engine,claude-cli,upstream-skills"
+
 # procps: 引擎用 `ps -p` 判进程存活（_process_alive）；curl 给 HEALTHCHECK；
+# git: claude CLI 会 shell 外调它（会话 jsonl 里的 gitBranch 字段即其所写），缺失虽不报错
+#       但属静默降级，现场难归因，故一并装上；
 # CA + tzdata 给出网调用与时区
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
          python3 python3-venv python3-pip python3-dev \
-         procps curl ca-certificates tzdata \
+         procps curl git ca-certificates tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 ENV PYTHONUNBUFFERED=1 \
@@ -61,10 +74,17 @@ COPY docs/contracts/ /app/docs/contracts/
 COPY deploy/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
-# claude CLI：两个输出引擎的硬依赖，无离线退路（ADR-011 决策 2）
-RUN npm install -g --omit=dev @anthropic-ai/claude-code \
+# claude CLI：两个输出引擎的硬依赖，无离线退路（ADR-011 决策 2）。
+# 按钉住的版本精确安装，并**断言装到的就是那个版本**——不信任"npm 应该会给我们这个版本"。
+# 版本同时落到镜像 label 与 /opt/claude-version，供交付包 MANIFEST 与现场核对取用。
+RUN npm install -g --omit=dev "@anthropic-ai/claude-code@${CLAUDE_VERSION}" \
     && npm cache clean --force \
-    && claude --version
+    && actual="$(claude --version | awk '{print $1}')" \
+    && if [ "$actual" != "$CLAUDE_VERSION" ]; then \
+         echo "FATAL: 请求 claude ${CLAUDE_VERSION}，实际装到 ${actual}"; exit 1; \
+       fi \
+    && printf '%s\n' "$actual" > /opt/claude-version \
+    && echo "[build ok] claude ${actual} ；git $(git --version | awk '{print $3}')"
 
 # 运行期路径全部指向数据卷，默认值刻意不用仓库内路径
 ENV DECKSMITH_JOBS_ROOT=/data/jobs \

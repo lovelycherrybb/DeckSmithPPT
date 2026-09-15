@@ -7,12 +7,13 @@
 
 ## 一、交付形态
 
-系统由两个服务与四个数据卷构成。服务无状态，全部状态落在数据卷，因此重建容器不丢数据。
+系统由两个常驻服务、一个一次性初始化服务与四个数据卷构成。服务无状态，全部状态落在数据卷，因此重建容器不丢数据。
 
 | 组成 | 内容 | 监听 |
 |---|---|---|
 | `app` | 后端服务、生成引擎、Claude Code 命令行工具、Node 运行时、随仓库锁定的上游技能内容 | 容器内 8080，不对外发布 |
 | `web` | 界面服务（Next.js standalone 产物），承担对 `app` 的接口代理 | 默认 3000，可按 `WEB_PORT` 改 |
+| `data-init` | 一次性服务：把数据卷宿主目录的属主交给容器运行身份（uid 1000）后即退出。**必需**——宿主目录不存在时由 dockerd 以 root 创建，非 root 的 `app` 会写不进而循环重启；复用 `app` 镜像，故不额外交付 | 无常驻 |
 | 数据卷 | `deploy/data/jobs`（任务产物与日志）、`data/db`（数据库）、`data/home`（模型工具的技能登记与会话记录）、`data/decks`（归位前的历史产物） | — |
 
 **关于基础镜像**：构建需要 `node:20-slim`（Debian bookworm，内含 Node 20；Python 由 apt
@@ -146,6 +147,8 @@ cd deploy && docker compose build && docker compose up -d
 | 界面能打开、接口全部失败 | 界面到后端的代理目标固化在构建期 | `docker compose build web && docker compose up -d` |
 | 上传大文件失败或连接被重置 | 请求体上限 50 MB | 确认未改小 `middlewareClientMaxBodySize`；同时检查反向代理链路各层的请求体限制 |
 | 预览图裂、产物下载后图片缺失 | 产物中被写入宿主绝对路径 | 检查 `deploy/data/jobs/<ID>/projects/` 下产物文本是否含 `/data/` 开头的绝对路径 |
+| 容器反复重启，日志为 `mkdir '/data/home/.claude': Permission denied` | 宿主 `data/` 目录由 dockerd 以 root 创建，容器以 uid 1000 运行写不进 | 编排内置的一次性 `data-init` 服务已在每次启动时修正属主；若仍出现，多半是用了旧版 `docker-compose.yml`，或有人手工把目录改成了别的属主 |
+| 某服务依赖检查失败后，另一服务一直停在 `Created` 不启动 | 前置服务不健康会让被依赖服务不进入启动流程 | 修复前者后需**再次执行** `docker compose up -d`（`ps -a` 可看到停留状态），不会自动续启 |
 | 端口占用 | `WEB_PORT` 与既有服务冲突 | 改 `deploy/.env` 的 `WEB_PORT` 后 `docker compose up -d` |
 | 涉及 shape 布尔运算的页面失败 | 镜像内出现第二个 Python 解释器，`skia-pathops` 不在其内 | 启动预检会给出告警；确保 PATH 首位为 `/opt/venv/bin`，不要在镜像内另装系统级 Python 包 |
 
@@ -198,14 +201,28 @@ rm -rf data/                                # 确认无需历史数据后再执�
 
 **已实测通过**：镜像构建、编排启动、启动预检的正反两向（含技能缺失时确实拒绝启动并返回
 非零码）、界面入口与接口代理接线、逐页预览、依赖在 Linux 上全部命中预编译轮子、
-数据卷读写边界、`lib/` 只读保护生效；**交付包链路本身也已跑通**——`scripts/release.sh`
-产出 tar 与校验和，`shasum -c` 通过、`docker load` 导入成功，并用导入的镜像
-（`IMAGE_TAG=0.2.0 docker compose up -d`）重新起服务后回验入口、代理与预检。
-验证平台为 **Linux / aarch64**，Docker 29.4。
+数据卷读写边界、`lib/` 只读保护生效；**交付包链路已在真实客户环境形态下跑通**——
+`scripts/release.sh` 产出 tar 与校验和，传到一台**全新 Debian 12 虚拟机**（无 git、无
+Docker、访问不到 Docker Hub 与 pypi）后 `sha256sum -c` 通过、装 docker-ce、`docker load`
+导入、`IMAGE_TAG=0.2.0 docker compose up -d` 起服务，并从异机验证首页与 `/api/engines`
+代理、确认数据库在空卷中正常建表。
 
-**版本锚定**：交付以 **`v0.2.0`** 为锚点（附注 tag，含容器化全部内容与本指南）。
-`v0.1.0` 早于容器化工作，不含 Dockerfile、依赖清单与引擎前置钩子，**按它交付无法安装**；
-该 tag 已推送到远端故保持不动，不要以它作为交付依据。
+在该虚拟机上发现并修复了一处**只在真实 Linux 上暴露**的首装阻塞：bind 卷宿主目录由
+dockerd 以 root 创建，非 root 的 `app` 写不进而循环重启（开发机的 OrbStack 做 uid 映射，
+把它掩盖了）。对策是编排内置一次性 `data-init` 服务。
+
+> **因此有一个必须知道的发版缺口**：`v0.2.0` 镜像与安装说明可用，但它里面的
+> `docker-compose.yml` **尚无 `data-init`**——用 stock dockerd 的客户按 `v0.2.0` 首装会在
+> `app` 上循环重启。修复需随下一次发版（`v0.2.1`）生效；临时绕过办法是先执行一次
+> `sudo chown -R 1000:1000 deploy/data` 再 `up -d`。
+
+验证平台：Linux/aarch64；Docker 29.4（macOS 侧）与 29.8（虚拟机，stock dockerd）。
+
+**版本锚定**：当前交付锚点为 **`v0.2.0`**（附注 tag，含容器化全部内容与本指南），
+**但其 `docker-compose.yml` 不含上述 `data-init` 修复**——stock dockerd 首装请先用临时
+绕过，或以修复后的下一次发版（`v0.2.1`）为准。`v0.1.0` 早于容器化工作，不含 Dockerfile、
+依赖清单与引擎前置钩子，**按它交付无法安装**；该 tag 已推送到远端故保持不动，
+不要以它作为交付依据。
 
 **须在交付现场核验**：
 

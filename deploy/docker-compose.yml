@@ -1,4 +1,4 @@
-# DeckSmith 交付编排（ADR-012 决策 4：2 服务 + 4 数据卷）
+# DeckSmith 交付编排（ADR-012 决策 4：2 个常驻服务 + 4 数据卷；另含 1 个一次性 data-init）
 #
 #   cd deploy && cp .env.example .env && 编辑 .env 填凭证 && docker compose up -d --build
 #   访问 http://localhost:3000
@@ -15,6 +15,28 @@
 name: decksmith
 
 services:
+  # 一次性初始化：把宿主 bind 卷的属主交给容器的运行身份（uid 1000）。
+  # 为什么必须有：bind 卷对应的宿主目录若不存在，是由 dockerd 以 **root** 创建的；
+  # 而 app/web 以非 root 的 node(1000:1000) 运行，写不进 /data/home，表现为
+  # 启动即 `mkdir /data/home/.claude: Permission denied` 并循环重启。
+  # 在 OrbStack 这类会做 uid 映射的运行时上不会复现——属真实 Linux + stock dockerd
+  # 的首装阻塞项（已在 Debian 12 干净机器实测到并据此修复）。
+  # 复用 app 镜像故不额外交付；每次启动都跑：幂等，且从备份 tar 恢复后属主往往已变。
+  data-init:
+    image: decksmith/app:${IMAGE_TAG:-0.2.0}
+    user: root
+    entrypoint:
+      - sh
+      - -c
+      - |
+        mkdir -p /data/jobs /data/db /data/home /data/decks
+        chown -R 1000:1000 /data
+        chmod 755 /data
+        echo "[data-init] /data 属主已就绪（uid 1000）"
+    volumes:
+      - ./data:/data          # 统一挂 /data，一次修齐四个子卷（含 decks）
+    restart: "no"
+
   app:
     build:
       context: ..
@@ -22,6 +44,10 @@ services:
       args:
         BASE_IMAGE: ${BASE_IMAGE:-node:20-slim}
     image: decksmith/app:${IMAGE_TAG:-0.2.0}
+    # 必须等属主修好再启动，否则 entrypoint 的 mkdir 会失败
+    depends_on:
+      data-init:
+        condition: service_completed_successfully
     env_file: .env
     environment:
       BACKEND_PORT: "8080"

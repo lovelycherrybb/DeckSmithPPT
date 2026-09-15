@@ -83,12 +83,31 @@ def implements_hook(target: object, hook: str) -> bool:
     return False
 
 
+def engine_class(name: str):
+    """按注册名取引擎实现类。
+
+    公开给测试与能力探测使用，避免各处重复 `importlib + _ENGINE_CLASSES` 那段私有的导入舞蹈
+    （同一知识只应有一个解析入口）。解析失败时抛异常，由调用方决定是否容忍。
+    """
+    module_path, cls_name = _ENGINE_CLASSES[name]
+    return getattr(importlib.import_module(module_path), cls_name)
+
+
+def output_engine_names() -> list[str]:
+    """所有 `engine_type == "output"` 的注册名。
+
+    排序返回，保证测试与日志的枚举顺序稳定（否则新增引擎会让 diff 里的失败列表乱跳）。
+    产物落点契约测试据此做**注册表驱动**的枚举：新注册一个输出引擎，若没登记它的产物
+    形状，测试当场失败——机制纳管，不靠人记得去加。
+    """
+    return sorted(n for n, v in ENGINE_REGISTRY.items() if v.get("engine_type") == "output")
+
+
 def _derive_capabilities(name: str) -> list[str]:
     """按引擎实现类的钩子实现情况派生能力位；类不可用时保守返回空。"""
     caps: list[str] = []
     try:
-        module_path, cls_name = _ENGINE_CLASSES[name]
-        engine_cls = getattr(importlib.import_module(module_path), cls_name)
+        engine_cls = engine_class(name)
     except Exception:
         return caps
     if implements_hook(engine_cls, PAGE_PREVIEW_HOOK):

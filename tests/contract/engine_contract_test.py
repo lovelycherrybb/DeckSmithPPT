@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -27,7 +28,7 @@ for _p in (REPO_ROOT / "packages", REPO_ROOT / "packages" / "backend" / "src"):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
-from app.engines.registry import implements_hook  # noqa: E402
+from app.engines.registry import engine_class, implements_hook, output_engine_names  # noqa: E402
 from app.engines.runtime import RUNTIME_HOOK, prepare_all, report  # noqa: E402
 from engine.core.protocol import OutputEngine  # noqa: E402
 from engine.impl import guizang_ppt  # noqa: E402
@@ -52,48 +53,86 @@ def test_runtime_hooks_registered_in_contract() -> None:
     )
 
 
-# ── 1. 产物落点契约 ──────────────────────────────────────────────
+# ── 1. 产物落点契约（注册表驱动：新增输出引擎自动被考） ─────────────
 
-@pytest.mark.parametrize("engine_cls", [GuizangPptEngine, PptMasterEngine])
-def test_job_dir_is_directly_under_jobs_root(engine_cls, tmp_path: Path) -> None:
-    engine = engine_cls(jobs_root=tmp_path / "jobs")
-    derived = engine._job_dir("abc123")
-    assert derived.parent == (tmp_path / "jobs").resolve(), (
-        f"任务目录不在 jobs_root 下：{derived}"
-    )
-    assert derived.name == "abc123", "任务目录必须是 jobs_root/<job_id>，不得嵌套他处"
+JOB_ID = "probe-job"
 
 
-def test_guizang_products_stay_inside_jobs_root(tmp_path: Path) -> None:
-    jobs_root = tmp_path / "jobs"
-    engine = GuizangPptEngine(jobs_root=jobs_root)
-    job_dir = engine._job_dir("g1")
-    job_dir.mkdir(parents=True)
+def _plant_single_html(job_dir: Path) -> None:
+    """单文件形状：`<jobs_root>/<job_id>/result.html`（guizang 一类）。"""
+    job_dir.mkdir(parents=True, exist_ok=True)
     (job_dir / "result.html").write_text(
         "<html><body><section class='slide'>a</section></body></html>", encoding="utf-8"
     )
 
-    assert jobs_root.resolve() in engine._result_path("g1").parents
-    root = engine.get_preview_root("g1")
-    assert root is not None and jobs_root.resolve() in root.parents
 
-
-def test_ppt_master_pages_stay_inside_jobs_root(tmp_path: Path) -> None:
-    jobs_root = tmp_path / "jobs"
-    engine = PptMasterEngine(jobs_root=jobs_root)
-    project = engine._job_dir("p1") / "projects" / "deck_20260101"
-    (project / "svg_output").mkdir(parents=True)
+def _plant_page_svgs(job_dir: Path) -> None:
+    """逐页文件形状：`<jobs_root>/<job_id>/projects/<项目>/svg_output/NN_*.svg`（ppt_master 一类）。"""
+    project = job_dir / "projects" / "deck_20260101"
+    (project / "svg_output").mkdir(parents=True, exist_ok=True)
     (project / "svg_output" / "01_cover.svg").write_text("<svg/>", encoding="utf-8")
-    (engine._job_dir("p1") / "job.json").write_text(
+    (job_dir / "job.json").write_text(
         json.dumps({"started_at": 1, "status": "running"}), encoding="utf-8"
     )
 
-    root = engine.get_preview_root("p1")
-    assert root is not None and jobs_root.resolve() in root.parents, (
-        f"逐页预览根越出任务目录：{root}——cwd 归位后不得再回 lib/ 下找产物"
+
+# 按**注册名**登记产物形状。这不是业务代码里的引擎名分支，而是测试夹具清单：
+# 下面的 fail-closed 用例会要求"每个输出引擎都必须在此登记"，所以新增引擎不登记就当场红，
+# 并直接说明该补什么——把"约定"变成"机制"（ADR-012 决策 3 的落地形态）。
+LANDING_SHAPES: dict[str, Callable[[Path], None]] = {
+    "guizang_ppt": _plant_single_html,
+    "ppt_master": _plant_page_svgs,
+}
+
+
+def _missing_shapes() -> list[str]:
+    return [n for n in output_engine_names() if n not in LANDING_SHAPES]
+
+
+def test_every_output_engine_has_landing_shape() -> None:
+    missing = _missing_shapes()
+    assert not missing, (
+        f"输出引擎 {missing} 未登记产物形状。请在 LANDING_SHAPES 为它登记一种"
+        "（复用 _plant_single_html / _plant_page_svgs，或新写一个 plant 函数），"
+        "否则产物必须落在 jobs_root 内这条约定对它没有任何约束。"
     )
-    for page in engine.get_pages("p1") or []:
-        assert jobs_root.resolve() in Path(page["path"]).parents, f"页文件越界：{page['path']}"
+
+
+def test_landing_guard_actually_catches_new_engine(monkeypatch) -> None:
+    """自证守卫有牙：临时注册一个未登记形状的输出引擎，枚举必须当场抓到它。"""
+    from app.engines.registry import ENGINE_REGISTRY
+
+    monkeypatch.setitem(ENGINE_REGISTRY, "temp_probe_engine", {"engine_type": "output"})
+    assert "temp_probe_engine" in output_engine_names(), "枚举未覆盖新注册引擎"
+    assert "temp_probe_engine" in _missing_shapes(), (
+        "守卫失效：新输出引擎没登记形状却仍然全绿，等于契约测试形同虚设"
+    )
+
+
+@pytest.mark.parametrize("engine_name", output_engine_names())
+def test_products_stay_inside_jobs_root(engine_name: str, tmp_path: Path) -> None:
+    jobs_root = tmp_path / "jobs"
+    try:
+        engine = engine_class(engine_name)(jobs_root=jobs_root)
+    except TypeError as exc:
+        pytest.fail(
+            f"输出引擎 {engine_name} 必须接受 jobs_root 构造参数，否则部署期无法外置"
+            f"产物根（ADR-012 决策 1/4）：{exc}"
+        )
+
+    # 按约定路径造产物（不调引擎私有方法）：约定本身就是被测对象
+    LANDING_SHAPES[engine_name](jobs_root / JOB_ID)
+
+    root = engine.get_preview_root(JOB_ID)
+    assert root is not None, f"{engine_name} 在约定落点放了产物却定位不到"
+    assert jobs_root.resolve() in root.parents, (
+        f"{engine_name} 预览根越出 jobs_root：{root}——产物必须落在调用方分配的"
+        " job_dir 内，不得回写 lib/ 等代码树（AGENTS 规则 4）"
+    )
+    for page in engine.get_pages(JOB_ID) or []:
+        assert jobs_root.resolve() in Path(str(page["path"])).parents, (
+            f"{engine_name} 页文件越出 jobs_root：{page['path']}"
+        )
 
 
 def test_ppt_master_never_mixes_legacy_root_with_job_root(tmp_path: Path, monkeypatch) -> None:

@@ -75,12 +75,22 @@ docker compose logs app | grep runtime   # 应逐条输出「前置条件就绪�
 
 | 变量 | 位置 | 必填 | 说明 |
 |---|---|---|---|
-| `ANTHROPIC_API_KEY` | `deploy/.env` | 是 | 模型服务凭证。**只进运行时环境，绝不写入镜像层** |
-| `ANTHROPIC_BASE_URL` | `deploy/.env` | 否 | Anthropic 兼容端点地址；使用官方端点可留空 |
-| `ANTHROPIC_MODEL` | `deploy/.env` | 否 | 指定模型名；留空则由工具默认 |
+| `ANTHROPIC_API_KEY` | `deploy/.env` | 二选一 | 凭证，走 `x-api-key` 头（官方端点）。**只进运行时环境，绝不写入镜像层** |
+| `ANTHROPIC_AUTH_TOKEN` | `deploy/.env` | 二选一 | 凭证，走 `Authorization: Bearer` 头（**第三方兼容网关常见**）。与上一项填其一即可，填错类型的表现见第八节 |
+| `ANTHROPIC_BASE_URL` | `deploy/.env` | 否 | Anthropic 兼容端点地址；使用官方端点可留空，自建/第三方网关必填 |
+| `ANTHROPIC_MODEL` | `deploy/.env` | 否 | 模型名，须与端点支持的名称一致（网关侧模型名常与官方不同） |
+| `ANTHROPIC_DEFAULT_SONNET_MODEL`<br>`..._OPUS_MODEL` `..._HAIKU_MODEL` | `deploy/.env` | 第三方网关必填 | claude 内部还按 sonnet/opus/haiku 三档挑模型，默认值是官方 `claude-*` 名；网关上不存在这几档时，**填对 key 也会在后续调用失败**，需一并指到网关自己的模型名。实测这些变量名硬编码在 claude 原生二进制内，容器无需 settings.json |
 | `WEB_PORT` | `deploy/.env` | 否 | 对外端口，默认 3000 |
 | `BASE_IMAGE` | 构建参数 | 否 | 基础镜像地址，默认 `node:20-slim` |
 | `HTTPS_PROXY` | `deploy/.env` | 否 | 仅能走代理出网的环境填写 |
+
+**改完 `.env` 必须重建容器才生效**：`env_file` 只在容器创建时读取一次，`up -d` 若判定配置
+未变就不会重建。正确动作是 `docker compose up -d --force-recreate app`，随后核对是否真的
+注入了：
+
+```bash
+docker compose exec app env | grep -c ANTHROPIC     # 应为 2 或 3，0 表示没生效
+```
 
 以下路径已在镜像内固化为环境变量，一般无需改动；确需调整时在
 `deploy/docker-compose.yml` 的 `app.environment` 覆盖：`DECKSMITH_JOBS_ROOT=/data/jobs`、
@@ -143,6 +153,7 @@ cd deploy && docker compose build && docker compose up -d
 | 现象 | 定位方向 | 处置 |
 |---|---|---|
 | 容器启动即退出，日志含 `前置条件缺失` | 上游技能未取全，或 Claude Code 不可解析 | 按提示执行 `git submodule update --init --recursive`；确认构建未跳过工具安装层 |
+| 任务十几秒即 `failed`、`run.log` 几乎为空、`result_path` 为 null | 鉴权未通过：凭证没填、鉴权头类型不对（`x-api-key` 与 `Bearer` 二选一）、或改了 `.env` 没重建容器 | 看 `data/home/.claude/projects/<转义目录>/*.jsonl` 末条，若为 `authentication_failed` 即凭证问题；核对 `docker compose exec app env \| grep -c ANTHROPIC`，为 0 就 `--force-recreate app` |
 | 任务运行很久后失败、无产物 | 模型端点对超长输出中途掐断，流式结果仍可能报成功 | 查 `run.log` 与第五节第 3 项的会话记录；必要时更换模型或收敛单次输出规模 |
 | 界面能打开、接口全部失败 | 界面到后端的代理目标固化在构建期 | `docker compose build web && docker compose up -d` |
 | 上传大文件失败或连接被重置 | 请求体上限 50 MB | 确认未改小 `middlewareClientMaxBodySize`；同时检查反向代理链路各层的请求体限制 |
@@ -211,24 +222,36 @@ Docker、访问不到 Docker Hub 与 pypi）后 `sha256sum -c` 通过、装 dock
 dockerd 以 root 创建，非 root 的 `app` 写不进而循环重启（开发机的 OrbStack 做 uid 映射，
 把它掩盖了）。对策是编排内置一次性 `data-init` 服务。
 
-> **因此有一个必须知道的发版缺口**：`v0.2.0` 镜像与安装说明可用，但它里面的
-> `docker-compose.yml` **尚无 `data-init`**——用 stock dockerd 的客户按 `v0.2.0` 首装会在
-> `app` 上循环重启。修复需随下一次发版（`v0.2.1`）生效；临时绕过办法是先执行一次
-> `sudo chown -R 1000:1000 deploy/data` 再 `up -d`。
+> **一个已修复的发版缺口（留档）**：`v0.2.0` 的镜像与安装说明可用，但其
+> `docker-compose.yml` 尚无 `data-init`，用 stock dockerd 的客户按 `v0.2.0` 首装会在
+> `app` 上循环重启。该修复自 **`v0.2.1`** 起生效；手上仍是 `v0.2.0` 包时，临时绕过办法是
+> 先执行一次 `sudo chown -R 1000:1000 deploy/data` 再 `up -d`。
 
 验证平台：Linux/aarch64；Docker 29.4（macOS 侧）与 29.8（虚拟机，stock dockerd）。
 
-**版本锚定**：当前交付锚点为 **`v0.2.0`**（附注 tag，含容器化全部内容与本指南），
-**但其 `docker-compose.yml` 不含上述 `data-init` 修复**——stock dockerd 首装请先用临时
-绕过，或以修复后的下一次发版（`v0.2.1`）为准。`v0.1.0` 早于容器化工作，不含 Dockerfile、
-依赖清单与引擎前置钩子，**按它交付无法安装**；该 tag 已推送到远端故保持不动，
-不要以它作为交付依据。
+**版本锚定**：当前交付锚点为 **`v0.2.1`**（已推送远端，含 `data-init`，已在 Debian 12 上
+以离线包形式验证过导入与启动）。`v0.2.0` 存在前述 `data-init` 缺口，不要用于 stock
+dockerd 首装；`v0.1.0` 早于容器化工作，**按它交付无法安装**。三个已发布 tag 均保持原样
+不改写。注意 `main` 目前领先 `v0.2.1` 两个提交（注册表驱动契约测试、引擎能力位修正），
+**未重出包**——用 `v0.2.1` 镜像时 `GET /api/engines` 仍会把草稿引擎标为具备
+`page_preview`（不影响功能，草稿本就产不出逐页物）。
 
 **须在交付现场核验**：
 
 1. `linux/amd64`（x86_64 客户机）上的构建与运行。验证环境拉不到任何 amd64 基础镜像，
    该架构的依赖轮子可得性**未经验证**；首次交付前先执行
    `PLATFORMS=linux/amd64 bash scripts/release.sh <版本>` 确认能构建成功。
-2. 带真实凭证的端到端出片。本轮验证使用占位凭证，只覆盖到工具可执行、卷可写、
-   技能可发现，未覆盖真实生成链路。
+2. 带真实凭证的端到端出片。此前的失败已定位为凭证未填（`authentication_failed`），
+   真实生成链路仍待一次成功跑通。
 3. 长期运行下的并发与数据库表现。SQLite 加后台线程的组合未在目标环境压测。
+
+**已知待修（不影响能否安装，影响可复现性）**：
+
+1. **claude CLI 版本未锁定。** `packages/backend/Dockerfile:65` 是
+   `npm install -g @anthropic-ai/claude-code`，取的是**构建当时** npm 上的最新版，与开发机上
+   装的那个 claude 无关（实测三处各异：npm 注册表 2.1.272 / 镜像内 2.1.197 / 开发机 CLI
+   2.1.105）。后果是重建镜像会**静默更换生成引擎的实际执行者**，出片质量或行为一变，
+   无法区分是我们的改动还是 claude 升版。应改为 `CLAUDE_VERSION` build-arg 钉死，
+   并把实际版本写进 `release.sh` 的 MANIFEST。
+2. **镜像内没有 `git`。** claude 会 shell 出去调它（会话记录里的 `gitBranch` 即其所写），
+   缺失属静默降级。补进 `apt-get install` 即可。

@@ -13,5 +13,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: 检查契约漂移
         run: bash scripts/check-drift.sh
+      - name: 安装测试依赖
+        # 契约测试经 registry/stub 连带 import pptx（python-pptx），其余全是标准库，
+        # 故只装这两个包，不拖 backend/engine 的完整运行时依赖树。
+        run: pip install pytest python-pptx==1.0.2
       - name: 运行契约测试
         run: python -m pytest tests/contract/ -q

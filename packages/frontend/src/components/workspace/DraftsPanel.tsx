@@ -2,7 +2,8 @@
  * 子菜单②：草稿任务——所有草稿版本平铺展示。
  * 每个版本一行：主标题「2026年9月9日 第N版」（N=当天第几个版本，最早为 1）；
  * 副信息：任务 ID、版本号；操作：查看 / 编辑 / 生成演示文件。
- * 生成中的草稿任务（草稿实体未落库）以「生成中」行置顶展示。
+ * 未落库的草稿任务（草稿实体只在 completed 时写入，失败则永远不会落库）
+ * 以置顶行展示：running=「生成中」，failed/timeout=错误态+重试。
  */
 'use client';
 
@@ -33,6 +34,7 @@ import {
   FileText,
   RefreshCw,
   Rocket,
+  RotateCcw,
   Save,
   Undo2,
 } from 'lucide-react';
@@ -43,6 +45,7 @@ import {
   modifyDraft,
   modifyDraftStream,
   restoreDraftVersion,
+  retryJob,
   saveDraftVersion,
   submitDeck,
   type DeckRequest,
@@ -133,13 +136,14 @@ export default function DraftsPanel({
   );
   const jobByTaskId = useMemo(() => new Map(jobs.map((j) => [j.job_id, j])), [jobs]);
 
-  // 生成中的草稿任务（草稿实体未落库，置顶展示）
-  const generatingJobs = useMemo(
+  // 未落库的草稿任务（草稿实体只在 completed 时写入）：running=生成中；
+  // failed/timeout 若被过滤掉就会「凭空消失」，必须保留展示供用户重试
+  const unfinishedJobs = useMemo(
     () =>
       jobs.filter(
         (j) =>
           j.task_type === 'draft' &&
-          j.status === 'running' &&
+          ['running', 'failed', 'timeout'].includes(j.status) &&
           !drafts.some((d) => d.task_id === j.job_id)
       ),
     [jobs, drafts]
@@ -310,6 +314,21 @@ export default function DraftsPanel({
     }
   };
 
+  // ── 重试失败的草稿任务（后端新建同参数任务，原任务保留 failed 记录） ──
+  const [retrying, setRetrying] = useState<string | null>(null);
+  const handleRetry = async (jobId: string) => {
+    setRetrying(jobId);
+    try {
+      const job = await retryJob(jobId);
+      messageApi.success(`已重新提交，新任务 ${job.job_id.slice(0, 8)}`);
+      onRefresh();
+    } catch (e) {
+      messageApi.error(e instanceof Error ? e.message : '重试失败');
+    } finally {
+      setRetrying(null);
+    }
+  };
+
   const handleGenerateSubmit = async () => {
     if (!generateTarget) return;
     try {
@@ -395,34 +414,59 @@ export default function DraftsPanel({
           <div style={{ textAlign: 'center', padding: 40 }}>
             <Spin />
           </div>
-        ) : flatRows.length === 0 && generatingJobs.length === 0 ? (
+        ) : flatRows.length === 0 && unfinishedJobs.length === 0 ? (
           <Empty description="当前项目暂无草稿——首次生成草稿时会自动创建项目" />
         ) : (
           <List
             dataSource={[
-              ...generatingJobs.map((j) => ({ key: `gen-${j.job_id}`, kind: 'generating' as const, job: j })),
+              ...unfinishedJobs.map((j) => ({ key: `gen-${j.job_id}`, kind: 'generating' as const, job: j })),
               ...flatRows.map((r) => ({ key: `v-${r.draft.draft_id}-${r.version}`, kind: 'version' as const, row: r })),
             ]}
             renderItem={(item) =>
               item.kind === 'generating' ? (
-                // 生成中的草稿任务（草稿实体尚未落库）
-                <List.Item
-                  actions={[
-                    <Button key="gen" size="small" type="primary" icon={<Rocket size={13} />} disabled>
-                      生成中…
-                    </Button>,
-                  ]}
-                >
-                  <List.Item.Meta
-                    title={
-                      <Space>
-                        <span>{item.job.title || '未命名草稿'}</span>
-                        <StatusTag status="running" />
-                      </Space>
-                    }
-                    description={`所属项目 ${projectNameMap.get(item.job.project_id || '') || item.job.project_id?.slice(0, 8) || '-'} · ${item.job.status_detail || '引擎执行中'}`}
-                  />
-                </List.Item>
+                // 未落库的草稿任务：生成中 / 失败（可重试） / 超时（可重试）
+                (() => {
+                  const job = item.job;
+                  const failed = job.status === 'failed' || job.status === 'timeout';
+                  const pName = projectNameMap.get(job.project_id || '') || job.project_id?.slice(0, 8) || '-';
+                  return (
+                    <List.Item
+                      actions={
+                        failed
+                          ? !readOnly && [
+                              <Button
+                                key="retry"
+                                size="small"
+                                icon={<RotateCcw size={13} />}
+                                loading={retrying === job.job_id}
+                                onClick={() => handleRetry(job.job_id)}
+                              >
+                                重试
+                              </Button>,
+                            ]
+                          : [
+                              <Button key="gen" size="small" type="primary" icon={<Rocket size={13} />} disabled>
+                                生成中…
+                              </Button>,
+                            ]
+                      }
+                    >
+                      <List.Item.Meta
+                        title={
+                          <Space>
+                            <span>{job.title || '未命名草稿'}</span>
+                            <StatusTag status={job.status} />
+                          </Space>
+                        }
+                        description={
+                          failed
+                            ? `所属项目 ${pName} · ${job.error || job.status_detail || '生成失败，详见任务日志'}`
+                            : `所属项目 ${pName} · ${job.status_detail || '引擎执行中'}`
+                        }
+                      />
+                    </List.Item>
+                  );
+                })()
               ) : (
                 (() => {
                   const row = item.row;

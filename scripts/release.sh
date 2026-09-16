@@ -144,8 +144,13 @@ cp docs/DEPLOYMENT.md "$OPS/docs/安装与升级.md"
   echo "  scripts/upgrade.sh         升级唯一规定动作：先备份 data/ 再换镜像"
   echo "  docs/安装与升级.md          安装、验证、备份、升级、排障全文"
   echo
-  echo "升级既有部署：把本目录的 tar 与 ops/ 一起放到目标机，执行"
-  echo "  cd ops && bash scripts/upgrade.sh $VERSION ."
+  echo "就地升级既有部署（务必保留原 .env 与 data/，两条路径今天均在验证机实测通过）："
+  echo "  1) 把 ops/scripts/upgrade.sh 覆盖到现有代码树的 scripts/，"
+  echo "     ops/deploy/docker-compose.yml 覆盖到现有 deploy/；"
+  echo "     不要覆盖 deploy/.env（凭证与 IMAGE_TAG 在里面）与 deploy/data/（全部业务数据）"
+  echo "  2) 到 tar 所在目录执行：bash scripts/upgrade.sh $VERSION ."
+  echo "全新安装（本机还没有过部署）：cd ops && bash scripts/upgrade.sh $VERSION .."
+  echo "     注意交付目录参数是 ..——tar 与 ops/ 同级；ops/deploy 下只有模板，没有你的 .env"
 } >> "$MANIFEST"
 
 echo

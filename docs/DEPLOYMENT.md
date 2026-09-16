@@ -146,16 +146,29 @@ SQLite 在线备份接口把库拍到 `deploy/data/db/backup/`，文件名形如
 
 ## 七、升级与回滚
 
-**升级的唯一规定动作**（先备份数据、再换镜像，中间不停机做别的事）：
+**升级的唯一规定动作**（先把新镜像备出来才允许停服务，停服后第一件事是备份数据）：
 
 ```bash
-bash scripts/upgrade.sh 0.3.0            # 本机已有镜像，或从源码构建
-bash scripts/upgrade.sh 0.3.0 dist       # 离线：从交付目录导入 *.tar.gz 后启动
+bash scripts/upgrade.sh 0.3.0            # 有源码树：先构建新镜像，再停服务
+bash scripts/upgrade.sh 0.3.0 dist       # 离线：先从交付目录导入 *.tar.gz，再停服务
+bash scripts/upgrade.sh 0.3.0 dist --check  # 只做到“镜像已备好”，不动在跑的服务（供复验）
 ```
 
-脚本按顺序做：停服务 → 打包 `deploy/data/` 到 `deploy/backups/` 并校验可读 →
-导入或构建新镜像 → 幂等改写 `.env` 的 `IMAGE_TAG`（原文件留 `.env.bak-<时间>`）→
-启动 → 轮询 web 就绪后打印容器清单。任一步失败即停下，**数据尚未被动过**。
+脚本按顺序做：预检 → 备好新镜像（导入失败或找不到匹配 tar 就**在不停服的前提下**直接退出）
+→ 停服务 → 打包 `deploy/data/` 到 `deploy/backups/` 并校验可读 → 幂等改写 `.env` 的
+`IMAGE_TAG`（原文件留 `.env.bak-<时间>`）→ 启动 → 轮询 web 就绪后打印容器清单。
+任一前置步骤失败即停下，**服务未停、数据未动**。
+
+离线交付包（`dist/`）里 `ops/` 与两张 tar 同级。就地升级时**不要**在 `ops/` 下直接起服务——
+那里的 `deploy/` 只有模板，会另起一套空数据、把你现有的 `deploy/data/` 甩在后面。正确做法是把
+套件覆盖进现有部署，再在 tar 所在目录执行：
+
+```bash
+cp ops/scripts/upgrade.sh              <现有树>/scripts/upgrade.sh
+cp ops/deploy/docker-compose.yml       <现有树>/deploy/docker-compose.yml
+# 绝不覆盖 <现有树>/deploy/.env（凭证与 IMAGE_TAG）与 deploy/data/（全部业务数据）
+cd <现有树> && bash scripts/upgrade.sh 0.3.0 .
+```
 
 为什么不能省掉备份直接 `docker compose build && up -d`：库结构由程序在启动时自动迁移
 （补列、列改名后整表搬家），这是**不可逆**的程序行为。手工路径仍可用，但必须先自行

@@ -52,10 +52,24 @@ for probe in lib/ppt-master/AGENTS.md lib/ppt-master/skills/ppt-master/SKILL.md 
     exit 2
   }
 done
-# 校验编排时必须带上本次版本号：compose 的 IMAGE_TAG 是必填项（不给兜底默认），
-# 不带就会被自家守卫拦下。
-( cd deploy && IMAGE_TAG="$VERSION" docker compose config --quiet ) \
-  || { echo "错误：deploy/docker-compose.yml 校验未通过" >&2; exit 2; }
+# 编排结构校验放在**临时副本**里做，不在 deploy/ 原地跑。
+# 原因（x86_64 干净环境实测撞到）：compose 对**服务级** `env_file` 严格要求文件存在，
+# 而 deploy/.env 装的是运行期凭证、按规矩不入库——于是刚 clone 出来的机器（客户机 / CI）
+# 跑本脚本会被这道自家守卫拦死，可出包本身并不需要一份真 .env。
+# 副本里拿 .env.example 顶替 .env：只满足"文件存在且可解析"，凭证不参与构建。
+# 仍显式传 IMAGE_TAG=$VERSION，让校验对准本次要出的标签，而不是模板里写死的那个。
+# 别把这道校验当版本守卫：模板自带 IMAGE_TAG 时 compose 不会因缺值报错，
+# 它只保证结构与插值可解析；模板标签是否跟上发版由下面那段提醒负责。
+PREFLIGHT_DIR="${TMPDIR:-/tmp}/decksmith-compose-preflight"
+mkdir -p "$PREFLIGHT_DIR"
+cp deploy/docker-compose.yml "$PREFLIGHT_DIR/"
+if [ -f deploy/.env.example ]; then
+  cp deploy/.env.example "$PREFLIGHT_DIR/.env"
+else
+  : > "$PREFLIGHT_DIR/.env"
+fi
+( cd "$PREFLIGHT_DIR" && IMAGE_TAG="$VERSION" docker compose config --quiet ) \
+  || { echo "错误：deploy/docker-compose.yml 校验未通过（校验副本：$PREFLIGHT_DIR）" >&2; exit 2; }
 # 顺带提醒：模板里的 IMAGE_TAG 应随发版更新，否则运维 cp 出来的 .env 指向旧镜像
 if [ -f deploy/.env.example ] && ! grep -q "^IMAGE_TAG=$VERSION\$" deploy/.env.example; then
   echo "提醒：deploy/.env.example 的 IMAGE_TAG 不是 ${VERSION}，发版后请同步更新" >&2

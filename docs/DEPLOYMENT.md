@@ -137,18 +137,41 @@ tar czf decksmith-backup-$(date +%F).tgz data/
 重新构建。**不要把 `data/home/.claude` 里的技能软链带到别的机器**——软链记录绝对路径，
 换目录即断链；启动预检会按新路径重建。
 
+程序启动时会自动补齐数据库结构（加列、列改名后整表搬家），并在**动任何 DDL 之前**用
+SQLite 在线备份接口把库拍到 `deploy/data/db/backup/`，文件名形如
+`decksmith-v0-to-v2-pre-upgrade-<UTC时间>.db`。规则是：一次版本跃迁最多一份、
+重复启动不堆文件、**只增不删**——这些快照占的空间很小，但清理责任在运维，
+确认新版稳定后再按需清退。整轮迁移跑在单个事务内，中途断电或崩溃会整体回滚，
+库仍是升级前的样子（实测证据见 ADR-013）。
+
 ## 七、升级与回滚
 
-升级：拉取代次、更新技能子模块、重建并滚动启动，数据卷不受影响。
+**升级的唯一规定动作**（先备份数据、再换镜像，中间不停机做别的事）：
+
+```bash
+bash scripts/upgrade.sh 0.3.0            # 本机已有镜像，或从源码构建
+bash scripts/upgrade.sh 0.3.0 dist       # 离线：从交付目录导入 *.tar.gz 后启动
+```
+
+脚本按顺序做：停服务 → 打包 `deploy/data/` 到 `deploy/backups/` 并校验可读 →
+导入或构建新镜像 → 幂等改写 `.env` 的 `IMAGE_TAG`（原文件留 `.env.bak-<时间>`）→
+启动 → 轮询 web 就绪后打印容器清单。任一步失败即停下，**数据尚未被动过**。
+
+为什么不能省掉备份直接 `docker compose build && up -d`：库结构由程序在启动时自动迁移
+（补列、列改名后整表搬家），这是**不可逆**的程序行为。手工路径仍可用，但必须先自行
+按第六节打包 `data/`：
 
 ```bash
 git pull && git submodule update --init --recursive
-cd deploy && docker compose build && docker compose up -d
+cd deploy && tar czf "backups/data-$(date +%FT%TZ).tar.gz" data/ \
+  && docker compose build && docker compose up -d
 ```
 
-回滚：切回上一代码版本，重新构建后启动即可。建议每次交付都为镜像保留旧标签
-（如 `docker tag decksmith/app:$IMAGE_TAG decksmith/app:$IMAGE_TAG-prev` 后再构建新版），
-使回滚不必重新构建。
+回滚：镜像从未被删除，把 `.env` 的 `IMAGE_TAG` 改回旧值再
+`docker compose up -d --no-build` 即可。若新版已经改过库结构而旧程序读不懂，
+先停服务、解回升级前的 `data/` 备份再启动——程序遇到比自身更新的库版本会拒改结构并告警，
+但仍应以恢复数据为准。补充一条实测结论：`docker compose down --volumes`
+不会删除 bind 卷对应的宿主目录（本交付形态全部是 bind 卷），删数据只有 `rm -rf data/` 一条路。
 
 ## 八、故障排查
 

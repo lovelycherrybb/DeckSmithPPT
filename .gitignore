@@ -34,6 +34,9 @@ packages/shared/types/
 outputs/
 # compose 起的宿主侧数据卷（jobs/db/home/decks），运行期状态，且由容器内 uid 1000 写入
 deploy/data/
+# scripts/upgrade.sh 升级前落的 data/ 快照（含业务数据、体积大），只留在部署机
+deploy/backups/
+deploy/.env.bak-*
 
 # 本地编辑器 / Agent 配置
 .claude/

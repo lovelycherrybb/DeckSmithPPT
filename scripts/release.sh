@@ -58,7 +58,7 @@ done
   || { echo "错误：deploy/docker-compose.yml 校验未通过" >&2; exit 2; }
 # 顺带提醒：模板里的 IMAGE_TAG 应随发版更新，否则运维 cp 出来的 .env 指向旧镜像
 if [ -f deploy/.env.example ] && ! grep -q "^IMAGE_TAG=$VERSION\$" deploy/.env.example; then
-  echo "提醒：deploy/.env.example 的 IMAGE_TAG 不是 $VERSION，发版后请同步更新" >&2
+  echo "提醒：deploy/.env.example 的 IMAGE_TAG 不是 ${VERSION}，发版后请同步更新" >&2
 fi
 
 mkdir -p "$OUT"
@@ -123,6 +123,30 @@ for platform in $PLATFORMS; do
     echo "    -> $(basename "$tar_path")  ${size} B"
   done
 done
+
+# ── 随包附运维套件：只有 tar 的交付包在客户机上起不来（缺编排、缺 .env 模板、缺升级脚本）──
+# 目录结构刻意与仓库一致（ops/deploy/、ops/scripts/），upgrade.sh 按仓库根算相对路径，
+# 这样运维把 ops/ 整个搬到目标机就能直接跑，不必自己猜文件放哪。
+OPS="$OUT/ops"
+mkdir -p "$OPS/deploy" "$OPS/scripts" "$OPS/docs"
+cp deploy/docker-compose.yml "$OPS/deploy/"
+# 包内副本的 IMAGE_TAG 直接对齐本次版本（不动仓库模板）：否则 MANIFEST 里“IMAGE_TAG 已置
+# $VERSION”就成了假话，运维 cp 出来的 .env 会指向旧镜像、进而被 compose 拦下。
+sed "s|^IMAGE_TAG=.*|IMAGE_TAG=${VERSION}|" deploy/.env.example > "$OPS/deploy/.env.example"
+cp scripts/upgrade.sh "$OPS/scripts/"
+chmod +x "$OPS/scripts/upgrade.sh"
+cp docs/DEPLOYMENT.md "$OPS/docs/安装与升级.md"
+{
+  echo
+  echo "随包运维套件 ops/（目录结构与仓库一致，整体搬到目标机即可）："
+  echo "  deploy/docker-compose.yml  编排定义，IMAGE_TAG 必填"
+  echo "  deploy/.env.example        复制为 deploy/.env 填凭证，IMAGE_TAG 已置 $VERSION"
+  echo "  scripts/upgrade.sh         升级唯一规定动作：先备份 data/ 再换镜像"
+  echo "  docs/安装与升级.md          安装、验证、备份、升级、排障全文"
+  echo
+  echo "升级既有部署：把本目录的 tar 与 ops/ 一起放到目标机，执行"
+  echo "  cd ops && bash scripts/upgrade.sh $VERSION ."
+} >> "$MANIFEST"
 
 echo
 echo "=== 完成 ==="

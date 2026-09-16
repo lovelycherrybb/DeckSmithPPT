@@ -1,15 +1,52 @@
 name: CI Backend
 
+# 触发面覆盖两层单测真正依赖的路径：后端、引擎、测试入口本身、依赖清单。
+# 少了 scripts/test.sh 或 requirements 这一项，改了入口脚本却不动代码时就不会跑，
+# 那正是“绿灯与真实状态脱钩”的来路。
 on:
   push:
-    paths: ["packages/backend/**", ".github/workflows/ci-backend.yml"]
+    paths:
+      - "packages/backend/**"
+      - "packages/engine/**"
+      - "packages/backend/requirements.txt"
+      - "packages/engine/requirements.txt"
+      - "lib/ppt-master/**"
+      - "scripts/test.sh"
+      - ".github/workflows/ci-backend.yml"
   pull_request:
-    paths: ["packages/backend/**"]
+    paths:
+      - "packages/backend/**"
+      - "packages/engine/**"
+      - "scripts/test.sh"
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - name: 占位 — 选型后补充
-        run: echo "技术栈未定，选型后补充后端 CI（见 docs/adr/）"
+        with:
+          # packages/backend/requirements.txt → engine/requirements.txt →
+          # lib/ppt-master/requirements.txt 是递归引用，不拉子模块 pip 会直接报文件不存在
+          submodules: recursive
+
+      - uses: actions/setup-python@v5
+        with:
+          # 与交付镜像一致：node:20-slim 里 apt 装的 python3 实测 3.11.2（ADR-012 决策 8
+          # 要求单一解释器）。用 3.14 跑绿而镜像跑 3.11 等于没验。
+          python-version: "3.11"
+
+      - name: 记录环境（顺带留一条 linux/amd64 的原生证据）
+        run: |
+          python -c "import sys, platform; print('arch =', platform.machine()); print('python =', sys.version.split()[0])"
+          python -c "import sqlite3; print('sqlite =', sqlite3.sqlite_version)"
+          uname -m
+
+      - name: 安装依赖（走单一入口 requirements.txt）
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r packages/backend/requirements.txt
+          pip install pytest
+
+      - name: 跑单测层（与本地同一入口，不在这里重抄一遍命令）
+        run: bash scripts/test.sh unit

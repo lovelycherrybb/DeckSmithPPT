@@ -5,15 +5,21 @@
 ### 1. 启动开发环境
 
 ```bash
-# 启动开发环境（后端 + 前端，端口读取根目录 .env）
-./scripts/dev.sh
+./scripts/dev.sh          # 一条命令起后端 + 前端
+# 端口取自仓库根 .env（BACKEND_PORT / FRONTEND_PORT），未设时用脚本默认值
 ```
 
-### 2. 访问应用
+### 2. 访问应用（`scripts/dev.sh` 的实际端口）
 
-- **前端**: http://localhost:3000
-- **后端API**: http://localhost:8000
-- **API代理**: http://localhost:3000/api → http://localhost:8000/api
+- **前端**：http://localhost:3180 （`FRONTEND_PORT` 默认 3180）
+- **后端 API**：http://localhost:8180 （`BACKEND_PORT` 默认 8180，Swagger 在 `/docs`）
+- **API 代理**：`3180/api/*` → `127.0.0.1:$BACKEND_PORT/api/*`
+
+⚠️ 代理目标**取决于你怎么起的前端**：`next.config.mjs` 里 `BACKEND_PORT` 的兜底默认是
+**8080**，而 `dev.sh` 显式传的是 **8180**。手工 `npm run dev -- --port 3180` 起的前端会打到
+8080，`dev.sh` 起的打到 8180 —— 两者若同时在跑，界面看起来“一切正常但任务列表不一致”，
+其实是接了不同后端、读了不同库。起服务前先 `lsof -nP -iTCP -sTCP:LISTEN | grep -E '3180|8080|8180'`
+看一眼，别凭记忆。
 
 ## 开发功能特性
 
@@ -25,30 +31,35 @@
 - **状态保持**: 修改组件时，React状态会保持不变
 
 #### 后端热重载
-- **uvicorn --reload**: 修改Python代码后，服务器会自动重启
-- **文件监听**: 监听 `packages/backend/src/` 目录下的所有 `.py` 文件
+
+**没有**。`scripts/dev.sh` 起的命令是 `python3 -m uvicorn app.main:app --host 127.0.0.1 --port …`，
+**不带 `--reload`**：改了 `packages/backend/src/` 下的 Python 代码，进程不会重启；而且模块 import 有缓存，
+必须手动杀掉重起才生效。历史上因此误判过“代码改了没反应”。要自动重启请自行加 `--reload`，
+但注意它会把引擎拉起的子进程一并卷入重启，跑真出片时别开。
 
 ### ✅ API代理
 
-项目配置了API代理，前端可以通过相对路径访问后端API：
+前端通过相对路径访问后端，无需跨域配置：
 
 ```javascript
-// 前端代码示例
-const response = await fetch('/api/jobs');  // 自动代理到 http://localhost:8000/api/jobs
+const response = await fetch('/api/jobs');   // 代理到 http://127.0.0.1:$BACKEND_PORT/api/jobs
 ```
 
-无需配置跨域，无需知道后端端口。
+目标端口由 `BACKEND_PORT` 决定（见上文警告：兜底默认 8080 与 `dev.sh` 的 8180 不一致）。
 
 ### ✅ 开发环境配置
 
 #### 环境变量
-- `NEXT_PUBLIC_API_BASE_URL`: API基础URL（开发环境已配置为相对路径）
-- `NODE_ENV`: 当前环境（development/production）
 
-#### 自动化功能
-- 端口冲突检测与自动释放
-- 服务健康检查
-- 自动打开浏览器（macOS）
+- `BACKEND_HOST` / `BACKEND_PORT`：前端 rewrite 的代理目标（仅构建期与启动期求值，改完必须重启前端）
+- `BACKEND_PORT` / `FRONTEND_PORT`：`dev.sh` 起服务时用的端口
+- `DECKSMITH_JOBS_ROOT` / `DATABASE_URL`：后端产物与库的落点，未设时为
+  `outputs/jobs` 与 `outputs/decksmith.db`
+
+#### 脚本实际做了什么（也仅这些）
+
+`dev.sh` 只做四件事：读根 `.env` → 起后端 → 起前端 → 退出时 `trap` 杀掉这两个子进程。
+**没有**端口冲突检测、没有自动释放端口、没有健康检查、不会自动打开浏览器。
 
 ## 开发工作流
 
@@ -61,40 +72,43 @@ const response = await fetch('/api/jobs');  // 自动代理到 http://localhost:
 ### 后端开发
 
 1. 修改 `packages/backend/src/` 下的文件
-2. 服务器自动重启
-3. 测试API端点
+2. **手动**重启后端（`dev.sh` 起的进程 Ctrl-C 整组重启；单独起的按 PID kill 后重跑）
+3. 用 `curl http://127.0.0.1:<后端端口>/docs` 确认新路由已注册
 
 ### 全栈开发
 
-1. 启动开发环境：`./scripts/dev.sh`
-2. 前端代码修改 → 浏览器自动刷新
-3. 后端代码修改 → 服务器自动重启
-4. 无需手动重启任何服务
+1. `./scripts/dev.sh` 起两端
+2. 前端改动 → 浏览器自动刷新（Fast Refresh）
+3. 后端改动 → **不会**自动重启，需自己重起后端进程
 
 ## 调试技巧
 
 ### 前端调试
 - 使用浏览器开发者工具
 - React Developer Tools 扩展
-- 控制台查看网络请求
+- 控制台查看网络请求（尤其看 `_next/static/chunks/*` 有没有 404——见下文“构建冲突”一节）
 
 ### 后端调试
 - 查看终端日志输出
-- 使用Postman或curl测试API
-- Python调试器（如pdb）
+- 使用 curl 测试 API
+- Python 调试器（如 pdb）
 
 ### API调试
-- 访问 http://localhost:8000/docs 查看Swagger文档
-- 使用浏览器Network面板查看请求
+- 访问 http://localhost:8180/docs 查看 Swagger 文档（端口以你实际启动值为准）
 
 ## 常见问题
 
 ### Q: 端口被占用怎么办？
-A: 脚本会自动检测并释放端口。如果仍有问题，手动运行：
+A: 脚本**不会**自动检测或释放端口，自己确认再决定杀谁：
+
 ```bash
-lsof -ti:3000 | xargs kill -9
-lsof -ti:8000 | xargs kill -9
+lsof -nP -iTCP -sTCP:LISTEN | grep -E ':(3180|8080|8180|3000)'
 ```
+
+3000 是容器（`deploy/`）那套的映射端口，别顺手杀掉——它和本机 dev 是两码事。
+
+### Q: 页面只显示“加载中...”、控制台却没有任何报错？
+A: 先按下一节排查 `.next` 被生产构建踩坏的情况；其次确认前端代理指向的后端真的在跑（`curl 127.0.0.1:<后端>/api/engines`）。
 
 ### Q: 修改代码后没有效果？
 A: 检查：
@@ -124,6 +138,67 @@ npm run build
 # 启动生产服务器
 npm start
 ```
+
+⚠️ **跑着 `next dev` 时不要 `npm run build`**，原因见下一节。确实要验构建产物，就先停 dev，
+或给 `next.config.mjs` 临时指定另一个 `distDir` 输出到别处。
+
+## 本机三套服务与数据落点
+
+同一份代码在这台机器上可以同时存在三套互不相干的运行实例，**各有各的库和产物目录**，
+串了台就会出现“我刚才的任务怎么不见了”：
+
+| 入口 | 是什么 | 数据落点 |
+|---|---|---|
+| `http://localhost:3180` | 主机 `next dev` 前端，代理到主机的 uvicorn（8080 或 8180，取决于怎么起的） | 仓库内 `outputs/jobs` 与 `outputs/decksmith.db` |
+| `http://localhost:3000` | OrbStack 里的 compose 栈（`decksmith/web` + `decksmith/app`，版本由 `deploy/.env` 的 `IMAGE_TAG` 决定） | `deploy/data/{db,jobs,home,decks}` |
+| `http://<验证机IP>:3000` | arm64 验证机上的同一套 compose 栈（Debian 12，独立 Linux、独立 dockerd） | 那台机器上自己的 `~/delivery/deploy/data` |
+
+两条容易踩的口径：
+
+1. **镜像不跨机器同步**。本机 `docker images` 里那几张 `decksmith/*` 只存在于 OrbStack 的虚拟磁盘；
+   验证机上的同名镜像是 `docker load` 交付包 tar 进去的独立副本。
+2. **`dist/` 与 `deploy/data/` 都不入库**（`.gitignore`），所以“仓库里看不到镜像和产物”是设计如此。
+
+## 已知陷阱：`next build` 把在跑的 `next dev` 踩坏
+
+2026-09-16 实测。dev 进程 9-14 18:36 起，9-15 11:00 有人跑过一次 `next build`（`.next/BUILD_ID`
+的落盘时间就是它），此后那个仍在跑的 dev 服务打不开任何页面。
+
+**症状**：页面永久停在首屏那句「加载中...」，浏览器标签一直在转圈，**控制台没有 JS 报错**，
+后端日志里一条浏览器请求都没有。
+
+**根因链**：生产构建把 `.next` 整棵目录按生产产物改写，dev 模式要现发的客户端入口就不存在了，
+dev 服务对它们返回 404；而 404 正文的 MIME 是 `text/plain`，Chrome 严格 MIME 检查**直接拒绝执行脚本**
+（`Refused to execute script … main-app.js`），React 因此从不挂载——留在页面上的那句「加载中...」
+其实是服务端渲染的懒加载兜底，不是卡在网络或数据上。
+
+**一句话自查**（任一条中即是本坑，不是后端问题）：
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3180/_next/static/chunks/main-app.js
+#   404 → 就是它
+ls packages/frontend/.next/BUILD_ID      #   存在 = 有人在这里跑过生产构建
+```
+
+或打开浏览器 Network 面板，看 `_next/static/chunks/main-app.js`、`app/layout.js`、
+`app-pages-internals.js`、`css/app/layout.css` 是否集体 404。
+
+**修复**（三步，顺序不能换；别用 `rm`，`.next` 挪废纸篓即可，反正能重建）：
+
+```bash
+pgrep -fl "next dev --port 3180"          # 先确认要杀的 PID
+kill <dev PID> <next-server PID>
+mv packages/frontend/.next ~/.Trash/fe-next-stale-$(date +%s)
+cd packages/frontend && npm run dev -- --port 3180
+```
+
+只重启不清 `.next` 可能残留症状：dev 会沿用被生产构建改写过的产物清单。
+
+**同一族的历史案例**：两个 `next dev` 实例共用一棵 `.next` 会互毁缓存，表现为灵异 500 / ECONNRESET。
+起 dev 前先 `pgrep -fl "next dev"` 确认只有一个。
+
+**另一条相邻的坑**：重启 dev 之后，**旧标签页**的 HMR 连接与资源指纹都已失效，仍会显示改动前的界面。
+复验必须新开标签或硬刷新，别拿旧标签的观感当结论。
 
 ## 工具推荐
 

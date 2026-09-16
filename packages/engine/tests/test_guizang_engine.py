@@ -48,6 +48,30 @@ def _isolate_claude_config(tmp_path, monkeypatch):
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude-config"))
 
 
+def _wait_terminal(eng, job_id: str, budget_s: float = 90.0) -> str:
+    """轮询到终态并返回状态值；超时则把 job 记录与 run.log 末尾一起抛出。
+
+    为什么不写死 `for _ in range(N)`：CI runner 上“产物未写出 → 自动 --resume 续跑”这条链
+    实测比本机慢一个量级（本机 0.9s，云端 30s 预算内没跑完），固定次数会把环境差异
+    伪装成断言失败。这里按墙上时间等，且失败时把原始证据抛出来，日志能自解释。
+    """
+    deadline = time.monotonic() + budget_s
+    status = eng.status(job_id).value
+    while status == "running" and time.monotonic() < deadline:
+        time.sleep(0.1)
+        status = eng.status(job_id).value
+    if status == "running":
+        data = eng._read_job(job_id)  # noqa: SLF001
+        try:
+            tail = (eng._job_dir(job_id) / "run.log").read_text(encoding="utf-8")[-800:]  # noqa: SLF001
+        except OSError:
+            tail = "(无 run.log)"
+        raise AssertionError(
+            f"{budget_s}s 内未到终态，仍为 running。job 记录={data}；run.log 末尾={tail!r}"
+        )
+    return status
+
+
 @pytest.fixture
 def engine_factory(tmp_path):
     jobs_root = tmp_path / "jobs"
@@ -158,10 +182,7 @@ def test_成功产出单文件HTML(engine_factory, tmp_path):
     assert data["status"] == "running"
     assert data["started_at"]
 
-    for _ in range(100):
-        if eng.status(job_id).value != "running":
-            break
-        time.sleep(0.1)
+    _wait_terminal(eng, job_id)
 
     assert eng.status(job_id).value == "completed"
     result = Path(eng.result(job_id))
@@ -185,10 +206,7 @@ def test_无产物则判失败(engine_factory, tmp_path):
         claude_bin=_fake_claude(tmp_path, 'echo \'{"type":"result","subtype":"error_during_execution","result":"模型限流"}\'')
     )
     job_id = eng.submit(content="# x\n正文", title="t", pages=5, engine_params={})
-    for _ in range(100):
-        if eng.status(job_id).value != "running":
-            break
-        time.sleep(0.1)
+    _wait_terminal(eng, job_id)
     assert eng.status(job_id).value == "failed"
     data = eng._read_job(job_id)  # noqa: SLF001
     assert "error_during_execution" in data["error"] and "模型限流" in data["error"]
@@ -207,10 +225,7 @@ def test_过小产物不判成功(engine_factory, tmp_path):
         )
     )
     job_id = eng.submit(content="# x", title="t", pages=5, engine_params={})
-    for _ in range(100):
-        if eng.status(job_id).value != "running":
-            break
-        time.sleep(0.1)
+    _wait_terminal(eng, job_id)
     assert eng.status(job_id).value == "failed"
 
 
@@ -221,10 +236,7 @@ def test_超时置timeout(engine_factory, tmp_path):
         timeout_seconds=1,
     )
     job_id = eng.submit(content="# x", title="t", pages=5, engine_params={})
-    for _ in range(200):
-        if eng.status(job_id).value != "running":
-            break
-        time.sleep(0.1)
+    _wait_terminal(eng, job_id)
     assert eng.status(job_id).value == "timeout"
     assert "超时" in eng._read_job(job_id)["error"]  # noqa: SLF001
 
@@ -278,10 +290,7 @@ def test_resume复用草稿与job_id(engine_factory, tmp_path):
     eng._write_job(job_id, status="failed", result_path=None)  # noqa: SLF001
     job = eng.resume(job_id)
     assert str(job.job_id) == str(job_id)
-    for _ in range(200):
-        if eng.status(job_id).value != "running":
-            break
-        time.sleep(0.1)
+    _wait_terminal(eng, job_id)
     assert eng.status(job_id).value == "completed"
     data = eng._read_job(job_id)  # noqa: SLF001
     assert data["title"] == "恢复测试" and data["pages"] == 6
@@ -299,10 +308,7 @@ def test_网关断流不被成功假象掩盖(engine_factory, tmp_path):
     )
     eng = engine_factory(claude_bin=_fake_claude(tmp_path, script), max_resume_attempts=0)
     job_id = eng.submit(content="# x\n正文", title="t", pages=12, engine_params={"style": "swiss"})
-    for _ in range(200):
-        if eng.status(job_id).value != "running":
-            break
-        time.sleep(0.1)
+    _wait_terminal(eng, job_id)
 
     assert eng.status(job_id).value == "failed"
     data = eng._read_job(job_id)  # noqa: SLF001
@@ -334,10 +340,7 @@ def test_无产物时自动resume续跑并成功(engine_factory, tmp_path):
     eng = engine_factory(claude_bin=_fake_claude(tmp_path, script), timeout_seconds=120)
     job_id = eng.submit(content="# x\n正文", title="续跑测试", pages=12,
                         engine_params={"style": "swiss"})
-    for _ in range(300):
-        if eng.status(job_id).value != "running":
-            break
-        time.sleep(0.1)
+    _wait_terminal(eng, job_id)
 
     assert eng.status(job_id).value == "completed"
     data = eng._read_job(job_id)  # noqa: SLF001

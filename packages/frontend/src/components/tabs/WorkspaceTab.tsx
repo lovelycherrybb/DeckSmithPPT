@@ -2,7 +2,7 @@
  * 工作台 Tab：四个子菜单 + 常驻进度。
  *
  * ① 创建向导：上传/文本 → 草稿任务（一步步引导）
- * ② 草稿任务：全项目草稿列表 + 版本历史 + AI 编辑 + 从任一草稿去生成
+ * ② 草稿任务：当前项目草稿列表 + 版本历史 + AI 编辑 + 从任一草稿去生成
  * ③ 生成任务：输出任务列表 + 轮询 + 重试 + 下载 + 详情
  * ④ 演示文件库：Presentation 列表 + 下载
  *
@@ -169,10 +169,19 @@ export default function WorkspaceTab({ initialProjectId = null }: Props) {
   const draftEngines = useMemo(() => engines.filter((e) => e.engine_type === 'draft'), [engines]);
   const outputEngines = useMemo(() => engines.filter((e) => e.engine_type === 'output'), [engines]);
 
-  const runningJobs = jobs.filter((j) => j.status === 'running');
+  // 常驻进度同口径：只看当前项目的运行中任务，未关联项目时为空
+  // （否则停在 A 项目、甚至没选项目时，会被 B 项目的运行中任务打扰）
+  const projectRunningJobs = currentProjectId
+    ? jobs.filter((j) => j.status === 'running' && j.project_id === currentProjectId)
+    : [];
   // 生成任务与草稿/演示文件同口径：只看当前项目；未关联项目时为空
   const projectOutputJobs = currentProjectId
     ? jobs.filter((j) => j.task_type === 'output' && j.project_id === currentProjectId)
+    : [];
+  // 草稿任务同口径：DraftsPanel 的「未落库草稿任务」（failed/running）直接吃 jobs，
+  // 不在这里按项目切就会把其他项目的失败任务显示出来（未关联项目时 drafts 为空、它们却漏出来）
+  const projectDraftJobs = currentProjectId
+    ? jobs.filter((j) => j.project_id === currentProjectId)
     : [];
   const outputJobsCount = projectOutputJobs.length;
   // 生成任务标题展示用：job_id → 演示文件名（任务完成后落库 Presentation 提供）
@@ -239,7 +248,7 @@ export default function WorkspaceTab({ initialProjectId = null }: Props) {
       {activeKey === 'drafts' && (
         <DraftsPanel
           drafts={drafts}
-          jobs={jobs}
+          jobs={projectDraftJobs}
           projects={projects}
           loading={draftsLoading}
           outputEngines={outputEngines}
@@ -261,7 +270,7 @@ export default function WorkspaceTab({ initialProjectId = null }: Props) {
 
       {/* 常驻进度：运行中任务锚点（跨子菜单可见） */}
       <RunningTasksDock
-        runningJobs={runningJobs}
+        runningJobs={projectRunningJobs}
         projectNames={Object.fromEntries(projects.map((p) => [p.project_id, p.project_name]))}
         onOpenJob={async (jobId) => {
           setActiveKey('jobs');

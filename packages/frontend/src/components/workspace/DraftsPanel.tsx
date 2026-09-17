@@ -86,6 +86,22 @@ interface FlatVersionRow {
   isCurrent: boolean;
 }
 
+// 未落库的草稿任务（草稿实体只在 completed 时写入）：running=生成中；
+// failed/timeout 若被过滤掉就会「凭空消失」，必须保留展示供用户重试。
+// 提取成导出函数是为了让工作台的「草稿任务」badge 与面板列表数同一件事——
+// 面板平铺了它们而角标只数已落库草稿，就会出现「角标 0、点进去两条」的落差。
+export function selectUnfinishedDraftJobs(
+  jobs: JobWithProgress[],
+  drafts: Draft[]
+): JobWithProgress[] {
+  return jobs.filter(
+    (j) =>
+      j.task_type === 'draft' &&
+      ['running', 'failed', 'timeout'].includes(j.status) &&
+      !drafts.some((d) => d.task_id === j.job_id)
+  );
+}
+
 // ── 版本号工具：14 位时间戳 ──
 function versionDay(v: string): string | null {
   if (!/^\d{14}$/.test(v)) return null;
@@ -136,16 +152,9 @@ export default function DraftsPanel({
   );
   const jobByTaskId = useMemo(() => new Map(jobs.map((j) => [j.job_id, j])), [jobs]);
 
-  // 未落库的草稿任务（草稿实体只在 completed 时写入）：running=生成中；
-  // failed/timeout 若被过滤掉就会「凭空消失」，必须保留展示供用户重试
+  // 未落库的草稿任务：过滤条件与工作台 badge 共用 selectUnfinishedDraftJobs
   const unfinishedJobs = useMemo(
-    () =>
-      jobs.filter(
-        (j) =>
-          j.task_type === 'draft' &&
-          ['running', 'failed', 'timeout'].includes(j.status) &&
-          !drafts.some((d) => d.task_id === j.job_id)
-      ),
+    () => selectUnfinishedDraftJobs(jobs, drafts),
     [jobs, drafts]
   );
 

@@ -29,7 +29,7 @@ import {
 } from '@/lib/api';
 import { usePollingJobs } from '@/hooks/usePollingJobs';
 import CreateWizard from '@/components/workspace/CreateWizard';
-import DraftsPanel from '@/components/workspace/DraftsPanel';
+import DraftsPanel, { selectUnfinishedDraftJobs } from '@/components/workspace/DraftsPanel';
 import GenerationJobsPanel from '@/components/workspace/GenerationJobsPanel';
 import PresentationsPanel from '@/components/workspace/PresentationsPanel';
 import RunningTasksDock from '@/components/workspace/RunningTasksDock';
@@ -183,6 +183,11 @@ export default function WorkspaceTab({ initialProjectId = null }: Props) {
   const projectDraftJobs = currentProjectId
     ? jobs.filter((j) => j.project_id === currentProjectId)
     : [];
+  // 「草稿任务」角标 = 已落库草稿数 + 未落库草稿任务数（失败/生成中）。
+  // 注意面板正文是按「版本」平铺的，一个草稿多版本时行数会多于草稿数，
+  // 角标口径取"条目数"而非"版本行数"（版本数要逐个草稿拉详情，不为角标付这个代价）
+  const draftBadgeCount =
+    drafts.length + selectUnfinishedDraftJobs(projectDraftJobs, drafts).length;
   const outputJobsCount = projectOutputJobs.length;
   // 生成任务标题展示用：job_id → 演示文件名（任务完成后落库 Presentation 提供）
   const fileNameByTaskId = useMemo(
@@ -198,7 +203,7 @@ export default function WorkspaceTab({ initialProjectId = null }: Props) {
 
   const subtabs = [
     { key: 'create', label: '创建向导', icon: Wand2, badge: 0 },
-    { key: 'drafts', label: '草稿任务', icon: FileText, badge: drafts.length },
+    { key: 'drafts', label: '草稿任务', icon: FileText, badge: draftBadgeCount },
     { key: 'jobs', label: '生成任务', icon: Rocket, badge: outputJobsCount },
     { key: 'presentations', label: '演示文件库', icon: FolderOpen, badge: presentations.length },
   ];

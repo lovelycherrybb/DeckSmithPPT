@@ -48,3 +48,6 @@ deploy/.env.bak-*
 *.v2
 *.tmp
 *.log
+
+# 内部调研/运维笔记，不入库（AGENTS 规则6 的沉淀目录，改为本地留存）
+docs/research/

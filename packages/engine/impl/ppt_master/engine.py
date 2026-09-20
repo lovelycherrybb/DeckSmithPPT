@@ -225,26 +225,16 @@ class PptMasterEngine(PptEngine):
         pool = matched or candidates
         return max(pool, key=lambda p: p.stat().st_mtime)
 
-    def _has_page_svgs(self, svg_dir: Path) -> bool:
-        """svg_output 目录里是否已有 ≥1 枚匹配页 SVG（^\\d+_.*\\.svg$）。
-
-        作为 pin 落定与读盘的最小实质校验：空目录不算「产物已就位」。
-        既防止把 v6 project_manager 落在上游 projects/ 的空脚手架误 pin 死，
-        也把「目录在、但还没写出页」的正常中间态与「定位失败」区分开
-        （前者返回 None 下次再试，不写 pin）。missing 目录 glob 为空，天然返回 False。
-        """
-        return any(_RE_PAGE_SVG.match(p.name) for p in svg_dir.glob("*.svg"))
-
     def resolve_svg_output_dir(self, job_id: Any, data: dict | None = None) -> Path | None:
         """定位本任务的逐页产物目录 svg_output/，返回 Path；无法定位返回 None。
 
         单一事实来源 + 落定一次：
-        1) 若 job.json 已回写 svg_output_dir 且**确有已写出的页 SVG** → 固定读它
+        1) 若 job.json 已回写 svg_output_dir 且目录仍在 → 固定读它
            （根治并发 job / 历史目录的「最新目录」退化匹配串页问题）；
         2) 否则启发式定位：只看项目目录 mtime >= started_at（任务启动后被写过的），
            其中优先目录名含 job_id，取不到退化为「最新被修改的那个」（与 _newest_export 同策略）；
-        3) 首次解析到**含 ≥1 枚页 SVG** 的 svg_output 目录后回写进 job.json 的 svg_output_dir，
-           映射就此落定；目录不存在或尚空时不回写，下次再试。
+        3) 首次解析到**已存在**的 svg_output 目录后回写进 job.json 的 svg_output_dir，
+           映射就此落定；目录尚未生成时不回写，下次再试。
         """
         if data is None:
             data = self._read_job(job_id)
@@ -252,11 +242,9 @@ class PptMasterEngine(PptEngine):
         pinned = data.get("svg_output_dir")
         if pinned:
             p = Path(pinned)
-            # 仅当钉住的目录仍在且**确有页 SVG** 才固定读它；空目录（上游脚手架 / 中间态）
-            # 不作数，退回启发式重新定位，避免被 pin 死后 /pages 恒为 0。
-            if p.is_dir() and self._has_page_svgs(p):
+            if p.is_dir():
                 return p
-            # 钉住的目录被清理或为空 → 退回启发式重新定位
+            # 钉住的目录已被清理 → 退回启发式重新定位
 
         since_ts = data.get("started_at", 0) or 0
         if not since_ts:
@@ -280,13 +268,9 @@ class PptMasterEngine(PptEngine):
             return None
 
         svg_dir = project_dir / "svg_output"
-        # pin 落定前提从「目录存在」收紧为「目录里有 ≥1 枚匹配页 SVG」。否则 v6
-        # quick-generate 下 project_manager 先在上游 projects/ 建一个 svg_output 为空的
-        # 脚手架，引擎会在真正成稿写盘前把它 pin 死，导致真页写在别处、/pages 恒为 0。
-        # 空目录属"还没写出页"的正常中间态 → 不回写 pin，下次再试。
-        if not self._has_page_svgs(svg_dir):
+        if not svg_dir.is_dir():
             return None
-        if pinned != str(svg_dir):
+        if not pinned or Path(pinned) != svg_dir:
             self._write_job(job_id, svg_output_dir=str(svg_dir))
         return svg_dir
 
@@ -408,9 +392,6 @@ class PptMasterEngine(PptEngine):
   不要用相对路径，也不要 `cd` 进 skills/ 或 projects/ 子目录。
 - **产物落点（硬约束）**：本次任务的工作目录是 {job_dir}。项目初始化与全部中间产物、
   导出文件都必须落在该目录下的 `projects/` 内；**严禁**向技能仓库 {root} 内写入或创建任何文件。
-  特别注意：调用 `project_manager.py` 初始化项目时，必须把项目显式建在 {job_dir}/projects 下，
-  **不得**让它在技能仓库默认位置 `{root}/projects/` 里留下任何目录——包括只有 `svg_output/`
-  空壳或 `validation/` 日志的脚手架目录。整条流程自始至终只在 {job_dir} 内读写。
 """
 
     # ── PptEngine 协议 ──

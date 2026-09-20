@@ -51,3 +51,6 @@ deploy/.env.bak-*
 
 # 内部调研/运维笔记，不入库（AGENTS 规则6 的沉淀目录，改为本地留存）
 docs/research/
+
+# 会话临时草稿/中间产物（科普 html、交付包 MANIFEST/SHA256SUMS、db 备份等），本地留存不入库
+.scratch/

@@ -799,7 +799,7 @@ export default function DraftsPanel({
         <Alert
           type="info"
           showIcon
-          message="真实引擎生成一份 PPTX 约 20-30 分钟，可稍后在「生成任务」查看。"
+          message="生成需要几分钟到十几分钟不等（页数越多越久），可稍后在「生成任务」查看进度。"
         />
       </Modal>
     </div>

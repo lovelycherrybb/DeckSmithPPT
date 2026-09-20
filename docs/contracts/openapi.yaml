@@ -979,6 +979,7 @@ components:
           type: string
           enum:
           - ppt_master
+          - ppt_master_v6
           - claude_draft
           - ppt_master_draft
           - guizang_ppt

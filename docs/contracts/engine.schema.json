@@ -553,6 +553,105 @@
         }
       }
     },
+    "ppt_master_v6": {
+      "type": "object",
+      "description": "ppt_master_v6 引擎（专供上游 ppt-master v6.6.0 技能）在 engine_params 中支持的参数。中文说明见 docs/contracts/style-guide.md。此定义即 GET /api/engines 返回的 params_schema 内容。与 ppt_master 的差异：全量接线 v6.6 的路由 profile、生成模式与打包结构。",
+      "properties": {
+        "style": {
+          "type": "string",
+          "description": "视觉风格（18 种，与 ppt_master 同集）。中文说明见 docs/contracts/style-guide.md",
+          "enum": [
+            "swiss-minimal",
+            "soft-rounded",
+            "glassmorphism",
+            "dark-tech",
+            "blueprint",
+            "editorial",
+            "photo-editorial",
+            "data-journalism",
+            "brutalist",
+            "chalkboard",
+            "ink-notes",
+            "ink-wash",
+            "memphis",
+            "paper-cut",
+            "pixel-art",
+            "sketch-notes",
+            "vintage-poster",
+            "zine"
+          ]
+        },
+        "mode": {
+          "type": "string",
+          "description": "叙事模式（auto=由引擎自动决定）。中文说明见 docs/contracts/style-guide.md",
+          "enum": [
+            "auto",
+            "pyramid",
+            "narrative",
+            "instructional",
+            "showcase",
+            "briefing"
+          ],
+          "default": "auto"
+        },
+        "format": {
+          "type": "string",
+          "description": "画布/输出尺寸（默认 ppt169）。中文说明见 docs/contracts/style-guide.md",
+          "enum": [
+            "ppt169",
+            "ppt43",
+            "xiaohongshu",
+            "moments",
+            "story",
+            "wechat",
+            "banner",
+            "a4"
+          ],
+          "default": "ppt169"
+        },
+        "notes": {
+          "type": "boolean",
+          "default": false,
+          "description": "是否生成演讲备注"
+        },
+        "animation": {
+          "type": "string",
+          "enum": [
+            "none",
+            "auto"
+          ],
+          "default": "none",
+          "description": "动画：none=关，auto=自动"
+        },
+        "route_profile": {
+          "type": "string",
+          "enum": [
+            "quick-generate",
+            "default"
+          ],
+          "default": "quick-generate",
+          "description": "v6.6 生成路线：quick-generate=最少确认、快出片（默认，保证无人值守可复现）；default=完整多阶段流程"
+        },
+        "generation_mode": {
+          "type": "string",
+          "enum": [
+            "continuous",
+            "split"
+          ],
+          "default": "continuous",
+          "description": "v6.6 生成模式：continuous=连续整篇生成；split=分页拆分生成"
+        },
+        "pptx_structure_mode": {
+          "type": "string",
+          "enum": [
+            "flat",
+            "structured"
+          ],
+          "default": "flat",
+          "description": "v6.6 打包结构：flat=对象 Slide 本地；structured=声明 Master/Layout/slot 元数据"
+        }
+      }
+    },
     "ppt_master_draft": {
       "type": "object",
       "description": "pptmaster 草稿引擎参数",

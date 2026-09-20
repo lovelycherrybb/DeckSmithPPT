@@ -89,6 +89,7 @@ def _plant_page_svgs(job_dir: Path) -> None:
 LANDING_SHAPES: dict[str, Callable[[Path], None]] = {
     "guizang_ppt": _plant_single_html,
     "ppt_master": _plant_page_svgs,
+    "ppt_master_v6": _plant_page_svgs,  # 逐页形状同 ppt_master；v6 额外要求 svg_output 非空才落定 pin
 }
 
 

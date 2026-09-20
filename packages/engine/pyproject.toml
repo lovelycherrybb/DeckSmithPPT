@@ -16,5 +16,6 @@ packages = [
     "engine.core",
     "engine.impl",
     "engine.impl.ppt_master",
+    "engine.impl.ppt_master_v6",
     "engine.impl.guizang_ppt",
 ]

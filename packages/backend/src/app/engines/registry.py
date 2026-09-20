@@ -30,6 +30,11 @@ def _load_ppt_master_params() -> dict:
     return data["$defs"]["ppt_master"]
 
 
+def _load_ppt_master_v6_params() -> dict:
+    data = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    return data["$defs"]["ppt_master_v6"]
+
+
 def _load_ppt_master_draft_params() -> dict:
     data = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
     return data["$defs"]["ppt_master_draft"]
@@ -46,6 +51,7 @@ def _load_guizang_ppt_params() -> dict:
 
 
 PPT_MASTER_PARAMS = _load_ppt_master_params()
+PPT_MASTER_V6_PARAMS = _load_ppt_master_v6_params()
 PPT_MASTER_DRAFT_PARAMS = _load_ppt_master_draft_params()
 CLAUDE_DRAFT_PARAMS = _load_claude_draft_params()
 GUIZANG_PPT_PARAMS = _load_guizang_ppt_params()
@@ -55,6 +61,8 @@ GUIZANG_PPT_PARAMS = _load_guizang_ppt_params()
 # 新增引擎只需在此与 ENGINE_REGISTRY 各加一项，factory 与 entrypoint 无需改动。
 _ENGINE_CLASSES: dict[str, tuple[str, str]] = {
     "ppt_master": ("engine.impl.ppt_master.engine", "PptMasterEngine"),
+    # 专供上游 ppt-master v6.6.0 的独立引擎（ADR-015 双引擎策略），不继承 ppt_master
+    "ppt_master_v6": ("engine.impl.ppt_master_v6.engine", "PptMasterV6Engine"),
     # 草稿与输出分属两个类：能力位按实现类探测，同类注册两名会让草稿被误标 page_preview
     "ppt_master_draft": ("engine.impl.ppt_master.engine", "PptMasterDraftEngine"),
     "claude_draft": ("engine.impl.ppt_master.claude_draft", "ClaudeDraftEngine"),
@@ -125,6 +133,13 @@ ENGINE_REGISTRY = {
         "description": "基于 AI Agent 的 PPT 生成引擎，支持多风格/多尺寸",
         "engine_type": "output",  # 输出引擎
         "params_schema": PPT_MASTER_PARAMS,
+    },
+    "ppt_master_v6": {
+        "name": "ppt_master_v6",
+        "display_name": "PPT Master 6.6",
+        "description": "基于 ppt-master v6.6.0 技能的 PPT 生成引擎，全量支持路由 profile/生成模式/打包结构/画布/备注/动画",
+        "engine_type": "output",  # 输出引擎
+        "params_schema": PPT_MASTER_V6_PARAMS,
     },
     "ppt_master_draft": {
         "name": "ppt_master_draft",

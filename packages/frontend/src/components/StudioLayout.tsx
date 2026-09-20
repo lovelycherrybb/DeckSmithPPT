@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Tabs } from 'antd';
+import AppVersion from '@/components/AppVersion';
 import { 
   History as HistoryIcon, 
   Settings as SettingsIcon,
@@ -94,6 +95,7 @@ export default function StudioLayout({ children, activeTab = 'workspace', onTabC
             DS
           </div>
           <span style={{ fontWeight: 700, fontSize: 16, color: 'var(--text-primary)' }}>DeckSmithPower</span>
+          <AppVersion />
         </Link>
 
         {/* 中间：Tab导航 */}

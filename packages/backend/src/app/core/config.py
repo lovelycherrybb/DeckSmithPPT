@@ -48,5 +48,15 @@ def get_database_url() -> str:
     return os.environ.get("DATABASE_URL") or _DEFAULT_DB_URL
 
 
+def get_app_version() -> str | None:
+    """返回当前部署版本：环境变量 DECKSMITH_VERSION（发版时由 compose 用 IMAGE_TAG 注入）> .env > None。
+
+    版本是"已发布安装包"的属性：开发态（npm run dev、未设该 env）返回 None，
+    前端据此不显示版本——避免把未确认的工作树状态当成版本号。
+    """
+    _load_dotenv()
+    return (os.environ.get("DECKSMITH_VERSION") or "").strip() or None
+
+
 # 默认 agent（提交任务时不指定就用它）
 AGENT_DEFAULT = "claude"

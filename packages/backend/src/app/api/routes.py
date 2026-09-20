@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 
 from ..core.db import SessionLocal, JOBS_ROOT
+from ..core.config import get_app_version
 from ..repository.jobs import ProjectRepo, JobRepo, DraftRepo, DraftVersionRepo, PresentationRepo
 from ..service.jobs import JobService, sanitize_filename
 from ..engines.factory import get_engine
@@ -20,7 +21,7 @@ from ..core.schemas import (
     DeckRequest, JobOut, EngineInfo, UploadResponse,
     ProjectOut, ProjectDetailOut, DraftOut, DraftDetailOut, DraftVersionOut, ModifyDraftRequest, SaveDraftVersionRequest,
     PresentationOut, SecurityCheckRequest, SecurityCheckResult,
-    SuggestTitleRequest, SuggestTitleResult, JobPages
+    SuggestTitleRequest, SuggestTitleResult, JobPages, VersionOut,
 )
 
 router = APIRouter()
@@ -39,6 +40,18 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+# ===== 版本 =====
+
+
+@router.get("/api/version", response_model=VersionOut)
+def get_version():
+    """返回当前安装包版本（发版时由 compose 用 IMAGE_TAG 注入 DECKSMITH_VERSION）。
+
+    开发态未注入该 env 时 version 为 null，前端据此不显示版本——版本是已发布产物的属性。
+    """
+    return VersionOut(version=get_app_version())
 
 
 # ===== 引擎相关 =====

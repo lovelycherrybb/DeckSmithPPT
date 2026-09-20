@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useTheme } from '@/components/ThemeProvider';
+import AppVersion from '@/components/AppVersion';
 
 export default function HomePageContent() {
   const pageRef = useRef(null);
@@ -132,6 +133,7 @@ export default function HomePageContent() {
           marginBottom: 40 
         }}>
           DECKSMITHPOWER
+          <AppVersion style={{ letterSpacing: 'normal', fontSize: 13 }} />
         </div>
         <Link href="/studio">
           <button style={{ 

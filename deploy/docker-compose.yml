@@ -55,6 +55,7 @@ services:
     environment:
       BACKEND_PORT: "8080"
       DECKSMITH_JOBS_ROOT: /data/jobs
+      DECKSMITH_VERSION: ${IMAGE_TAG}   # 发版镜像标签即当前版本，供前端页头/首页显示；dev 不设此 env → 不显示
       DATABASE_URL: sqlite:////data/db/decksmith.db
       HOME: /data/home
     volumes:

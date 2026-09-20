@@ -16,6 +16,11 @@ class SourceSpec(BaseModel):
     value: str
 
 
+class VersionOut(BaseModel):
+    """当前部署版本（来自发版注入的 DECKSMITH_VERSION）。开发态未注入则为 null。"""
+    version: str | None = None
+
+
 class DeckRequest(BaseModel):
     """提交生成请求（对齐 openapi.yaml 的 DeckRequest）。
     

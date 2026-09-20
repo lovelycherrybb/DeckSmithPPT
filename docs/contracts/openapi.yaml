@@ -16,6 +16,24 @@ info:
 
     '
 paths:
+  # ===== 版本 =====
+  /api/version:
+    get:
+      summary: 获取当前安装包版本
+      description: '返回发版时注入的部署版本（compose 用 IMAGE_TAG 写入 DECKSMITH_VERSION）。
+
+        开发态未注入该环境变量时 version 为 null，前端据此不显示版本——版本是已发布产物的属性。
+
+        '
+      operationId: getAppVersion
+      responses:
+        '200':
+          description: 当前版本
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VersionOut'
+
   # ===== 引擎相关 =====
   /api/engines:
     get:
@@ -919,6 +937,16 @@ paths:
 
 components:
   schemas:
+    # ===== 版本 =====
+    VersionOut:
+      type: object
+      description: 当前安装包版本（开发态未注入则为 null）
+      properties:
+        version:
+          type: string
+          nullable: true
+          description: 发版注入的版本号，如 0.2.4；开发态为 null
+
     # ===== 引擎相关 =====
     EngineInfo:
       type: object

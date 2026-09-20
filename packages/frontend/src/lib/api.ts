@@ -21,6 +21,7 @@ export type JobStatus = components['schemas']['JobStatus'];
 export type TaskType = components['schemas']['Job']['task_type'];
 export type PageItem = components['schemas']['PageItem'];
 export type JobPages = components['schemas']['JobPages'];
+export type VersionInfo = components['schemas']['VersionOut'];
 
 /** 后端 JobOut 的超集字段（进度信息，运行中任务附带） */
 export interface ProgressInfo {
@@ -69,6 +70,12 @@ async function requestJson<T>(path: string, options: RequestInit = {}): Promise<
 export function listEngines(type?: 'draft' | 'output'): Promise<EngineInfo[]> {
   const q = type ? `?type=${type}` : '';
   return requestJson(`/api/engines${q}`);
+}
+
+// ── 版本 ──
+/** 当前安装包版本；开发态后端返回 version:null（调用方据此不显示）。 */
+export function getAppVersion(): Promise<VersionInfo> {
+  return requestJson('/api/version');
 }
 
 // ── 上传 ──

@@ -1,7 +1,7 @@
 # ADR-014: 上游技能版本以 lib/ submodule 为唯一事实源，并批准 ppt-master 升级到 v6.6.0
 
-- 状态: 已接受（版本管理策略生效；`lib/ppt-master` 指针推进到 v6.6.0 **待真跑回归后合入**，本 ADR 不代表已升级）
-- 日期: 2026-09-19
+- 状态: 已接受（已实现并验证：`lib/ppt-master` 已推进到 v6.6.0，真跑回归通过；连带修复逐页预览回归）
+- 日期: 2026-09-19（升级与回归验证于 2026-09-20 完成）
 - 决策者: 龚成
 - 相关: ADR-001（引擎可插拔）、ADR-011（技能发现用软链 / prompt 钉绝对路径）、ADR-012（子进程 cwd 归位任务目录）、
   AGENTS 规则 2「引擎可插拔」·规则 4「上游只读」·规则 5「选型必记 ADR」、
@@ -35,3 +35,13 @@
   2. 集成面虽经静态 diff 核对为兼容，但 ppt_master 产物定位**零单测、真跑是唯一裁判**，故合入前那次真实回归是硬门，不可用静态结论替代。
   3. 上游 `requirements.txt` 新增 PyMuPDF(AGPL-3.0) 的许可说明（当前非强制包行）；若后续版本将其列为硬依赖且随镜像再分发，需按 AGPL 复核交付合规。
 - 本 ADR 状态与执行解耦：策略（决策 1–3、5–6）即接受生效；决策 4 的指针推进在回归通过前**保持"待合入"**，届时更新本文件状态与实际 submodule 记录，二者必须一致（严禁把未执行的升级写成现状）。
+
+## 验收记录（2026-09-20）
+
+按决策 4 做了两次 `ppt_master` 真跑回归（4 页冒烟，`outputs/jobs/`）：
+
+1. 首跑（升级 checkout 后、修复前）：草稿→4 页 SVG→导出 `.pptx`、`/download` 200、解包 4 张 slide、无宿主绝对路径泄露——**出片链完好**；但逐页预览 `/pages` 返回 0 页。根因：v6 的 quick-generate 下 `project_manager` 先在只读上游 `lib/ppt-master/projects/<name>_<date>/` 落了一个 `svg_output/` 为空的脚手架，而引擎 `resolve_svg_output_dir` 以「目录存在即 pin」落定，把它钉死；真页写在任务目录，pin 却指向上游空壳。此即"真跑是唯一裁判"抓到的、静态 diff 看不出的回归。
+2. 修复（决策 4 的"引擎+prompt 一起修"）：
+   - 引擎：新增 `_has_page_svgs`，pin 的读取与落定条件由「目录存在」收紧为「目录里有 ≥1 枚匹配页 SVG」，空脚手架不 pin、并能自愈已误 pin 的旧任务；顺带修正原 `Path != str` 恒真导致每轮重写 pin 的小 bug。
+   - prompt：`_runtime_anchor` 点名禁止 `project_manager` 在 `{root}/projects/` 留任何目录（含空 `svg_output` 脚手架），要求全程只在 `{job_dir}` 读写。
+3. 复跑：`/pages` 恢复返回 4 页、`/download` 200、`job.json` 的 `svg_output_dir` 正确指向任务目录项目，且上游 `projects/` 未新增本任务脚手架。决策 4 合入门通过，据此推进 `lib/ppt-master` 指针 `ebd74d1 → v6.6.0`。

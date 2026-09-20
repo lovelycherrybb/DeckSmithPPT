@@ -20,14 +20,15 @@ export default function EngineParamsForm({ schema, exclude = ['source', 'files',
     enum?: unknown[];
     default?: unknown;
     description?: string;
+    'x-hidden'?: boolean;
   }>;
 
-  // schema 变化时把默认值写入表单
+  // schema 变化时把默认值写入表单（隐藏的纯工程旋钮不写入，交由引擎默认值兜底）
   useEffect(() => {
     const form = Form.useFormInstance();
     const defaults: Record<string, unknown> = {};
     Object.entries(props).forEach(([key, value]) => {
-      if (exclude.includes(key)) return;
+      if (exclude.includes(key) || value['x-hidden']) return;
       if (value.default !== undefined) defaults[key] = value.default;
       else if (value.enum?.length) defaults[key] = value.enum[0];
       else if (value.type === 'boolean') defaults[key] = false;
@@ -35,7 +36,7 @@ export default function EngineParamsForm({ schema, exclude = ['source', 'files',
     form.setFieldsValue(defaults);
   }, [schema]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const entries = Object.entries(props).filter(([key]) => !exclude.includes(key));
+  const entries = Object.entries(props).filter(([key, value]) => !exclude.includes(key) && !value['x-hidden']);
   if (entries.length === 0) return null;
 
   return (
@@ -71,10 +72,10 @@ export function pickEngineParams(
   values: Record<string, unknown>,
   exclude: string[] = ['source', 'files', 'prompt']
 ): Record<string, unknown> {
-  const props = (schema?.properties || {}) as Record<string, unknown>;
+  const props = (schema?.properties || {}) as Record<string, { 'x-hidden'?: boolean }>;
   const result: Record<string, unknown> = {};
   Object.keys(props).forEach((key) => {
-    if (exclude.includes(key)) return;
+    if (exclude.includes(key) || props[key]?.['x-hidden']) return;
     if (values[key] !== undefined) result[key] = values[key];
   });
   return result;

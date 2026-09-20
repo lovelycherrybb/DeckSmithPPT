@@ -391,10 +391,12 @@ export default function DraftsPanel({
     enum?: unknown[];
     type?: string;
     description?: string;
+    'x-hidden'?: boolean;
   }>;
   // 引擎参数当前值（驱动条件参数显隐，如「仅 style=magazine 时有效」的主题色）
   const watchedEngineParams = (Form.useWatch('engine_params', genForm) || {}) as Record<string, unknown>;
   const genParamEntries = Object.entries(genEngineProps).filter(([key, value]) => {
+    if (value['x-hidden']) return false; // 契约标记为隐藏的纯工程旋钮（如 route_profile）不进表单
     if (BASE_DUP_PARAM_KEYS.includes(key)) return false; // 目标页数等已有基础字段，不重复渲染
     const dep = paramDependency(value.description);
     if (dep) return String(watchedEngineParams[dep.dependsOn] ?? '') === dep.equals;

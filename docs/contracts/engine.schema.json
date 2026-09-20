@@ -630,7 +630,8 @@
             "default"
           ],
           "default": "quick-generate",
-          "description": "v6.6 生成路线：quick-generate=最少确认、快出片（默认，保证无人值守可复现）；default=完整多阶段流程"
+          "description": "v6.6 生成路线：quick-generate=最少确认、快出片（默认，保证无人值守可复现）；default=完整多阶段流程",
+          "x-hidden": true
         },
         "generation_mode": {
           "type": "string",
@@ -639,7 +640,8 @@
             "split"
           ],
           "default": "continuous",
-          "description": "v6.6 生成模式：continuous=连续整篇生成；split=分页拆分生成"
+          "description": "v6.6 生成模式：continuous=连续整篇生成；split=分页拆分生成",
+          "x-hidden": true
         },
         "pptx_structure_mode": {
           "type": "string",
@@ -648,7 +650,8 @@
             "structured"
           ],
           "default": "flat",
-          "description": "v6.6 打包结构：flat=对象 Slide 本地；structured=声明 Master/Layout/slot 元数据"
+          "description": "v6.6 打包结构：flat=对象 Slide 本地；structured=声明 Master/Layout/slot 元数据",
+          "x-hidden": true
         }
       }
     },

@@ -24,6 +24,7 @@ ADR-014 批准把 `ppt_master` 引擎就地升级到 ppt-master v6.6.0。真跑�
 4. **v6.6 参数全量接线**：契约 `$defs.ppt_master_v6` 暴露 `style/mode/format/notes/animation/route_profile/generation_mode/pptx_structure_mode`，并在 `_build_prompt` 里逐项写进 prompt（消除旧引擎"契约有、prompt 不喂"的悬空参数）；`route_profile` 默认钉 `quick-generate` 以保证无人值守可复现。
 5. **pin 加固归入 v6 引擎**：`resolve_svg_output_dir` 的"非空页 SVG 才算落定"实质校验（`_has_page_svgs`）随新引擎实现（v6 才需要），并保留自愈旧误 pin 与 `Path!=str` 修正。
 6. **可插拔接入零调用方改动**：只在 `registry.py` 的 `_ENGINE_CLASSES`/`ENGINE_REGISTRY` + `pyproject` 包列表 + 契约测试 `LANDING_SHAPES` 各登记一项；`factory`/`FORCE_STUB`/能力派生按注册表自动纳入（已被契约测试 `test_factory_seamlessly_admits_a_new_engine` 与本次 25 项契约全绿验证）。
+7. **参数 UI 分层用契约标记、不写死字段**：纯工程旋钮（`route_profile`/`generation_mode`/`pptx_structure_mode`）在 `$defs.ppt_master_v6` 里打 `x-hidden: true`，仍留在契约中（API/高级调用方可显式传），但前端通用参数表单（`EngineParamsForm`、`DraftsPanel`）据 `x-hidden` 跳过渲染与下发，由引擎各自的 default 兜底（quick-generate / continuous / flat）。用户可表达意图的参数（style/mode/format/notes/animation）照常渲染。这是"schema 驱动、勿写死字段"偏好的延续——显隐是数据、不是硬编码 key 列表。
 
 ## 后果
 

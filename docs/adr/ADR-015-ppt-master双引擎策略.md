@@ -1,6 +1,6 @@
 # ADR-015: ppt-master 双引擎策略（ppt_master 锁旧版、新增独立 ppt_master_v6 专供 v6.6.0）
 
-- 状态: 已接受（已实现；`ppt_master_v6` 端到端真跑待验证合入）
+- 状态: 已接受（已实现并验证：ppt_master_v6 端到端真跑通过）
 - 日期: 2026-09-20
 - 决策者: 龚成
 - 相关: ADR-001（引擎可插拔）、ADR-011（软链/prompt 钉路径）、ADR-012（cwd 归位、产物落点）、
@@ -29,5 +29,5 @@ ADR-014 批准把 `ppt_master` 引擎就地升级到 ppt-master v6.6.0。真跑�
 
 - 正面：`ppt_master` 稳定复现旧产物；`ppt_master_v6` 独占 v6.6 新能力并可自由加参数；两者由注册表并列，前端参数表单按 `params_schema` 通用渲染、无需为 v6 改前端；升级风险被隔离在独立引擎里，验证不过可只回退它。
 - 代价：仓库并存两条同上游 submodule、两份近似引擎代码（有意冗余换取解耦）；`ppt_master_v6` 的 prompt 与产物形状需随 v6 后续 minor 跟进。
-- 待办：`ppt_master_v6` 端到端真跑一次（花额度）验 `/pages` 与全量参数生效，通过后把本 ADR 状态改「已实现并验证」，并在交付说明里提示"v6.6 产物风格随上游走"。
+- 已验证（2026-09-20）：`ppt_master_v6` 真跑 4 页任务 `58134be6` 端到端通过——`/pages=4`、下载 200、pptx 4 张 slide、`notes=true` 生成演讲备注（notesSlide 存在）、`animation:auto`/画布 `ppt169` 参数在产物中生效、无宿主绝对路径泄露、且上游 `lib/ppt-master-v6/projects/` 未落本任务脚手架（prompt 约束生效）。交付说明需提示"v6.6 产物风格随上游走"。
 - ADR-014 就地升级路线就此**废弃**（在其文件标记 superseded、指向本 ADR），其"submodule 单一事实源/软链发现"等策略性结论仍有效并被本 ADR 沿用。

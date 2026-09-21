@@ -124,6 +124,7 @@ export default function HistoryTab({ onOpenInWorkspace }: Props) {
       title: '项目编号',
       dataIndex: 'project_id',
       width: 110,
+      fixed: 'left' as const,
       render: (id: string) => (
         <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{id.slice(0, 8)}</span>
       ),
@@ -144,7 +145,10 @@ export default function HistoryTab({ onOpenInWorkspace }: Props) {
     {
       title: '操作',
       key: 'actions',
-      width: 140,
+      // 内容实测 138（两个 small 按钮 + Space 间距 8）+ 单元格左右 padding 8×2 = 154，
+      // table-layout: fixed 不会为内容撑列，写窄了按钮就会画到格子外面 → 留 6px 余量取 160
+      width: 160,
+      fixed: 'right' as const,
       render: (_: unknown, p: ProjectSummary) => (
         <Space>
           <Button
@@ -186,9 +190,14 @@ export default function HistoryTab({ onOpenInWorkspace }: Props) {
           dataSource={projects}
           columns={columns}
           pagination={false}
+          // 固定列（项目编号左 / 操作右）依赖 scroll.x；窄窗口时在卡片内横向滚动，
+          // 而不是让整张表冲出卡片边界
+          scroll={{ x: 1000 }}
           locale={{ emptyText: <Empty description="暂无项目，提交草稿任务后自动创建" /> }}
           onRow={(p) => ({
-            style: { background: viewProjectId === p.project_id ? 'var(--primary-bg)' : undefined },
+            // 高亮走 class 而不是 tr 内联样式：固定列（项目编号/操作）单元格有自己不透明背景，
+            // 内联在 tr 上的底色会被这两格盖出接缝
+            className: viewProjectId === p.project_id ? 'row-active' : '',
           })}
         />
       </Card>

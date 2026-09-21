@@ -333,9 +333,16 @@ textarea.ant-input {
   border-bottom-color: var(--border) !important;
 }
 .ant-table-tbody > tr > td { border-bottom-color: var(--border) !important; color: var(--text-secondary) !important; }
+/* 当前「查看」的项目所在行高亮：必须逐格上色，固定列单元格自带不透明背景会盖掉 tr 上的底色 */
+.ant-table-tbody > tr.row-active > td { background: var(--primary-bg) !important; }
 .ant-table-tbody > tr:hover > td { background: var(--bg-hover) !important; }
 .ant-table-cell-row-hover { background: var(--bg-hover) !important; }
 .ant-table-placeholder .ant-empty-description { color: var(--text-muted) !important; }
+/* 防溢出兜底：列宽写窄时（table-layout: fixed 不会为内容撑列），
+   操作列按钮在格内换行，而不是画到格子/卡片外面 */
+.ant-table-cell > .ant-space { flex-wrap: wrap; row-gap: 4px; }
+/* 没显式配 scroll.x 的表格也永远在自身容器里横向滚动，不冲出卡片边界 */
+.ant-table-content { overflow-x: auto; }
 
 /* ── Tag（状态标签，保留语义色但修边框/文字） ── */
 .ant-tag { border-color: var(--border) !important; border-radius: var(--radius-sm) !important; }

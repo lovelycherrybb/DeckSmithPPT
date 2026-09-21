@@ -43,6 +43,8 @@ _MIGRATIONS = {
         "engine_job_id": "ALTER TABLE jobs ADD COLUMN engine_job_id VARCHAR(128)",
         "draft_id": "ALTER TABLE jobs ADD COLUMN draft_id VARCHAR(64)",
         "draft_version": "ALTER TABLE jobs ADD COLUMN draft_version VARCHAR(32)",
+        # token 消耗（JSON 文本，NULL=未记录）。可空列，按本文件规矩不升 SCHEMA_VERSION
+        "token_usage": "ALTER TABLE jobs ADD COLUMN token_usage TEXT",
     },
     "projects": {
         "project_name": "ALTER TABLE projects ADD COLUMN project_name VARCHAR(255)",

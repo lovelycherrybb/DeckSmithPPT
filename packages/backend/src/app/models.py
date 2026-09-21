@@ -69,6 +69,9 @@ class Job(Base):
     draft_version: Mapped[str | None] = mapped_column(String(32), nullable=True)  # 所用草稿版本号（演示文件命名用）
     result_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 本任务引擎主会话累计的 token 消耗，存为 JSON 文本（与 engine_params 同一存法）。
+    # NULL = 未记录（存量任务、或引擎不上报用量），不得用 "0" 冒充（ADR-016）
+    token_usage: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
     updated_by: Mapped[str | None] = mapped_column(String(64), nullable=True)

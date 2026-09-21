@@ -575,6 +575,26 @@ class JobService:
             return None
         return None
 
+    # ── 引擎上报的 token 消耗（同样直接读引擎 job.json；口径见 ADR-016）──
+    # 为什么不调 engine.resume() 拿 Job.token_usage：协议里 resume 对未完成任务会
+    # **重新提交一次生成**（ppt_master / ppt_master_v6 即如此），为一个数字把用户额度
+    # 再烧一遍不可接受。job.json 是引擎自己写的落点，与标题回填同一通道。
+    @staticmethod
+    def _engine_reported_usage(job_id: str) -> dict | None:
+        try:
+            from engine.core.config import get_jobs_root
+            job_json = get_jobs_root() / job_id / "job.json"
+            if not job_json.exists():
+                return None
+            data = json.loads(job_json.read_text(encoding="utf-8"))
+            usage = data.get("token_usage")
+            # 只认带派生总数的形态；残缺对象按未记录处理，不补 0
+            if isinstance(usage, dict) and isinstance(usage.get("total_tokens"), int):
+                return usage
+        except Exception:
+            return None
+        return None
+
     # ── 后台轮询：把引擎状态同步回 SQLite 任务表 ──
     def _poll_until_done(self, job_id: str, engine_name: str | None = None,
                          timeout_seconds: int = _DEFAULT_TIMEOUT_SECONDS) -> None:
@@ -601,6 +621,10 @@ class JobService:
                     }
                     if engine_title and not (row or {}).get("title"):
                         update_fields["title"] = engine_title
+                    # token 消耗：引擎未上报就留 NULL（未记录），不写 0
+                    usage = self._engine_reported_usage(job_id)
+                    if usage:
+                        update_fields["token_usage"] = usage
                     JobRepo().update(db, job_id, status="completed", **update_fields)
                     row = JobRepo().get(db, job_id)  # 取回填后的行给落库逻辑用
                     # 落库演示文件 / 草稿实体（幂等：仅在尚未落库时）
@@ -616,9 +640,14 @@ class JobService:
                 db = SessionLocal()
                 try:
                     # 注意用 .value（str(status) 会得到 "JobStatus.FAILED" 而非 "failed"）
+                    # 失败任务烧掉的 token 也是事实：引擎侧每个 result 都已累加进 job.json，
+                    # 终态一律如实回填（未上报仍为 NULL=未记录），不冒领也不抹掉（ADR-016）
+                    fail_fields: dict = {"updated_at": _now(), "status_detail": "生成失败"}
+                    usage = self._engine_reported_usage(job_id)
+                    if usage:
+                        fail_fields["token_usage"] = usage
                     JobRepo().update(db, job_id, status=status.value,
-                                     error="生成失败，详见引擎 run.log", updated_at=_now(),
-                                     status_detail="生成失败")
+                                     error="生成失败，详见引擎 run.log", **fail_fields)
                 finally:
                     db.close()
                 return
@@ -632,7 +661,10 @@ class JobService:
         # 超时兜底
         db = SessionLocal()
         try:
-            JobRepo().update(db, job_id, status="timeout", error="生成超时", updated_at=_now(),
-                             status_detail="生成超时")
+            timeout_fields: dict = {"updated_at": _now(), "status_detail": "生成超时"}
+            usage = self._engine_reported_usage(job_id)
+            if usage:
+                timeout_fields["token_usage"] = usage
+            JobRepo().update(db, job_id, status="timeout", error="生成超时", **timeout_fields)
         finally:
             db.close()

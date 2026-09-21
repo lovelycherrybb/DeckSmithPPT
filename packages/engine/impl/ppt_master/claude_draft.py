@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 import threading
 import time
@@ -22,6 +23,7 @@ from typing import Any
 
 from engine.core.models import JobId, JobStatus
 from engine.core.config import get_jobs_root
+from engine.core.usage import usage_from_result
 
 from .engine import PptMasterEngine, _PPT_MASTER_DIR, _now, strip_source_noise
 
@@ -188,12 +190,33 @@ class ClaudeDraftEngine(PptMasterEngine):
 {material}
 """
 
+    @staticmethod
+    def _parse_json_result(stdout: str) -> tuple[str, dict | None]:
+        """从 `claude --output-format json` 的 stdout 取 (草稿正文, token_usage)。
+
+        不带 --verbose 时该模式输出的就是 result 事件整体（含 result 文本与 usage）。
+        解析不动就退回"整段 stdout 即草稿"的老口径——CLI 版本差异或网关改写输出时
+        宁可少一个用量数字，也不能把已经生成的草稿判成失败；此时用量按未记录处理，不猜。
+        """
+        text = (stdout or "").strip()
+        try:
+            obj = json.loads(text)
+        except json.JSONDecodeError:
+            return text, None
+        if not isinstance(obj, dict):
+            return text, None
+        usage = usage_from_result(obj)
+        body = obj.get("result")
+        return (body if isinstance(body, str) else text), usage
+
     def _run_claude_draft(self, job_id: str, prompt: str) -> None:
         """后台执行：claude -p 生成草稿 → 写 draft.md → 更新 job.json。"""
         job_dir = self._job_dir(job_id)
         try:
             proc = subprocess.run(
-                ["claude", "-p", prompt],
+                # --output-format json：一次调用同时拿回草稿正文与本任务 token 消耗（ADR-016）。
+                # 该模式下 CLI 输出的就是 result 事件（usage 是整段会话累计值）。
+                ["claude", "-p", "--output-format", "json", prompt],
                 capture_output=True,
                 text=True,
                 timeout=_CLAUDE_DRAFT_TIMEOUT,
@@ -208,7 +231,7 @@ class ClaudeDraftEngine(PptMasterEngine):
                             updated_at=_now())
             return
 
-        draft = proc.stdout.strip()
+        draft, token_usage = self._parse_json_result(proc.stdout)
         if draft.startswith("```"):
             lines = draft.splitlines()
             if lines and lines[0].startswith("```"):
@@ -218,7 +241,8 @@ class ClaudeDraftEngine(PptMasterEngine):
             draft = "\n".join(lines).strip()
 
         (job_dir / "run.log").write_text(
-            f"=== stderr ===\n{proc.stderr}\n\n=== stdout 长度 ===\n{len(draft)}\n",
+            f"=== stderr ===\n{proc.stderr}\n\n=== stdout 长度 ===\n{len(draft)}\n"
+            + (f"\n=== token 消耗 ===\n{token_usage['total_tokens']:,}\n" if token_usage else ""),
             encoding="utf-8",
         )
 
@@ -234,6 +258,7 @@ class ClaudeDraftEngine(PptMasterEngine):
                 job_id,
                 status="completed",
                 title=draft_title,
+                token_usage=token_usage,
                 updated_at=_now(),
             )
         else:
@@ -242,6 +267,7 @@ class ClaudeDraftEngine(PptMasterEngine):
                 job_id,
                 status="failed",
                 error=f"claude 草稿生成失败（exit={proc.returncode}）：{detail}",
+                token_usage=token_usage,
                 updated_at=_now(),
             )
 

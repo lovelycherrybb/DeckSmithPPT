@@ -58,3 +58,6 @@ class Job:
     created_at: str | None = None
     updated_at: str | None = None
     content_style: str | None = None
+    # 引擎主会话累计的 token 消耗（契约 TokenUsage）。可选：不实现用量上报的引擎
+    # 留 None 即「未记录」，调用方不得据此填 0（ADR-016），故不设必选钩子。
+    token_usage: dict | None = None

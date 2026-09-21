@@ -21,6 +21,19 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _encode_json_columns(fields: dict) -> dict:
+    """把「以 JSON 文本存列」的 dict 值就地序列化（engine_params / token_usage）。
+
+    create 与 update 两条写路径必须同规则，否则一边存对象一边存字符串。
+    None 保持 None（落库为 NULL）——token_usage 的 NULL 就是「未记录」这个语义
+    （ADR-016），序列化成字符串 "null" 就读不回来了。
+    """
+    for key in ("engine_params", "token_usage"):
+        if isinstance(fields.get(key), dict):
+            fields[key] = json.dumps(fields[key], ensure_ascii=False)
+    return fields
+
+
 class ProjectRepo:
     """项目表 CRUD。"""
 
@@ -111,6 +124,8 @@ class JobRepo:
             "draft_version": obj.draft_version,
             "result_path": obj.result_path,
             "error": obj.error,
+            # JSON 文本 → dict；NULL/空串一律 None（= 未记录，不是 0）
+            "token_usage": json.loads(obj.token_usage) if obj.token_usage else None,
             "created_by": obj.created_by,
             "updated_by": obj.updated_by,
             "created_at": obj.created_at,
@@ -120,8 +135,7 @@ class JobRepo:
     def create(self, db, **fields) -> dict:
         fields.setdefault("content_style", "marketing_promo")
         fields.setdefault("task_type", "draft")
-        if isinstance(fields.get("engine_params"), dict):
-            fields["engine_params"] = json.dumps(fields["engine_params"], ensure_ascii=False)
+        _encode_json_columns(fields)
         obj = Job(**fields)
         db.add(obj)
         db.commit()
@@ -151,8 +165,7 @@ class JobRepo:
             return None
         if "content_style" in fields and fields["content_style"] is None:
             fields["content_style"] = "marketing_promo"
-        if isinstance(fields.get("engine_params"), dict):
-            fields["engine_params"] = json.dumps(fields["engine_params"], ensure_ascii=False)
+        _encode_json_columns(fields)
         for key, value in fields.items():
             setattr(obj, key, value)
         db.commit()

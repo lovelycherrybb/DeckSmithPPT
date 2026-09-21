@@ -32,6 +32,7 @@ import PagePreviewGrid from '@/components/features/job/PagePreviewGrid';
 import { useJobPages } from '@/hooks/useJobPages';
 import { formatDate } from '@/lib/formatDate';
 import { engineParamEntries } from '@/lib/engineParams';
+import { tokenUsagePartRows, tokenUsageSummary, tokenUsageTotal } from '@/lib/tokenUsage';
 
 interface Props {
   jobs: JobWithProgress[];
@@ -188,7 +189,13 @@ export default function GenerationJobsPanel({
                     )}
                   </Space>
                 }
-                description={`${job.engine || '-'} · ${contentStyleLabel(job.content_style)} · ${formatDate(job.created_at)}`}
+                description={
+                  <>
+                    {`${job.engine || '-'} · ${contentStyleLabel(job.content_style)} · ${formatDate(job.created_at)}`}
+                    {/* 运行中不显示：用量要到终态才落库，「未记录」对跑完仍无数据的任务才有信息量 */}
+                    {job.status !== 'running' && ` · ${tokenUsageSummary(job.token_usage)}`}
+                  </>
+                }
               />
             </List.Item>
           )}
@@ -233,6 +240,17 @@ export default function GenerationJobsPanel({
               </Descriptions.Item>
               <Descriptions.Item label="引擎">{drawer.engine || '-'}</Descriptions.Item>
               <Descriptions.Item label="创建时间">{formatDate(drawer.created_at)}</Descriptions.Item>
+              {drawer.status !== 'running' && (
+                <Descriptions.Item label="token 消耗">
+                  {tokenUsageTotal(drawer.token_usage)}
+                </Descriptions.Item>
+              )}
+              {drawer.status !== 'running' &&
+                tokenUsagePartRows(drawer.token_usage).map((p) => (
+                  <Descriptions.Item key={p.key} label={p.label}>
+                    {p.value}
+                  </Descriptions.Item>
+                ))}
               {drawer.status_detail && (
                 <Descriptions.Item label="状态明细">{drawer.status_detail}</Descriptions.Item>
               )}

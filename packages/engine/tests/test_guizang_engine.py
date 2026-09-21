@@ -355,6 +355,43 @@ def test_无产物时自动resume续跑并成功(engine_factory, tmp_path):
     assert "result.html" in rp and "不要重新规划" in rp and "禁止一次性 Write 整个产物" in rp
 
 
+# ── 断点续跑的 token 消耗：两个 result 分项累加、不覆盖（ADR-016 唯一的算错风险位）──
+def test_resume续跑的token消耗按分项累加(engine_factory, tmp_path):
+    script = (
+        'resume=0\n'
+        'for a in "$@"; do [ "$a" = "--resume" ] && resume=1; done\n'
+        'printf \'{"type":"system","subtype":"init","session_id":"sess-u1"}\\n\'\n'
+        'if [ "$resume" -eq 0 ]; then\n'
+        '  printf \'{"type":"result","subtype":"success","is_error":false,'
+        '"usage":{"input_tokens":100,"cache_creation_input_tokens":20,'
+        '"cache_read_input_tokens":300,"output_tokens":40}}\\n\'\n'
+        '  exit 0\n'
+        'fi\n'
+        'result=$(printf \'%s\' "$PROMPT" | grep -o \'/[^ ]*result\\.html\' | head -1)\n'
+        'i=0; while [ $i -lt 300 ]; do '
+        'printf \'<div class="slide">aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa</div>\' >> "$result"; '
+        'i=$((i+1)); done\n'
+        'printf \'{"type":"result","subtype":"success","is_error":false,'
+        '"usage":{"input_tokens":5,"cache_creation_input_tokens":null,'
+        '"cache_read_input_tokens":800,"output_tokens":10}}\\n\'\n'
+    )
+    eng = engine_factory(claude_bin=_fake_claude(tmp_path, script), timeout_seconds=120)
+    job_id = eng.submit(content="# x\n正文", title="用量累加", pages=12,
+                        engine_params={"style": "swiss"})
+    _wait_terminal(eng, job_id)
+
+    assert eng.status(job_id).value == "completed"
+    u = eng._read_job(job_id)["token_usage"]  # noqa: SLF001
+    # 首跑 100/20/300/40 + 续跑 5/null/800/10：null 分项不覆盖已知值，已知分项相加
+    assert u["input_tokens"] == 105
+    assert u["cache_creation_input_tokens"] == 20
+    assert u["cache_read_input_tokens"] == 1100
+    assert u["output_tokens"] == 50
+    assert u["total_tokens"] == 105 + 20 + 1100 + 50
+    # 引擎对外 Job 也带出同一份账（后端收割走的就是它）
+    assert eng._to_job(job_id, eng._read_job(job_id)).token_usage == u  # noqa: SLF001
+
+
 # ── 租约失效（后端重启、supervisor 线程已死）：status 自行派生终态，不永远 running ──
 def test_租约失效时status自行判失败(engine_factory, tmp_path):
     eng = engine_factory(claude_bin=_fake_claude(tmp_path, "echo 'no session here'"))

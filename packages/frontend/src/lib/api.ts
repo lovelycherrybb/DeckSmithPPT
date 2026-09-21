@@ -21,6 +21,7 @@ export type JobStatus = components['schemas']['JobStatus'];
 export type TaskType = components['schemas']['Job']['task_type'];
 export type PageItem = components['schemas']['PageItem'];
 export type JobPages = components['schemas']['JobPages'];
+export type TokenUsage = components['schemas']['TokenUsage'];
 export type VersionInfo = components['schemas']['VersionOut'];
 
 /** 后端 JobOut 的超集字段（进度信息，运行中任务附带） */

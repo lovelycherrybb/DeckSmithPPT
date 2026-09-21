@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: DeckSmithPPT API
-  version: 0.6.0
+  version: 0.7.0
   description: '前后端契约（唯一来源）。后端实现本契约，前端从本文件生成类型。
 
     与 engine.schema.json 保持一致：通用层（DeckRequest/Job）。引擎参数层已移至 engine.schema.json 定义。
@@ -1081,6 +1081,49 @@ components:
       - failed
       - completed
 
+    TokenUsage:
+      type: object
+      description: '一次引擎任务的 LLM token 消耗（分项 + 派生总数）。口径见 ADR-016：
+
+        - 只统计该任务的引擎主会话；同一任务因 --resume 断点续跑产生的多个 result 事件按分项累加，不覆盖。
+
+        - 后端辅助 agent（拟题、草稿改写/编辑）的消耗不计入本字段，也不混入任务数字。
+
+        - 数据源为 claude CLI stream-json 的 result 事件 usage，该值是整段会话的累计量而非末轮快照。
+
+        - 分项逐项可空：第三方 Anthropic 兼容网关可能不回报 cache_* 字段，未回报项为 null，
+        total_tokens 只对已回报项求和。
+
+        - 四项全部缺失时整个 token_usage 为 null，语义是「未记录」（含本能力上线前的存量任务、
+        以及不上报用量的引擎）；界面须如实显示「未记录」，禁止用 0 或估算值冒充实测。
+
+        '
+      required:
+      - total_tokens
+      properties:
+        input_tokens:
+          type: integer
+          nullable: true
+          description: 非缓存的新增输入 token；引擎/网关未回报时为 null
+        cache_creation_input_tokens:
+          type: integer
+          nullable: true
+          description: 写入 prompt cache 的输入 token；引擎/网关未回报时为 null
+        cache_read_input_tokens:
+          type: integer
+          nullable: true
+          description: 命中 prompt cache 读到的输入 token（多轮会话里量级远大于新增输入，故必须与
+            input_tokens 分列、不可合并展示）；未回报时为 null
+        output_tokens:
+          type: integer
+          nullable: true
+          description: 输出 token；引擎/网关未回报时为 null
+        total_tokens:
+          type: integer
+          description: '派生总数 = input_tokens + cache_creation_input_tokens + cache_read_input_tokens
+            + output_tokens（缺报项按 0 参与求和）。与 claude CLI 自身对输入总量的算法一致。
+            四项全缺时不产出本对象（整体为 null），避免出现假的 0。'
+
     Job:
       type: object
       description: '引擎任务
@@ -1155,6 +1198,11 @@ components:
         error:
           type: string
           description: 失败/超时原因（仅 failed/timeout 时有值）
+        token_usage:
+          allOf:
+          - $ref: '#/components/schemas/TokenUsage'
+          description: '该任务的 LLM token 消耗（引擎主会话累计，草稿引擎任务与输出引擎任务同口径）。
+            缺失或为 null = 未记录，含本能力上线前的存量任务与不上报用量的引擎；界面显示「未记录」。'
         created_at:
           type: string
           format: date-time

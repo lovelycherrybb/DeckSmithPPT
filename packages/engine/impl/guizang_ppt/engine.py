@@ -42,6 +42,7 @@ from typing import Any
 from engine.core.config import get_jobs_root
 from engine.core.models import Job, JobId, JobStatus, EngineType
 from engine.core.protocol import OutputEngine
+from engine.core.usage import add_usage, usage_from_result
 
 # 仓库根：packages/engine/impl/guizang_ppt/engine.py
 # parents[0]=guizang_ppt [1]=impl [2]=engine [3]=packages [4]=仓库根
@@ -461,7 +462,8 @@ class GuizangPptEngine(OutputEngine):
           供 supervisor 用 `--resume` 断点续跑；
         - text_delta：原样续写（agent 的说明性输出，边生成边可见）；
         - assistant.tool_use：记一行「⚙ 工具名 关键参数」——能看到它在写哪个文件；
-        - result：连 is_error / result 原文 / num_turns 一起写进 job.json。
+        - result：连 is_error / result 原文 / num_turns 一起写进 job.json，并把本任务的
+          token 消耗按分项累加进去（续跑不覆盖，见 ADR-016）。
           **只看 subtype 会骗人**：实测网关中途掐连接时 result 仍报 subtype=success，
           所以只有 success 且非 is_error 才记 ✅，否则记 ❌ 并带出原文；
         - 非 JSON 行（stderr 噪音等）：原样落盘，不丢弃。
@@ -501,7 +503,15 @@ class GuizangPptEngine(OutputEngine):
                         "num_turns": d.get("num_turns"),
                         "result": str(d.get("result") or "")[:400],
                     }
-                    self._write_job(job_id, claude_result=payload, updated_at=_now())
+                    # token 消耗按分项**累加**：本引擎有 --resume 断点续跑，每个 result 的
+                    # usage 只是那一段进程的累计值（CLI 内为 totalUsage），覆盖写会少算（ADR-016）。
+                    # 每个 result 事件在此只被处理一次，故不会重复计数。
+                    usage = add_usage(
+                        self._read_job(job_id).get("token_usage"), usage_from_result(d)
+                    )
+                    self._write_job(
+                        job_id, claude_result=payload, token_usage=usage, updated_at=_now()
+                    )
                     if payload["subtype"] == "success" and not payload["is_error"]:
                         log_file.write("\n✅ 技能执行完成\n")
                     else:
@@ -510,6 +520,8 @@ class GuizangPptEngine(OutputEngine):
                             f" is_error={payload['is_error']}）："
                             f"{payload['result'] or '无返回文本'}\n"
                         )
+                    if usage is not None:
+                        log_file.write(f"📊 token 消耗 {usage['total_tokens']:,}\n")
                     log_file.flush()
         except Exception as exc:  # noqa: BLE001
             try:
@@ -731,6 +743,7 @@ class GuizangPptEngine(OutputEngine):
             created_at=data.get("created_at"),
             updated_at=data.get("updated_at"),
             content_style=data.get("content_style"),
+            token_usage=data.get("token_usage"),
         )
 
     def _tail_run_log(self, job_id: Any, max_chars: int = 200) -> str | None:

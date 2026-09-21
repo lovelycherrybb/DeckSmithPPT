@@ -81,6 +81,21 @@ class JobPages(BaseModel):
     pages: list[PageItem] = Field(default_factory=list)  # 已完成页列表（不支持逐页时为空数组）
 
 
+class TokenUsage(BaseModel):
+    """任务级 token 消耗（对齐 openapi.yaml 的 TokenUsage，口径见 ADR-016）。
+
+    分项逐项可空：走第三方 Anthropic 兼容网关时 cache_* 可能不回报，
+    未回报项为 None（不是 0），total_tokens 只对已回报项求和。
+    """
+    input_tokens: int | None = None
+    cache_creation_input_tokens: int | None = None
+    cache_read_input_tokens: int | None = None
+    output_tokens: int | None = None
+    # 契约里 total_tokens 是必填，这里给默认值只为防御读：库里这列只可能由
+    # engine.core.usage 写出（必带 total），万一出现脏行也不该让整条任务列表 500
+    total_tokens: int = 0
+
+
 class JobOut(BaseModel):
     """任务响应（对齐 openapi.yaml 的 Job）。
     
@@ -112,6 +127,8 @@ class JobOut(BaseModel):
     draft_version: str | None = None  # 所用草稿版本号（演示文件命名依据）
     draft_content: str | None = None
     error: str | None = None
+    # 引擎主会话累计 token 消耗；None = 未记录（存量任务 / 不上报用量的引擎），界面显示「未记录」
+    token_usage: TokenUsage | None = None
     created_at: str | None = None
     updated_at: str | None = None
     progress: ProgressInfo | None = None  # 运行阶段进度信息（兼容旧版）

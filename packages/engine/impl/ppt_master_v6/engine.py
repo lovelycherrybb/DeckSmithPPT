@@ -43,6 +43,7 @@ from typing import Any
 from engine.core.config import get_jobs_root
 from engine.core.models import Job, JobId, JobStatus, EngineType
 from engine.core.protocol import PptEngine
+from engine.core.usage import add_usage, usage_from_result
 
 # 仓库根：packages/engine/impl/ppt_master_v6/engine.py
 # parents[0]=ppt_master_v6 [1]=impl [2]=engine [3]=packages [4]=仓库根
@@ -509,7 +510,7 @@ class PptMasterV6Engine(PptEngine):
                 text=True,
             )
             pump = threading.Thread(
-                target=self._pump_run_stream, args=(proc, run_log), daemon=True, name=f"runlog-{job_id[:8]}"
+                target=self._pump_run_stream, args=(job_id, proc, run_log), daemon=True, name=f"runlog-{job_id[:8]}"
             )
             pump.start()
             self._write_job(
@@ -520,13 +521,12 @@ class PptMasterV6Engine(PptEngine):
         
         return JobId(job_id)
 
-    @staticmethod
-    def _pump_run_stream(proc: subprocess.Popen, log_file) -> None:
+    def _pump_run_stream(self, job_id: Any, proc: subprocess.Popen, log_file) -> None:
         """把 claude stream-json 事件蒸馏成人类可读日志，即时写入 run.log。
 
         - text_delta 文本增量：原样续写（claude 的说明性输出，边生成边可见）
         - assistant 消息里的 tool_use：记一行「⚙ 工具名 关键参数」——能看到引擎在写哪个文件
-        - result：记完成/失败行
+        - result：记完成/失败行，并接住本任务的 token 消耗写进 job.json（见 ADR-016）
         - 非 JSON 行（stderr 噪音等）：原样落盘，不丢弃
         每次写入都 flush，前端轮询 get_progress 即可近实时展示。
         """
@@ -557,10 +557,26 @@ class PptMasterV6Engine(PptEngine):
                             log_file.write(f"\n⚙ {c.get('name')} {hint}\n")
                             log_file.flush()
                 elif t == "result":
+                    # 接住本任务的 token 消耗（ADR-016）：result.usage 是整段会话累计值，
+                    # 同一 job 出现多个 result（断点续跑/重跑）时按分项累加、不覆盖。
+                    # 用量只是附加信息，写不进 job.json 也不能把整条日志流打断。
+                    usage = usage_from_result(d)
+                    if usage is not None:
+                        try:
+                            self._write_job(
+                                job_id,
+                                token_usage=add_usage(
+                                    self._read_job(job_id).get("token_usage"), usage
+                                ),
+                            )
+                        except OSError:
+                            pass
                     if d.get("subtype") == "success":
                         log_file.write("\n✅ 引擎执行完成\n")
                     else:
                         log_file.write(f"\n❌ {d.get('result') or d.get('subtype') or '引擎执行失败'}\n")
+                    if usage is not None:
+                        log_file.write(f"📊 token 消耗 {usage['total_tokens']:,}\n")
                     log_file.flush()
         except Exception as exc:  # noqa: BLE001
             try:
@@ -635,6 +651,7 @@ class PptMasterV6Engine(PptEngine):
             created_at=data.get("created_at"),
             updated_at=data.get("updated_at"),
             content_style=data.get("content_style"),
+            token_usage=data.get("token_usage"),
         )
 
     def _tail_run_log(self, job_id: Any, max_chars: int = 200) -> str | None:

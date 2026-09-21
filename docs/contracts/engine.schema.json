@@ -324,6 +324,47 @@
       ],
       "description": "任务类型：draft=草稿引擎任务，output=输出引擎任务"
     },
+    "TokenUsage": {
+      "type": "object",
+      "description": "引擎任务上报的 LLM token 消耗（分项 + 派生总数）。口径见 ADR-016：只统计该任务的引擎主会话，同一任务 --resume 断点续跑产生的多个 result 事件按分项累加而非覆盖；后端辅助 agent（拟题、草稿改写/编辑）的消耗不计入。数据源为 claude CLI stream-json 的 result 事件 usage（整段会话累计值，非末轮快照）。分项逐项可空：第三方 Anthropic 兼容网关可能不回报 cache_* 字段。四项全缺时引擎应整体不填本对象（而非填 0），语义是「未记录」。",
+      "required": [
+        "total_tokens"
+      ],
+      "properties": {
+        "input_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "非缓存的新增输入 token；引擎/网关未回报时为 null"
+        },
+        "cache_creation_input_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "写入 prompt cache 的输入 token；未回报时为 null"
+        },
+        "cache_read_input_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "命中 prompt cache 读到的输入 token（多轮会话里量级远大于新增输入，须与 input_tokens 分列）；未回报时为 null"
+        },
+        "output_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "输出 token；未回报时为 null"
+        },
+        "total_tokens": {
+          "type": "integer",
+          "description": "派生总数 = input + cache_creation + cache_read + output（缺报项按 0 参与求和），与 claude CLI 自身对输入总量的算法一致。四项全缺时不产出本对象，避免出现假的 0。"
+        }
+      }
+    },
     "Job": {
       "type": "object",
       "description": "引擎任务。任务类型：草稿引擎任务（调用草稿生成引擎，将用户文件转化为 Markdown 草稿）和输出引擎任务（调用输出引擎，将草稿内容生成最终展示文件）。状态明细（status_detail）仅在 running 状态下有意义，内容随执行进度变化，前端通过轮询获取最新状态。",
@@ -392,6 +433,10 @@
         "error": {
           "type": "string",
           "description": "失败/超时原因（仅 failed/timeout 时有值）"
+        },
+        "token_usage": {
+          "$ref": "#/$defs/TokenUsage",
+          "description": "本任务引擎主会话累计的 LLM token 消耗。引擎未上报（含历史任务）时整体缺省或为 null，后端与界面显示「未记录」，禁止填 0 或估算值。"
         },
         "created_at": {
           "type": "string",

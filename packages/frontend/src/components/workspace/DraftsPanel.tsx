@@ -60,6 +60,7 @@ import MarkdownView from '@/components/ui/MarkdownView';
 import MdEditor from '@/components/ui/MdEditor';
 import { formatDate } from '@/lib/formatDate';
 import { paramLabel, paramValueLabel, paramDependency, BASE_DUP_PARAM_KEYS } from '@/lib/engineParams';
+import { tokenUsagePartRows, tokenUsageSummary, tokenUsageTotal } from '@/lib/tokenUsage';
 
 
 interface Props {
@@ -470,9 +471,15 @@ export default function DraftsPanel({
                           </Space>
                         }
                         description={
-                          failed
-                            ? `所属项目 ${pName} · ${job.error || job.status_detail || '生成失败，详见任务日志'}`
-                            : `所属项目 ${pName} · ${job.status_detail || '引擎执行中'}`
+                          failed ? (
+                            <>
+                              {`所属项目 ${pName} · ${job.error || job.status_detail || '生成失败，详见任务日志'}`}
+                              {/* 失败任务烧掉的 token 也是事实（终态才落库，生成中不显示） */}
+                              {` · ${tokenUsageSummary(job.token_usage)}`}
+                            </>
+                          ) : (
+                            `所属项目 ${pName} · ${job.status_detail || '引擎执行中'}`
+                          )
                         }
                       />
                     </List.Item>
@@ -482,6 +489,8 @@ export default function DraftsPanel({
                 (() => {
                   const row = item.row;
                   const pName = projectNameMap.get(row.draft.project_id) || row.draft.project_id.slice(0, 8);
+                  // token 消耗挂在「生成该草稿的任务」上（与任务编号同源）：手工保存的版本不额外烧钱
+                  const genJob = row.draft.task_id ? jobByTaskId.get(row.draft.task_id) : undefined;
                   return (
                     <List.Item
                       actions={[
@@ -527,6 +536,7 @@ export default function DraftsPanel({
                             <span>
                               版本号 <span style={{ fontFamily: 'monospace' }}>{row.version}</span>
                             </span>
+                            <span>{tokenUsageSummary(genJob?.token_usage)}</span>
                             <span>{formatDate(row.createdAt || row.draft.updated_at)}</span>
                           </Space>
                         }
@@ -562,14 +572,25 @@ export default function DraftsPanel({
       >
         {viewing && (
           <>
-            <Descriptions size="small" column={2} style={{ marginBottom: 16 }}>
-              <Descriptions.Item label="版本号">
-                <span style={{ fontFamily: 'monospace' }}>{viewing.version}</span>
-              </Descriptions.Item>
-              <Descriptions.Item label="任务编号">
-                <span style={{ fontFamily: 'monospace' }}>{viewing.draft.task_id?.slice(0, 8) || '-'}</span>
-              </Descriptions.Item>
-            </Descriptions>
+            {(() => {
+              const genJob = viewing.draft.task_id ? jobByTaskId.get(viewing.draft.task_id) : undefined;
+              return (
+                <Descriptions size="small" column={2} style={{ marginBottom: 16 }}>
+                  <Descriptions.Item label="版本号">
+                    <span style={{ fontFamily: 'monospace' }}>{viewing.version}</span>
+                  </Descriptions.Item>
+                  <Descriptions.Item label="任务编号">
+                    <span style={{ fontFamily: 'monospace' }}>{viewing.draft.task_id?.slice(0, 8) || '-'}</span>
+                  </Descriptions.Item>
+                  <Descriptions.Item label="token 消耗">{tokenUsageTotal(genJob?.token_usage)}</Descriptions.Item>
+                  {tokenUsagePartRows(genJob?.token_usage).map((p) => (
+                    <Descriptions.Item key={p.key} label={p.label}>
+                      {p.value}
+                    </Descriptions.Item>
+                  ))}
+                </Descriptions>
+              );
+            })()}
             <MarkdownView content={viewing.content} />
           </>
         )}

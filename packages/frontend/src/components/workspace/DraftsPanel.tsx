@@ -582,7 +582,7 @@ export default function DraftsPanel({
                   <Descriptions.Item label="任务编号">
                     <span style={{ fontFamily: 'monospace' }}>{viewing.draft.task_id?.slice(0, 8) || '-'}</span>
                   </Descriptions.Item>
-                  <Descriptions.Item label="token 消耗">{tokenUsageTotal(genJob?.token_usage)}</Descriptions.Item>
+                  <Descriptions.Item label="消耗">{tokenUsageTotal(genJob?.token_usage)}</Descriptions.Item>
                   {tokenUsagePartRows(genJob?.token_usage).map((p) => (
                     <Descriptions.Item key={p.key} label={p.label}>
                       {p.value}

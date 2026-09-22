@@ -241,7 +241,7 @@ export default function GenerationJobsPanel({
               <Descriptions.Item label="引擎">{drawer.engine || '-'}</Descriptions.Item>
               <Descriptions.Item label="创建时间">{formatDate(drawer.created_at)}</Descriptions.Item>
               {drawer.status !== 'running' && (
-                <Descriptions.Item label="token 消耗">
+                <Descriptions.Item label="消耗">
                   {tokenUsageTotal(drawer.token_usage)}
                 </Descriptions.Item>
               )}

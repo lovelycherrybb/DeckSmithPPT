@@ -231,6 +231,20 @@ def check_interface_alignment(openapi):
         '下载演示文件': '/api/presentations/{presentation_id}/download',
         '下载生成的 PPTX': '/api/jobs/{job_id}/download',
         '草稿安全检查': '/api/drafts/check',
+        # 用户系统（v0.8）
+        '登录': '/api/auth/login',
+        '登出': '/api/auth/logout',
+        '获取当前用户': '/api/auth/me',
+        '修改自己的密码': '/api/auth/password',
+        '获取用户列表': '/api/users',
+        '新增用户': '/api/users',
+        '修改用户信息': '/api/users/{user_id}',
+        '重置用户密码': '/api/users/{user_id}/reset-password',
+        '启用禁用用户': '/api/users/{user_id}/status',
+        '获取本人偏好': '/api/settings/preferences',
+        '保存本人偏好': '/api/settings/preferences',
+        '删除项目': '/api/projects/{project_id}',
+        '代为认领项目': '/api/projects/{project_id}/claim',
     }
     
     openapi_paths = set(openapi['paths'].keys())

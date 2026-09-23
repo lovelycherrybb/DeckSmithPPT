@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: DeckSmithPPT API
-  version: 0.7.0
+  version: 0.8.0
   description: '前后端契约（唯一来源）。后端实现本契约，前端从本文件生成类型。
 
     与 engine.schema.json 保持一致：通用层（DeckRequest/Job）。引擎参数层已移至 engine.schema.json 定义。
@@ -33,6 +33,305 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/VersionOut'
+
+  # ===== 身份与鉴权 =====
+  /api/auth/login:
+    post:
+      summary: 登录
+      description: '校验用户名+密码，成功建会话并 Set-Cookie（httpOnly）。
+        内联把当前访客 cookie 下的未认领项目并入该用户。禁用账号 → 403。
+        '
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResult'
+        '401':
+          description: 用户名或密码错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: 账号被禁用
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/auth/logout:
+    post:
+      summary: 登出
+      description: 服务端销毁会话、清除 Cookie
+      operationId: logout
+      security:
+      - sessionCookie: []
+      responses:
+        '204':
+          description: 已登出
+
+  /api/auth/me:
+    get:
+      summary: 当前身份（含未登录访客）
+      description: '恒 200，供前端渲染头像、决定菜单可见与角色门控。三态：已登录 / 未登录有访客身份 / 纯匿名。
+        '
+      operationId: getCurrentUser
+      security: []
+      responses:
+        '200':
+          description: 当前身份
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentUser'
+
+  /api/auth/password:
+    post:
+      summary: 修改自己的密码
+      description: 仅改本人；成功后当前会话不失效
+      operationId: changePassword
+      security:
+      - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '200':
+          description: 修改成功
+        '401':
+          description: 未登录
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ===== 用户管理（仅管理员）=====
+  /api/users:
+    get:
+      summary: 用户列表
+      description: 仅管理员；不含密码。
+      operationId: listUsers
+      security:
+      - sessionCookie: []
+      responses:
+        '200':
+          description: 用户列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+        '401':
+          description: 未登录
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: 非管理员
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      summary: 新增用户
+      description: 仅管理员。初始密码固定 234567。
+      operationId: createUser
+      security:
+      - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserCreate'
+      responses:
+        '201':
+          description: 新用户
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '403':
+          description: 非管理员
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: 用户名已存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/users/{user_id}:
+    patch:
+      summary: 修改用户信息
+      description: 仅管理员；用户名不可改（不在请求体）。
+      operationId: updateUser
+      security:
+      - sessionCookie: []
+      parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserUpdate'
+      responses:
+        '200':
+          description: 更新后的用户
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '403':
+          description: 非管理员
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: 用户不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/users/{user_id}/reset-password:
+    post:
+      summary: 重置用户密码为 234567
+      description: 仅管理员；不返回明文。
+      operationId: resetUserPassword
+      security:
+      - sessionCookie: []
+      parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 已重置
+        '403':
+          description: 非管理员
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: 用户不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/users/{user_id}/status:
+    patch:
+      summary: 启用/禁用用户
+      description: 仅管理员；禁用只挡登录、保留数据。管理员自身不可被禁用（→403）。
+      operationId: setUserStatus
+      security:
+      - sessionCookie: []
+      parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserStatusUpdate'
+      responses:
+        '200':
+          description: 更新后的用户
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '403':
+          description: 非管理员，或试图禁用管理员
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: 用户不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ===== 用户偏好（本人）=====
+  /api/settings/preferences:
+    get:
+      summary: 获取本人偏好
+      description: 需登录；无记录时返回系统默认。
+      operationId: getMyPreferences
+      security:
+      - sessionCookie: []
+      responses:
+        '200':
+          description: 本人偏好
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPreference'
+        '401':
+          description: 未登录
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    put:
+      summary: 保存本人偏好
+      description: 需登录；每人一份、跨设备带回。
+      operationId: saveMyPreferences
+      security:
+      - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserPreferenceUpdate'
+      responses:
+        '200':
+          description: 更新后的偏好
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPreference'
+        '401':
+          description: 未登录
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   # ===== 引擎相关 =====
   /api/engines:
@@ -355,6 +654,82 @@ paths:
                 $ref: '#/components/schemas/ProjectDetail'
         '404':
           description: 项目不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      summary: 删除项目（仅管理员，本期限未认领访客项目）
+      description: '系统此前无删除能力，本条为新增。本期仅放开管理员删除未认领的访客项目；
+        对已归属真实用户的项目返回 409（是否扩展到删任意项目待定）。
+        '
+      operationId: deleteProject
+      security:
+      - sessionCookie: []
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 已删除
+        '403':
+          description: 非管理员
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: 项目不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: 该项目已归属真实用户，本期不允许删除
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ===== 管理员代为认领未认领访客项目 =====
+  /api/projects/{project_id}/claim:
+    post:
+      summary: 代为认领（仅管理员）
+      description: '把一个未认领的访客项目重新归属到指定真实用户（应对试用者换设备登录、无法自助认领）。
+        '
+      operationId: claimProject
+      security:
+      - sessionCookie: []
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClaimProjectRequest'
+      responses:
+        '200':
+          description: 归属已变更的项目
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '403':
+          description: 非管理员
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: 项目或目标用户不存在
           content:
             application/json:
               schema:
@@ -936,6 +1311,12 @@ paths:
                 $ref: '#/components/schemas/SecurityCheckResult'
 
 components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: ds_session
+      description: '服务端会话 Cookie（httpOnly）。角色门控（管理员）由后端强制，OpenAPI 不编码角色，仅在端点 description 标注「仅管理员」。'
   schemas:
     # ===== 版本 =====
     VersionOut:
@@ -1243,6 +1624,14 @@ components:
           type: string
           format: date-time
           description: 最后更新时间（ISO 8601）
+        owner_user_id:
+          type: string
+          nullable: true
+          description: 归属用户标识；null = 尚未被认领的访客项目（登录/代为认领后写入真实用户）
+        owner_label:
+          type: string
+          description: '归属展示名（服务端算好，供管理员视图的「归属用户」列直接渲染）：
+            真实用户为其昵称/用户名，未认领访客项目为「未认领（访客）」。普通/高级用户视图不依赖此列。'
         draft_count:
           type: integer
           description: 项目下的草稿数量（列表接口附带统计）
@@ -1704,3 +2093,176 @@ components:
         data:
           type: string
           description: 事件数据（text 为输出片段，status 为状态描述，error 为错误信息，done 为完成信号）
+
+    # ===== 用户与鉴权相关 =====
+    UserRole:
+      type: string
+      description: 用户角色（单一三值枚举，互斥）
+      enum:
+      - manager
+      - vip
+      - normal
+    UserStatus:
+      type: string
+      description: 账号状态；禁用只挡登录、保留数据与项目
+      enum:
+      - enabled
+      - disabled
+    User:
+      type: object
+      description: 用户（权限与数据归属主体）。密码永不出现在任何响应。
+      required:
+      - user_id
+      - username
+      - role
+      - status
+      - created_at
+      - updated_at
+      properties:
+        user_id:
+          type: string
+          description: 用户标识（内部主键，非登录凭据）
+        username:
+          type: string
+          description: 用户名（登录凭据，唯一，创建后不可改）
+        nickname:
+          type: string
+          description: 昵称（展示用，可改；默认同用户名）
+        phone:
+          type: string
+          nullable: true
+          description: 手机号（非必填）
+        role:
+          $ref: '#/components/schemas/UserRole'
+        status:
+          $ref: '#/components/schemas/UserStatus'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    LoginRequest:
+      type: object
+      required:
+      - username
+      - password
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+          description: 明文密码仅在此入参出现，服务端即时哈希校验、不存储明文
+    LoginResult:
+      type: object
+      description: 登录成功；Set-Cookie 下发会话，并内联完成访客项目认领
+      required:
+      - user
+      - claimed_project_count
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        claimed_project_count:
+          type: integer
+          description: 本次登录把多少访客未认领项目并入该用户（无则 0）
+    CurrentUser:
+      type: object
+      description: '当前身份三态：已登录 / 未登录但有访客身份 / 纯匿名。/api/auth/me 恒 200。
+        已登录看 authenticated+user；未登录试用看 visitor_id。'
+      required:
+      - authenticated
+      properties:
+        authenticated:
+          type: boolean
+        user:
+          $ref: '#/components/schemas/User'
+          description: 已登录时为对象；未登录时缺省（不存在）
+        visitor_id:
+          type: string
+          nullable: true
+          description: 未登录试用时的访客标识（cookie 承载）；无访客身份时为 null
+    ChangePasswordRequest:
+      type: object
+      required:
+      - old_password
+      - new_password
+      properties:
+        old_password:
+          type: string
+        new_password:
+          type: string
+    UserCreate:
+      type: object
+      description: 管理员新增用户；初始密码固定 234567，不在此传
+      required:
+      - username
+      properties:
+        username:
+          type: string
+          description: 必填、唯一
+        nickname:
+          type: string
+          description: 选填，缺省同用户名
+        phone:
+          type: string
+          nullable: true
+        is_vip:
+          type: boolean
+          default: false
+          description: true→角色 vip，false→normal
+    UserUpdate:
+      type: object
+      description: 管理员改用户信息；用户名不可改（不在字段内）
+      properties:
+        nickname:
+          type: string
+        phone:
+          type: string
+          nullable: true
+        is_vip:
+          type: boolean
+          description: 在 normal↔vip 间切换；不影响 manager
+    UserStatusUpdate:
+      type: object
+      required:
+      - status
+      properties:
+        status:
+          $ref: '#/components/schemas/UserStatus'
+    ClaimProjectRequest:
+      type: object
+      description: 管理员代为认领——把未认领访客项目归到指定真实用户
+      required:
+      - target_user_id
+      properties:
+        target_user_id:
+          type: string
+    UserPreference:
+      type: object
+      description: 每用户一份的使用偏好；仅作初始值，不绕过角色门控
+      properties:
+        default_engine:
+          type: string
+          nullable: true
+          description: 默认输出引擎（须为引擎注册表真实名）
+        default_pages:
+          type: integer
+          nullable: true
+        auto_save:
+          type: boolean
+          default: true
+        updated_at:
+          type: string
+          format: date-time
+    UserPreferenceUpdate:
+      type: object
+      description: 保存偏好（部分字段可缺省，缺省不改）
+      properties:
+        default_engine:
+          type: string
+          nullable: true
+        default_pages:
+          type: integer
+          nullable: true
+        auto_save:
+          type: boolean

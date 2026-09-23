@@ -2,21 +2,32 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Tabs } from 'antd';
+import { Avatar, Dropdown, Tabs } from 'antd';
 import AppVersion from '@/components/AppVersion';
 import { 
   History as HistoryIcon, 
   Settings as SettingsIcon,
+  Users as UsersIcon,
   Sparkles,
   Sun,
-  Moon
+  Moon,
+  LogOut,
+  KeyRound,
 } from 'lucide-react';
 
 import { useTheme } from '@/components/ThemeProvider';
+import { useAuth } from '@/components/AuthProvider';
+import { ChangePasswordModal, LoginModal } from '@/components/AuthModals';
+
+// 未登录需跳登录才能进的标签（工作台对访客开放）
+const AUTH_REQUIRED_TABS = new Set(['history', 'settings', 'users']);
 
 export default function StudioLayout({ children, activeTab = 'workspace', onTabChange }) {
   const [currentTab, setCurrentTab] = useState(activeTab);
   const { theme, toggleTheme } = useTheme();
+  const { authenticated, user, isAdmin, doLogout } = useAuth();
+  const [loginOpen, setLoginOpen] = useState(false);
+  const [pwdOpen, setPwdOpen] = useState(false);
 
   // 父级 activeTab 变化时（如 ?tab= 深链、历史「去编辑」切回工作台）同步高亮
   useEffect(() => {
@@ -24,6 +35,11 @@ export default function StudioLayout({ children, activeTab = 'workspace', onTabC
   }, [activeTab]);
 
   const handleTabChange = (key) => {
+    // 菜单守卫：未登录点受保护标签 → 弹登录，不切换
+    if (AUTH_REQUIRED_TABS.has(key) && !authenticated) {
+      setLoginOpen(true);
+      return;
+    }
     setCurrentTab(key);
     if (onTabChange) onTabChange(key);
   };
@@ -56,6 +72,20 @@ export default function StudioLayout({ children, activeTab = 'workspace', onTabC
         </span>
       ),
     },
+    // 用户管理：仅管理员可见（后端接口也强制 require_admin）
+    ...(isAdmin
+      ? [
+          {
+            key: 'users',
+            label: (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <UsersIcon size={15} />
+                用户管理
+              </span>
+            ),
+          },
+        ]
+      : []),
   ];
 
   return (
@@ -110,6 +140,41 @@ export default function StudioLayout({ children, activeTab = 'workspace', onTabC
 
         {/* 右侧：操作区 */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {/* 身份：已登录→头像下拉；未登录→登录按钮 */}
+          {authenticated && user ? (
+            <Dropdown
+              menu={{
+                items: [
+                  { key: 'pwd', icon: <KeyRound size={14} />, label: '修改密码', onClick: () => setPwdOpen(true) },
+                  { type: 'divider' },
+                  { key: 'logout', icon: <LogOut size={14} />, label: '退出登录', onClick: () => doLogout() },
+                ],
+              }}
+              trigger={['click']}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                <Avatar size={28} style={{ background: 'var(--primary)', fontSize: 13 }}>
+                  {(user.nickname || user.username).slice(0, 1).toUpperCase()}
+                </Avatar>
+                <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>{user.nickname || user.username}</span>
+              </div>
+            </Dropdown>
+          ) : (
+            <button
+              onClick={() => setLoginOpen(true)}
+              style={{
+                padding: '6px 14px',
+                background: 'var(--primary)',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 6,
+                fontSize: 13,
+                cursor: 'pointer',
+              }}
+            >
+              登录
+            </button>
+          )}
           {/* 主题切换按钮 */}
           <button
             className="theme-toggle"
@@ -149,6 +214,9 @@ export default function StudioLayout({ children, activeTab = 'workspace', onTabC
       <main style={{ padding: '24px 32px' }}>
         {children}
       </main>
+
+      <LoginModal open={loginOpen} onClose={() => setLoginOpen(false)} />
+      <ChangePasswordModal open={pwdOpen} onClose={() => setPwdOpen(false)} />
     </div>
   );
 }

@@ -58,6 +58,7 @@ import {
 import { StatusTag } from '@/components/ui/StatusTag';
 import MarkdownView from '@/components/ui/MarkdownView';
 import MdEditor from '@/components/ui/MdEditor';
+import { useAuth } from '@/components/AuthProvider';
 import { formatDate } from '@/lib/formatDate';
 import { paramLabel, paramValueLabel, paramDependency, BASE_DUP_PARAM_KEYS } from '@/lib/engineParams';
 import { tokenUsagePartRows, tokenUsageSummary, tokenUsageTotal } from '@/lib/tokenUsage';
@@ -120,6 +121,9 @@ export default function DraftsPanel({
   onGenerate,
 }: Props) {
   const [messageApi, contextHolder] = message.useMessage();
+  // 引擎参数门控：仅高级用户/管理员可编辑；普通用户与访客只读禁用（后端仍独立复核）
+  const { user } = useAuth();
+  const canEditParams = user?.role === 'vip' || user?.role === 'manager';
 
   // ── 编辑抽屉 ──
   const [editing, setEditing] = useState<{ draft: Draft; version: string } | null>(null);
@@ -767,6 +771,14 @@ export default function DraftsPanel({
               <Divider orientation="left" plain>
                 引擎参数
               </Divider>
+              {!canEditParams && (
+                <Alert
+                  type="info"
+                  showIcon
+                  style={{ marginBottom: 12 }}
+                  message="普通用户按引擎默认参数生成；升级为高级用户可在此调整参数。"
+                />
+              )}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 {genParamEntries.map(([key, value]) => {
                   const label = paramLabel(key, value.description);
@@ -778,6 +790,7 @@ export default function DraftsPanel({
                     >
                       {value.enum?.length ? (
                         <Select
+                          disabled={!canEditParams}
                           options={value.enum.map((v) => ({
                             value: v,
                             label: paramValueLabel(key, v, value.description),
@@ -786,6 +799,7 @@ export default function DraftsPanel({
                         />
                       ) : value.type === 'boolean' ? (
                         <Select
+                          disabled={!canEditParams}
                           options={[
                             { value: true, label: '开启' },
                             { value: false, label: '关闭' },
@@ -793,9 +807,9 @@ export default function DraftsPanel({
                           placeholder={`选择${label}`}
                         />
                       ) : value.type === 'integer' ? (
-                        <InputNumber min={1} style={{ width: '100%' }} placeholder={`输入${label}`} />
+                        <InputNumber disabled={!canEditParams} min={1} style={{ width: '100%' }} placeholder={`输入${label}`} />
                       ) : (
-                        <Input placeholder={`输入${label}`} />
+                        <Input disabled={!canEditParams} placeholder={`输入${label}`} />
                       )}
                     </Form.Item>
                   );

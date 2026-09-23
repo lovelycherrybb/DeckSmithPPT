@@ -23,6 +23,11 @@ export type PageItem = components['schemas']['PageItem'];
 export type JobPages = components['schemas']['JobPages'];
 export type TokenUsage = components['schemas']['TokenUsage'];
 export type VersionInfo = components['schemas']['VersionOut'];
+export type User = components['schemas']['User'];
+export type UserRole = components['schemas']['UserRole'];
+export type CurrentUser = components['schemas']['CurrentUser'];
+export type LoginResult = components['schemas']['LoginResult'];
+export type UserPreference = components['schemas']['UserPreference'];
 
 /** 后端 JobOut 的超集字段（进度信息，运行中任务附带） */
 export interface ProgressInfo {
@@ -77,6 +82,75 @@ export function listEngines(type?: 'draft' | 'output'): Promise<EngineInfo[]> {
 /** 当前安装包版本；开发态后端返回 version:null（调用方据此不显示）。 */
 export function getAppVersion(): Promise<VersionInfo> {
   return requestJson('/api/version');
+}
+
+// ── 身份与鉴权（v0.8）──
+/** 当前身份三态：已登录 / 未登录有访客身份 / 纯匿名。恒 200。 */
+export function getMe(): Promise<CurrentUser> {
+  return requestJson('/api/auth/me');
+}
+
+export function login(username: string, password: string): Promise<LoginResult> {
+  return requestJson('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ username, password }),
+  });
+}
+
+export function logout(): Promise<void> {
+  return requestJson('/api/auth/logout', { method: 'POST' });
+}
+
+export function changePassword(oldPassword: string, newPassword: string): Promise<void> {
+  return requestJson('/api/auth/password', {
+    method: 'POST',
+    body: JSON.stringify({ old_password: oldPassword, new_password: newPassword }),
+  });
+}
+
+// ── 用户管理（仅管理员）──
+export function listUsers(): Promise<User[]> {
+  return requestJson('/api/users');
+}
+
+export function createUser(body: {
+  username: string;
+  nickname?: string;
+  phone?: string;
+  is_vip?: boolean;
+}): Promise<User> {
+  return requestJson('/api/users', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function updateUser(
+  userId: string,
+  body: { nickname?: string; phone?: string; is_vip?: boolean }
+): Promise<User> {
+  return requestJson(`/api/users/${userId}`, { method: 'PATCH', body: JSON.stringify(body) });
+}
+
+export function resetUserPassword(userId: string): Promise<void> {
+  return requestJson(`/api/users/${userId}/reset-password`, { method: 'POST' });
+}
+
+export function setUserStatus(userId: string, status: 'enabled' | 'disabled'): Promise<User> {
+  return requestJson(`/api/users/${userId}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
+  });
+}
+
+// ── 用户偏好（本人）──
+export function getMyPreferences(): Promise<UserPreference> {
+  return requestJson('/api/settings/preferences');
+}
+
+export function saveMyPreferences(body: {
+  default_engine?: string | null;
+  default_pages?: number | null;
+  auto_save?: boolean;
+}): Promise<UserPreference> {
+  return requestJson('/api/settings/preferences', { method: 'PUT', body: JSON.stringify(body) });
 }
 
 // ── 上传 ──

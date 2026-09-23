@@ -21,6 +21,80 @@ class VersionOut(BaseModel):
     version: str | None = None
 
 
+# ── 用户与鉴权（v0.8，对齐 openapi.yaml 同名 schema） ──
+
+class UserOut(BaseModel):
+    """用户出参。绝不含 password_hash。"""
+    user_id: str
+    username: str
+    nickname: str
+    phone: str | None = None
+    role: str  # manager | vip | normal
+    status: str  # enabled | disabled
+    created_at: str
+    updated_at: str
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class LoginResult(BaseModel):
+    """登录成功：Set-Cookie 下发会话；claimed_project_count 为内联并入的访客项目数。"""
+    user: UserOut
+    claimed_project_count: int = 0
+
+
+class CurrentUserOut(BaseModel):
+    """/api/auth/me 三态：已登录（user 非空）/ 未登录有访客身份（visitor_id 非空）/ 纯匿名。"""
+    authenticated: bool
+    user: UserOut | None = None
+    visitor_id: str | None = None
+
+
+class ChangePasswordRequest(BaseModel):
+    old_password: str
+    new_password: str
+
+
+class ClaimProjectRequest(BaseModel):
+    """管理员代为认领：把项目归属到指定真实用户。"""
+    target_user_id: str
+
+
+class UserCreate(BaseModel):
+    """管理员新增用户；初始密码固定 234567，不在此传。"""
+    username: str
+    nickname: str | None = None
+    phone: str | None = None
+    is_vip: bool = False
+
+
+class UserUpdate(BaseModel):
+    """管理员改用户信息；用户名不可改（不在此字段）。"""
+    nickname: str | None = None
+    phone: str | None = None
+    is_vip: bool | None = None
+
+
+class UserStatusUpdate(BaseModel):
+    status: str  # enabled | disabled
+
+
+class UserPreferenceOut(BaseModel):
+    default_engine: str | None = None
+    default_pages: int | None = None
+    auto_save: bool = True
+    updated_at: str | None = None
+
+
+class UserPreferenceUpdate(BaseModel):
+    default_engine: str | None = None
+    default_pages: int | None = None
+    auto_save: bool | None = None
+
+
 class DeckRequest(BaseModel):
     """提交生成请求（对齐 openapi.yaml 的 DeckRequest）。
     
@@ -228,6 +302,9 @@ class ProjectOut(BaseModel):
     current_draft_version: str | None = None  # 与 contracts 对齐
     created_at: str
     updated_at: str
+    # 归属（v0.8）：owner_user_id=NULL 表示未认领访客项目；owner_label 出参现算，供管理员列显示
+    owner_user_id: str | None = None
+    owner_label: str | None = None
     # 列表页统计（由 /api/projects 附带）
     draft_count: int = 0
     presentation_count: int = 0

@@ -8,13 +8,23 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .api.routes import router
 from .api.agent import router as agent_router
-from .core.db import init_db
+from .api.auth import router as auth_router
+from .api.users import router as users_router
+from .api.settings import router as settings_router
+from .core.bootstrap import seed_default_admin
+from .core.db import SessionLocal, init_db
 from .engines.runtime import report as report_runtime_readiness
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()  # 启动时建表
+    # 内置管理员播种（幂等，已存在不重置密码）。用户系统 v0.8。
+    _db = SessionLocal()
+    try:
+        seed_default_admin(_db)
+    finally:
+        _db.close()
     # 引擎运行前置条件预检（ADR-012 决策 2）。复用 runtime 里那一份日志实现，
     # 不在这里再拼一套文案（否则两处口径会漂）。**故意忽略返回码**：
     # 开发环境缺 claude 时也应能打开界面与历史记录；需要"缺前置即拦停"的是容器，
@@ -43,3 +53,6 @@ app.add_middleware(
 )
 app.include_router(router)
 app.include_router(agent_router)
+app.include_router(auth_router)
+app.include_router(users_router)
+app.include_router(settings_router)

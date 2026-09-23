@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from ..models import Project, Job, Draft, DraftVersion, Presentation
 from ..core.db import SessionLocal
@@ -46,6 +46,10 @@ class ProjectRepo:
             "current_draft_version": obj.current_draft_version,  # 与 contracts 对齐
             "created_at": obj.created_at,
             "updated_at": obj.updated_at,
+            # 归属主体（v0.8）：owner_user_id=NULL 且 visitor_id 有值 = 未认领访客项目。
+            # owner_label 不入库，由 core/ownership.attach_owner_label 出参时现算。
+            "owner_user_id": obj.owner_user_id,
+            "visitor_id": obj.visitor_id,
         }
 
     def create(self, db, **fields) -> dict:
@@ -59,9 +63,16 @@ class ProjectRepo:
         obj = db.execute(select(Project).where(Project.project_id == project_id)).scalar_one_or_none()
         return self._row_to_dict(obj) if obj else None
 
-    def list(self, db, limit: int = 20, offset: int = 0) -> list[dict]:
-        query = select(Project).order_by(Project.created_at.desc(), Project.id.desc()).limit(limit).offset(offset)
-        rows = db.execute(query).scalars().all()
+    def list(self, db, limit: int = 20, offset: int = 0, *,
+             owner_user_id: str | None = None, visitor_only: str | None = None) -> list[dict]:
+        query = select(Project).order_by(Project.created_at.desc(), Project.id.desc())
+        # 归属过滤（v0.8）：owner_user_id 精确匹配；visitor_only 只看该访客未认领的项目。
+        # 二者都不传 = 不加过滤（管理员或无鉴权上下文的旧调用）。
+        if owner_user_id is not None:
+            query = query.where(Project.owner_user_id == owner_user_id)
+        if visitor_only is not None:
+            query = query.where(Project.owner_user_id.is_(None), Project.visitor_id == visitor_only)
+        rows = db.execute(query.limit(limit).offset(offset)).scalars().all()
         return [self._row_to_dict(obj) for obj in rows]
 
     def update(self, db, project_id: str, **fields) -> dict | None:
@@ -97,6 +108,58 @@ class ProjectRepo:
             }
             for pid in project_ids
         }
+
+    def claim_visitor_projects(self, db, visitor_id: str | None, user_id: str) -> int:
+        """把该访客名下、尚未被认领的项目并入真实用户；返回并入数量。
+
+        只动 owner_user_id IS NULL 且 visitor_id 命中的行；已归属真实用户的不碰。
+        """
+        if not visitor_id:
+            return 0
+        rows = db.execute(
+            select(Project).where(Project.visitor_id == visitor_id, Project.owner_user_id.is_(None))
+        ).scalars().all()
+        now = _now()
+        for p in rows:
+            p.owner_user_id = user_id
+            p.updated_at = now
+        db.commit()
+        return len(rows)
+
+    def delete(self, db, project_id: str) -> str:
+        """删除项目。本期只允许删未认领（owner_user_id IS NULL）的访客项目。
+
+        返回 'deleted' / 'owned'（已归属真实用户，拒删→上层转 409）/ 'not_found'。
+        级联删关联的 job/draft/draft_version/presentation 行，避免孤儿；
+        磁盘产物（outputs/jobs 下）不删——文件保护，且重跑/审计可能还要用。
+        """
+        obj = db.execute(select(Project).where(Project.project_id == project_id)).scalar_one_or_none()
+        if obj is None:
+            return "not_found"
+        if obj.owner_user_id is not None:
+            return "owned"
+        draft_ids = list(db.execute(
+            select(Draft.draft_id).where(Draft.project_id == project_id)
+        ).scalars().all())
+        if draft_ids:
+            db.execute(delete(DraftVersion).where(DraftVersion.draft_id.in_(draft_ids)))
+        db.execute(delete(Draft).where(Draft.project_id == project_id))
+        db.execute(delete(Job).where(Job.project_id == project_id))
+        db.execute(delete(Presentation).where(Presentation.project_id == project_id))
+        db.delete(obj)
+        db.commit()
+        return "deleted"
+
+    def set_owner(self, db, project_id: str, user_id: str) -> dict | None:
+        """管理员代为认领：把项目归属改为指定用户。项目不存在返回 None。"""
+        obj = db.execute(select(Project).where(Project.project_id == project_id)).scalar_one_or_none()
+        if obj is None:
+            return None
+        obj.owner_user_id = user_id
+        obj.updated_at = _now()
+        db.commit()
+        db.refresh(obj)
+        return self._row_to_dict(obj)
 
 
 class JobRepo:
@@ -147,10 +210,14 @@ class JobRepo:
         return self._row_to_dict(obj) if obj else None
 
     def list(self, db, project_id: str | None = None, status: str | None = None, 
-             task_type: str | None = None, limit: int = 20, offset: int = 0) -> list[dict]:
+             task_type: str | None = None, limit: int = 20, offset: int = 0,
+             project_ids: list[str] | None = None) -> list[dict]:
         query = select(Job)
         if project_id:
             query = query.where(Job.project_id == project_id)
+        # 归属过滤（v0.8）：跨项目列表时把可见项目 id 集传进来；None=不受限，[]=看不到
+        if project_ids is not None:
+            query = query.where(Job.project_id.in_(project_ids))
         if status:
             query = query.where(Job.status == status)
         if task_type:

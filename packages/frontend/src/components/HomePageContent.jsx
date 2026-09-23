@@ -1,8 +1,10 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useTheme } from '@/components/ThemeProvider';
+import { useAuth } from '@/components/AuthProvider';
+import { LoginModal } from '@/components/AuthModals';
 import AppVersion from '@/components/AppVersion';
 
 export default function HomePageContent() {
@@ -10,6 +12,8 @@ export default function HomePageContent() {
   const glowRef = useRef(null);
   const dsRef = useRef(null);
   const { theme, toggleTheme } = useTheme();
+  const { authenticated, user } = useAuth();
+  const [loginOpen, setLoginOpen] = useState(false);
 
   useEffect(() => {
     const page = pageRef.current;
@@ -160,7 +164,31 @@ export default function HomePageContent() {
             开始使用
           </button>
         </Link>
+        {/* 登录入口：未登录显示「登录」，已登录显示欢迎（试用无需登录，点开始使用即进工作台） */}
+        <div style={{ marginTop: 20 }}>
+          {authenticated && user ? (
+            <span style={{ fontSize: 14, color: isDark ? '#9ca3af' : '#475569' }}>
+              已登录 · {user.nickname || user.username}
+            </span>
+          ) : (
+            <button
+              onClick={() => setLoginOpen(true)}
+              style={{
+                padding: '10px 28px',
+                background: 'transparent',
+                color: isDark ? '#e5e7eb' : '#0f172a',
+                border: `1px solid ${isDark ? '#333' : '#cbd5e1'}`,
+                borderRadius: 8,
+                fontSize: 14,
+                cursor: 'pointer',
+              }}
+            >
+              登录
+            </button>
+          )}
+        </div>
       </div>
+      <LoginModal open={loginOpen} onClose={() => setLoginOpen(false)} />
     </div>
   );
 }

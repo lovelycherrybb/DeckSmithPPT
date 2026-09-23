@@ -50,6 +50,10 @@ _MIGRATIONS = {
         "project_name": "ALTER TABLE projects ADD COLUMN project_name VARCHAR(255)",
         "current_draft_id": "ALTER TABLE projects ADD COLUMN current_draft_id VARCHAR(64)",
         "current_draft_version": "ALTER TABLE projects ADD COLUMN current_draft_version VARCHAR(32)",
+        # 用户系统 v0.8：归属主体。owner_user_id=NULL 且 visitor_id 有值 = 未认领访客项目。
+        # 可空列，按本文件规矩不升 SCHEMA_VERSION；新表 users/user_sessions/user_settings 由 create_all 建。
+        "owner_user_id": "ALTER TABLE projects ADD COLUMN owner_user_id VARCHAR(64)",
+        "visitor_id": "ALTER TABLE projects ADD COLUMN visitor_id VARCHAR(64)",
     },
     "drafts": {
         "draft_path": "ALTER TABLE drafts ADD COLUMN draft_path VARCHAR(512)",

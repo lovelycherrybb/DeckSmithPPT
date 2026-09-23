@@ -60,21 +60,15 @@ class ClaudeDraftEngine(PptMasterEngine):
         job_dir = self._job_dir(job_id)
         job_dir.mkdir(parents=True, exist_ok=True)
 
-        # 1. 素材提取（同步、秒级）：source_to_md / text，与父类同一套提取逻辑
-        material, material_title = self._extract_material(content, title or "", sources)
-
-        effective_title = title or material_title or "Untitled"
         effective_pages = pages or 10
-
-        # 2. 构建理解生成 prompt，写 prompt.md 留痕
-        prompt = self._build_claude_draft_prompt(material, effective_title, effective_pages)
-        (job_dir / "prompt.md").write_text(prompt, encoding="utf-8")
-
+        # 异步提交：立即落 running 返回 job_id。素材提取（source_to_md，秒级同步阻塞）
+        # 与 Claude 生成都挪进后台线程，前端提交后直接看到「生成中」而非转圈等 POST。
         self._write_job(
             job_id,
             status="running",
             kind="claude_draft",
-            title=effective_title,
+            engine_type="draft",
+            title=title or "",
             pages=int(effective_pages),
             engine_params=engine_params or {},
             created_at=_now(),
@@ -84,15 +78,28 @@ class ClaudeDraftEngine(PptMasterEngine):
             result_path=None,
             error=None,
         )
-
-        # 3. 后台线程调 Claude（生成需 1-3 分钟，不阻塞 HTTP）
         threading.Thread(
-            target=self._run_claude_draft,
-            args=(job_id, prompt),
+            target=self._run_draft_pipeline,
+            args=(job_id, content, title, pages, sources),
             daemon=True,
+            name=f"claudedraft-{str(job_id)[:8]}",
         ).start()
 
         return JobId(job_id)
+
+    def _run_draft_pipeline(self, job_id, content, title, pages, sources) -> None:
+        """后台线程：提取素材 → 建 prompt → 调 Claude 生成草稿（终态由 _run_claude_draft 落）。"""
+        try:
+            material, material_title = self._extract_material(content, title or "", sources)
+            effective_title = title or material_title or "Untitled"
+            prompt = self._build_claude_draft_prompt(material, effective_title, pages or 10)
+            (self._job_dir(job_id) / "prompt.md").write_text(prompt, encoding="utf-8")
+            # 素材里提取到的标题回填（submit 时还没提取，先占位）
+            self._write_job(job_id, title=effective_title, updated_at=_now())
+        except Exception as exc:  # noqa: BLE001
+            self._write_job(job_id, status="failed", error=f"草稿素材准备失败：{exc}", updated_at=_now())
+            return
+        self._run_claude_draft(job_id, prompt)
 
     # ── 内部 ──
 

@@ -20,6 +20,7 @@ from fastapi import BackgroundTasks, HTTPException
 from sqlalchemy.orm import Session
 
 from ..core.db import SessionLocal, JOBS_ROOT
+from ..core import ownership
 from ..repository.jobs import ProjectRepo, JobRepo, DraftRepo, DraftVersionRepo, PresentationRepo
 from ..core.schemas import DeckRequest, JobOut, ProgressInfo, PageItem, JobPages
 from ..engines.registry import implements_hook
@@ -105,11 +106,18 @@ class JobService:
                     return first[:50]
         return "Untitled"
 
-    def _ensure_project(self, db: Session, project_id: str | None, default_name: str) -> str:
-        """确保项目存在，如果不存在则自动创建。返回 project_id。"""
+    def _ensure_project(self, db: Session, project_id: str | None, default_name: str,
+                        identity=None) -> str:
+        """确保项目存在并归属正确。返回 project_id。
+
+        传入已存在但当前身份无权访问的 project_id → 404（不泄露存在性）。
+        新建项目按 identity 打归属戳：已登录→owner，未登录试用→visitor。
+        """
         if project_id:
             project = self.project_repo.get(db, project_id)
             if project:
+                if not ownership.can_access(project, identity):
+                    raise HTTPException(status_code=404, detail="项目不存在")
                 return project_id
             now = _now()
             self.project_repo.create(
@@ -118,6 +126,7 @@ class JobService:
                 project_name=default_name,
                 created_at=now,
                 updated_at=now,
+                **ownership.create_stamp(identity),
             )
             return project_id
 
@@ -129,11 +138,13 @@ class JobService:
             project_name=default_name,
             created_at=now,
             updated_at=now,
+            **ownership.create_stamp(identity),
         )
         return new_project_id
 
     # ── submit：提交任务（草稿引擎任务或输出引擎任务）──
-    def submit(self, db: Session, req: DeckRequest, background_tasks: BackgroundTasks) -> JobOut:
+    def submit(self, db: Session, req: DeckRequest, background_tasks: BackgroundTasks,
+               identity=None) -> JobOut:
         # 校验版本号格式（与契约 pattern 一致）
         if req.version and not _VERSION_RE.match(req.version):
             raise HTTPException(status_code=400, detail="version 必须是 14 位数字（年月日时分秒）")
@@ -169,9 +180,13 @@ class JobService:
         job_id = uuid.uuid4().hex
         sources = [s.model_dump() for s in req.sources] if req.sources else []
         engine_params = dict(req.engine_params or {})
+        # 引擎参数角色门控（后端独立复核，前端禁用只是体验）：普通用户/访客忽略自定义参数，
+        # 一律走引擎默认值。identity 为 None（内部调用/旧单测）不门控。
+        if not ownership.can_edit_engine_params(identity):
+            engine_params = {}
 
         # 确保项目存在
-        project_id = self._ensure_project(db, req.project_id, self._default_project_name(req))
+        project_id = self._ensure_project(db, req.project_id, self._default_project_name(req), identity)
 
         # 按请求选择引擎（引擎可插拔：选什么跑什么，不再静默降级到全局单例）
         try:
@@ -232,8 +247,10 @@ class JobService:
         engine.submit(**kwargs)
 
     def list(self, db: Session, project_id: str | None = None, status: str | None = None,
-             task_type: str | None = None, limit: int = 20, offset: int = 0) -> list[JobOut]:
-        rows = self.repo.list(db, project_id=project_id, status=status, task_type=task_type, limit=limit, offset=offset)
+             task_type: str | None = None, limit: int = 20, offset: int = 0,
+             project_ids: list[str] | None = None) -> list[JobOut]:
+        rows = self.repo.list(db, project_id=project_id, status=status, task_type=task_type,
+                              limit=limit, offset=offset, project_ids=project_ids)
         jobs = [JobOut(**row) for row in rows]
         # 为 running 状态的任务附加进度（引擎按各自任务的 engine 名选择；无效引擎名容错跳过）
         return [self._enrich_with_progress(job, self._get_engine_safe(job.engine)) for job in jobs]

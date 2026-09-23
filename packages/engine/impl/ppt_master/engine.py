@@ -421,66 +421,90 @@ class PptMasterEngine(PptEngine):
         job_dir = self._job_dir(job_id)
         job_dir.mkdir(parents=True, exist_ok=True)
 
-        # 构建草稿（sources 优先走 source_to_md，title 缺失时自动提取）
-        draft, effective_title = self._build_draft(
-            content, title or "", pages or 10, sources, engine_params,
-        )
-        (job_dir / "draft.md").write_text(draft, encoding="utf-8")
-
         effective_pages = pages or 10
         style = (engine_params or {}).get("style", "swiss-minimal")
-        
+
         if engine_type == "draft":
-            # 草稿引擎任务：同步完成
+            # 草稿引擎任务：异步提交。立即落 running 并返回 job_id，
+            # source_to_md 提取（对多文件/大文件是秒级同步阻塞）挪进后台线程，
+            # 前端提交后直接看到「生成中」而不是转圈等 POST 返回。
             self._write_job(
-                job_id, status="completed", title=effective_title, pages=int(effective_pages),
+                job_id, status="running", engine_type="draft", title=title or "", pages=int(effective_pages),
                 style=style, engine_params=engine_params or {}, created_at=_now(), updated_at=_now(),
                 pid=None, result_path=None, error=None,
             )
-        else:
-            # 输出引擎任务：启动 claude 子进程生成 PPT
-            content_style = (engine_params or {}).get("content_style", "marketing_promo")
-            prompt = self._build_prompt(effective_title, style, int(effective_pages), draft)
-            prompt += f"\n- 内容风格：{content_style}\n"
-            # ADR-012 决策 1：cwd 改为任务目录后，claude 不再位于技能仓库内，
-            # 原先「cwd 落在 lib/ppt-master → 自动读到该目录 AGENTS.md」这条技能发现
-            # 链路就此断开。故把运行锚点显式写进 prompt（与 guizang 引擎同构）：
-            # 技能绝对路径 + 只写 cwd 下的 projects/。
-            prompt += self._runtime_anchor(job_dir)
-            (job_dir / "prompt.md").write_text(prompt, encoding="utf-8")
+            threading.Thread(
+                target=self._run_draft_extract,
+                args=(job_id, content, title, pages, sources, engine_params),
+                daemon=True, name=f"draft-{str(job_id)[:8]}",
+            ).start()
+            return JobId(job_id)
 
-            # 运行前置条件走 prepare_runtime 钩子（与 guizang 同形状）：硬缺失直接抛出，
-            # 让任务在拉起子进程之前就失败——宁可红一条记录，也不要 spawn 一个会
-            # "静默做成无流程 PPT" 的子进程；可降级告警写进 run.log 留痕。
-            runtime_notice = self.prepare_runtime(job_dir)
-            run_log = open(job_dir / "run.log", "w", encoding="utf-8")
-            if runtime_notice:
-                run_log.write(f"[warn] {runtime_notice}\n")
-                run_log.flush()
-            proc = subprocess.Popen(
-                # stream-json：claude -p 默认把输出憋到最后一次写完，运行中日志为空；
-                # 流式事件由 _pump_run_stream 边跑边蒸馏写 run.log，前端轮询即可看到实时日志
-                [
-                    self.claude_bin, "-p", "--dangerously-skip-permissions",
-                    "--output-format", "stream-json", "--include-partial-messages", "--verbose",
-                    prompt,
-                ],
-                cwd=str(job_dir),  # ADR-012 决策 1：产物落 <jobs_root>/<job_id>/projects/
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-            )
-            pump = threading.Thread(
-                target=self._pump_run_stream, args=(job_id, proc, run_log), daemon=True, name=f"runlog-{job_id[:8]}"
-            )
-            pump.start()
-            self._write_job(
-                job_id, status="running", title=effective_title, pages=int(effective_pages),
-                style=style, engine_params=engine_params or {}, created_at=_now(), updated_at=_now(),
-                pid=proc.pid, started_at=time.time(), result_path=None, error=None,
-            )
-        
+        # 输出引擎任务：draft 由已确认的草稿内容直接构建（无 source_to_md 阻塞），启动 claude 生成 PPT
+        draft, effective_title = self._build_draft(
+            content, title or "", effective_pages, sources, engine_params,
+        )
+        (job_dir / "draft.md").write_text(draft, encoding="utf-8")
+
+        # 运行前置条件走 prepare_runtime 钩子（与 guizang 同形状）：硬缺失直接抛出，
+        # 让任务在拉起子进程之前就失败——宁可红一条记录，也不要 spawn 一个会
+        # "静默做成无流程 PPT" 的子进程；可降级告警写进 run.log 留痕。
+        content_style = (engine_params or {}).get("content_style", "marketing_promo")
+        prompt = self._build_prompt(effective_title, style, int(effective_pages), draft)
+        prompt += f"\n- 内容风格：{content_style}\n"
+        # ADR-012 决策 1：cwd 改为任务目录后，claude 不再位于技能仓库内，
+        # 原先「cwd 落在 lib/ppt-master → 自动读到该目录 AGENTS.md」这条技能发现
+        # 链路就此断开。故把运行锚点显式写进 prompt（与 guizang 引擎同构）：
+        # 技能绝对路径 + 只写 cwd 下的 projects/。
+        prompt += self._runtime_anchor(job_dir)
+        (job_dir / "prompt.md").write_text(prompt, encoding="utf-8")
+
+        runtime_notice = self.prepare_runtime(job_dir)
+        run_log = open(job_dir / "run.log", "w", encoding="utf-8")
+        if runtime_notice:
+            run_log.write(f"[warn] {runtime_notice}\n")
+            run_log.flush()
+        proc = subprocess.Popen(
+            # stream-json：claude -p 默认把输出憋到最后一次写完，运行中日志为空；
+            # 流式事件由 _pump_run_stream 边跑边蒸馏写 run.log，前端轮询即可看到实时日志
+            [
+                self.claude_bin, "-p", "--dangerously-skip-permissions",
+                "--output-format", "stream-json", "--include-partial-messages", "--verbose",
+                prompt,
+            ],
+            cwd=str(job_dir),  # ADR-012 决策 1：产物落 <jobs_root>/<job_id>/projects/
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        pump = threading.Thread(
+            target=self._pump_run_stream, args=(job_id, proc, run_log), daemon=True, name=f"runlog-{job_id[:8]}"
+        )
+        pump.start()
+        self._write_job(
+            job_id, status="running", title=effective_title, pages=int(effective_pages),
+            style=style, engine_params=engine_params or {}, created_at=_now(), updated_at=_now(),
+            pid=proc.pid, started_at=time.time(), result_path=None, error=None,
+        )
+
         return JobId(job_id)
+
+    def _run_draft_extract(self, job_id: Any, content, title, pages, sources, engine_params) -> None:
+        """后台线程：source_to_md 提取素材 → 写 draft.md → 置 completed（失败置 failed）。
+
+        从 submit 里挪出来，避免多文件/大文件的转换把 HTTP 请求阻塞成「转圈圈」。
+        """
+        try:
+            draft, effective_title = self._build_draft(
+                content, title or "", pages or 10, sources, engine_params,
+            )
+            (self._job_dir(job_id) / "draft.md").write_text(draft, encoding="utf-8")
+            self._write_job(
+                job_id, status="completed", title=effective_title or (title or ""),
+                updated_at=_now(), error=None,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self._write_job(job_id, status="failed", error=f"草稿提取失败：{exc}", updated_at=_now())
 
     def _pump_run_stream(self, job_id: Any, proc: subprocess.Popen, log_file) -> None:
         """把 claude stream-json 事件蒸馏成人类可读日志，即时写入 run.log。
@@ -556,6 +580,10 @@ class PptMasterEngine(PptEngine):
         status = data.get("status", "running")
         if status != "running":
             return JobStatus(status)
+        # 草稿任务（异步提交）无 claude 子进程，终态由后台提取线程置 completed/failed；
+        # 不能走下面的「进程不在→找产物→判失败」租约逻辑，否则刚提交就会被误判失败。
+        if data.get("engine_type") == "draft":
+            return JobStatus.RUNNING
         # running：先看进程是否还活着
         if self._process_alive(data.get("pid")):
             return JobStatus.RUNNING

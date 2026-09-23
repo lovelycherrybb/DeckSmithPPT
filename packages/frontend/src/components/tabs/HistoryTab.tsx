@@ -41,6 +41,7 @@ import GenerationJobsPanel from '@/components/workspace/GenerationJobsPanel';
 import PresentationsPanel from '@/components/workspace/PresentationsPanel';
 import { collectPreviewableTaskIds } from '@/components/features/job/PagePreviewGrid';
 import { formatDate } from '@/lib/formatDate';
+import { useAuth } from '@/components/AuthProvider';
 
 interface Props {
   /** 「操作」：携带项目 ID 跳转工作台进入编辑模式 */
@@ -49,6 +50,7 @@ interface Props {
 
 export default function HistoryTab({ onOpenInWorkspace }: Props) {
   const [messageApi, contextHolder] = message.useMessage();
+  const { isAdmin } = useAuth();
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [viewProjectId, setViewProjectId] = useState<string | null>(null);
@@ -130,6 +132,18 @@ export default function HistoryTab({ onOpenInWorkspace }: Props) {
       ),
     },
     { title: '项目名称', dataIndex: 'project_name', ellipsis: true },
+    // 归属用户列：仅管理员视角出现（普通/高级用户列表里全是自己的项目，无需此列）
+    ...(isAdmin
+      ? [
+          {
+            title: '归属用户',
+            dataIndex: 'owner_label',
+            width: 120,
+            render: (v: string | undefined) =>
+              v ? <span style={{ fontSize: 12 }}>{v}</span> : <span style={{ color: 'var(--text-muted)' }}>—</span>,
+          },
+        ]
+      : []),
     { title: '草稿数量', dataIndex: 'draft_count', width: 90, align: 'center' as const },
     { title: '演示文件数量', dataIndex: 'presentation_count', width: 110, align: 'center' as const },
     {

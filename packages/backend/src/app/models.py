@@ -24,6 +24,12 @@ class Project(Base):
     current_draft_version: Mapped[str | None] = mapped_column(String(32), nullable=True)  # 与 contracts 对齐
     created_at: Mapped[str] = mapped_column(String(32))
     updated_at: Mapped[str] = mapped_column(String(32))
+    # 归属主体（用户系统 v0.8）：owner_user_id 指向真实用户；未登录试用先挂 visitor_id、
+    # owner_user_id 留 NULL（= 未认领），登录或管理员代为认领后写入 owner_user_id。
+    # 迁移走 _MIGRATIONS 补列（可空，不升 SCHEMA_VERSION）。
+    owner_user_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("users.user_id"), nullable=True, index=True)
+    visitor_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
 
     # 关系
     jobs: Mapped[list["Job"]] = relationship("Job", back_populates="project", lazy="dynamic")
@@ -141,6 +147,51 @@ class Presentation(Base):
 
     # 关系
     project: Mapped["Project"] = relationship("Project", back_populates="presentations")
+
+
+class User(Base):
+    """用户表：权限判定与数据归属的主体（用户系统 v0.8）。
+
+    角色三值枚举 manager/vip/normal；状态 enabled/disabled（禁用只挡登录、保留数据）。
+    密码仅存哈希（见 core/passwords.py），任何响应不得回显。
+    内置唯一管理员账号 manager 由 bootstrap 播种，不可被增删改接口触碰。
+    """
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    username: Mapped[str] = mapped_column(String(64), unique=True, index=True)  # 登录凭据，创建后不可改
+    nickname: Mapped[str] = mapped_column(String(255), default="")  # 展示名，缺省同 username
+    phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    role: Mapped[str] = mapped_column(String(16), default="normal", index=True)  # manager|vip|normal
+    status: Mapped[str] = mapped_column(String(16), default="enabled")  # enabled|disabled
+    password_hash: Mapped[str] = mapped_column(String(255))
+    created_at: Mapped[str] = mapped_column(String(32))
+    updated_at: Mapped[str] = mapped_column(String(32))
+
+
+class UserSession(Base):
+    """登录会话表：session_id（httpOnly Cookie 承载）→ 用户，服务端可即时失效。
+
+    访客身份不建表——访客令牌直接记在 projects.visitor_id 上，登录后按该令牌并入。
+    """
+    __tablename__ = "user_sessions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    user_id: Mapped[str] = mapped_column(String(64), ForeignKey("users.user_id"), index=True)
+    created_at: Mapped[str] = mapped_column(String(32))
+    expires_at: Mapped[str] = mapped_column(String(32), index=True)
+
+
+class UserSetting(Base):
+    """用户偏好表：与用户 1 对 1，存 JSON 单列（对齐 token_usage 的单列取舍，加字段不改表）。"""
+    __tablename__ = "user_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String(64), ForeignKey("users.user_id"), unique=True, index=True)
+    prefs: Mapped[str] = mapped_column(Text, default="{}")  # {default_engine, default_pages, auto_save}
+    updated_at: Mapped[str] = mapped_column(String(32))
 
 
 def make_engine(database_url: str):

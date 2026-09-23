@@ -1,6 +1,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
+import { AuthProvider } from '@/components/AuthProvider';
 
 // 使用 dynamic import 禁用 SSR，避免 Ant Design 的 hydration 问题
 const HomePageContent = dynamic(() => import('../components/HomePageContent'), {
@@ -22,5 +23,9 @@ const HomePageContent = dynamic(() => import('../components/HomePageContent'), {
 });
 
 export default function Page() {
-  return <HomePageContent />;
+  return (
+    <AuthProvider>
+      <HomePageContent />
+    </AuthProvider>
+  );
 }

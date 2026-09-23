@@ -75,6 +75,22 @@ export function ChangePasswordModal({ open, onClose }: { open: boolean; onClose:
         <Form.Item name="new_password" label="新密码" rules={[{ required: true, min: 6, message: '新密码至少 6 位' }]}>
           <Input.Password autoComplete="new-password" />
         </Form.Item>
+        <Form.Item
+          name="confirm_password"
+          label="确认新密码"
+          dependencies={['new_password']}
+          rules={[
+            { required: true, message: '请再输入一遍新密码' },
+            ({ getFieldValue }) => ({
+              validator(_, value) {
+                if (!value || getFieldValue('new_password') === value) return Promise.resolve();
+                return Promise.reject(new Error('两次输入的新密码不一致'));
+              },
+            }),
+          ]}
+        >
+          <Input.Password autoComplete="new-password" />
+        </Form.Item>
       </Form>
     </Modal>
   );

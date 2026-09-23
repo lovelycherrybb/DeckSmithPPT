@@ -55,46 +55,92 @@ export default function HomePageContent() {
         transition: 'background 300ms ease',
       }}
     >
-      {/* 主题切换按钮 */}
-      <button
-        onClick={toggleTheme}
+      {/* 右上角：账户 + 深浅切换（一组配套控件，等高 44、圆角 12） */}
+      <div
         style={{
           position: 'fixed',
           top: 24,
           right: 24,
-          width: 44,
-          height: 44,
-          borderRadius: 12,
-          border: `1px solid ${isDark ? '#1f1f1f' : '#e2e8f0'}`,
-          background: isDark ? '#111111' : '#ffffff',
-          color: isDark ? '#9ca3af' : '#475569',
-          cursor: 'pointer',
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'center',
-          transition: 'all 200ms ease',
+          gap: 12,
           zIndex: 100,
         }}
-        title={isDark ? '切换到浅色主题' : '切换到深色主题'}
       >
-        {isDark ? (
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <circle cx="12" cy="12" r="5"/>
-            <line x1="12" y1="1" x2="12" y2="3"/>
-            <line x1="12" y1="21" x2="12" y2="23"/>
-            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
-            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
-            <line x1="1" y1="12" x2="3" y2="12"/>
-            <line x1="21" y1="12" x2="23" y2="12"/>
-            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
-            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-          </svg>
+        {authenticated && user ? (
+          <Link
+            href="/studio"
+            style={{
+              height: 44,
+              display: 'flex',
+              alignItems: 'center',
+              padding: '0 18px',
+              borderRadius: 12,
+              border: `1px solid ${isDark ? '#1f1f1f' : '#e2e8f0'}`,
+              background: isDark ? '#111111' : '#ffffff',
+              color: isDark ? '#e5e7eb' : '#0f172a',
+              fontSize: 14,
+              textDecoration: 'none',
+              transition: 'all 200ms ease',
+            }}
+            title="进入工作台"
+          >
+            已登录 · {user.nickname || user.username}
+          </Link>
         ) : (
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-          </svg>
+          <button
+            onClick={() => setLoginOpen(true)}
+            style={{
+              height: 44,
+              padding: '0 18px',
+              borderRadius: 12,
+              border: `1px solid ${isDark ? '#1f1f1f' : '#e2e8f0'}`,
+              background: isDark ? '#111111' : '#ffffff',
+              color: isDark ? '#e5e7eb' : '#0f172a',
+              fontSize: 14,
+              cursor: 'pointer',
+              transition: 'all 200ms ease',
+            }}
+          >
+            登录
+          </button>
         )}
-      </button>
+        <button
+          onClick={toggleTheme}
+          style={{
+            width: 44,
+            height: 44,
+            borderRadius: 12,
+            border: `1px solid ${isDark ? '#1f1f1f' : '#e2e8f0'}`,
+            background: isDark ? '#111111' : '#ffffff',
+            color: isDark ? '#9ca3af' : '#475569',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            transition: 'all 200ms ease',
+          }}
+          title={isDark ? '切换到浅色主题' : '切换到深色主题'}
+        >
+          {isDark ? (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="5"/>
+              <line x1="12" y1="1" x2="12" y2="3"/>
+              <line x1="12" y1="21" x2="12" y2="23"/>
+              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+              <line x1="1" y1="12" x2="3" y2="12"/>
+              <line x1="21" y1="12" x2="23" y2="12"/>
+              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+            </svg>
+          ) : (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+            </svg>
+          )}
+        </button>
+      </div>
 
       <div
         ref={glowRef}
@@ -145,6 +191,7 @@ export default function HomePageContent() {
             background: '#8b5cf6', 
             color: '#fff', 
             border: 'none', 
+            borderRadius: 12,
             fontSize: 16, 
             fontWeight: 600, 
             cursor: 'pointer',
@@ -164,29 +211,6 @@ export default function HomePageContent() {
             开始使用
           </button>
         </Link>
-        {/* 登录入口：未登录显示「登录」，已登录显示欢迎（试用无需登录，点开始使用即进工作台） */}
-        <div style={{ marginTop: 20 }}>
-          {authenticated && user ? (
-            <span style={{ fontSize: 14, color: isDark ? '#9ca3af' : '#475569' }}>
-              已登录 · {user.nickname || user.username}
-            </span>
-          ) : (
-            <button
-              onClick={() => setLoginOpen(true)}
-              style={{
-                padding: '10px 28px',
-                background: 'transparent',
-                color: isDark ? '#e5e7eb' : '#0f172a',
-                border: `1px solid ${isDark ? '#333' : '#cbd5e1'}`,
-                borderRadius: 8,
-                fontSize: 14,
-                cursor: 'pointer',
-              }}
-            >
-              登录
-            </button>
-          )}
-        </div>
       </div>
       <LoginModal open={loginOpen} onClose={() => setLoginOpen(false)} />
     </div>

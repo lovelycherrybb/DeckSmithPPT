@@ -42,6 +42,7 @@ import {
   ApiError,
   getDraft,
   getDraftVersion,
+  getMyPreferences,
   modifyDraft,
   modifyDraftStream,
   restoreDraftVersion,
@@ -54,6 +55,7 @@ import {
   type EngineInfo,
   type JobWithProgress,
   type Project,
+  type UserPreference,
 } from '@/lib/api';
 import { StatusTag } from '@/components/ui/StatusTag';
 import MarkdownView from '@/components/ui/MarkdownView';
@@ -147,6 +149,11 @@ export default function DraftsPanel({
 
   // ── 去生成弹窗（指定版本） ──
   const [generateTarget, setGenerateTarget] = useState<{ draft: Draft; version: string; label: string } | null>(null);
+  // 本人偏好：作为生成弹窗的初始值（默认引擎/页数）。未登录/访客取不到则回落默认。
+  const [prefs, setPrefs] = useState<UserPreference | null>(null);
+  useEffect(() => {
+    getMyPreferences().then(setPrefs).catch(() => setPrefs(null));
+  }, []);
   const [genForm] = Form.useForm();
   const [genSubmitting, setGenSubmitting] = useState(false);
 
@@ -378,16 +385,21 @@ export default function DraftsPanel({
     }
   };
 
-  // 生成弹窗打开时写入默认值
+  // 生成弹窗打开时写入初始值：优先用本人偏好（默认引擎/页数），未设则回落
+  // 引擎取列表首个、页数留空由引擎决定（与设置页占位文案语义一致）
   useEffect(() => {
     if (generateTarget) {
+      const prefEngine =
+        prefs?.default_engine && outputEngines.some((e) => e.name === prefs.default_engine)
+          ? prefs.default_engine
+          : outputEngines[0]?.name;
       genForm.setFieldsValue({
-        engine: outputEngines[0]?.name,
-        pages: 5,
+        engine: prefEngine,
+        pages: prefs?.default_pages ?? undefined,
         title: undefined,
       });
     }
-  }, [generateTarget, outputEngines, genForm]);
+  }, [generateTarget, outputEngines, genForm, prefs]);
 
   // 引擎参数（动态 schema 渲染）
   const selectedGenEngine = Form.useWatch('engine', genForm) || outputEngines[0]?.name || '';
@@ -776,7 +788,7 @@ export default function DraftsPanel({
                   type="info"
                   showIcon
                   style={{ marginBottom: 12 }}
-                  message="普通用户按引擎默认参数生成；升级为高级用户可在此调整参数。"
+                  message="当前账号按引擎默认参数生成；如需自定义参数，请联系管理员开通。"
                 />
               )}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -834,7 +846,7 @@ export default function DraftsPanel({
         <Alert
           type="info"
           showIcon
-          message="生成需要几分钟到十几分钟不等（页数越多越久），可稍后在「生成任务」查看进度。"
+          message="生成需要一些时间，页数越多通常越久；可稍后在「生成任务」查看进度。"
         />
       </Modal>
     </div>

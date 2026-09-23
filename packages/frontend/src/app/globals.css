@@ -303,7 +303,11 @@ textarea.ant-input {
   border-color: var(--primary) !important;
   box-shadow: 0 0 0 3px var(--primary-bg) !important;
 }
-.ant-input::placeholder, .ant-select-selection-placeholder { color: var(--text-muted) !important; }
+/* InputNumber 内层输入框类名是 .ant-input-number-input（非 .ant-input），
+   必须单独列出，否则它的占位色回落到 antd 默认浅灰，与 Select/普通 Input 不一致 */
+.ant-input::placeholder,
+.ant-input-number-input::placeholder,
+.ant-select-selection-placeholder { color: var(--text-muted) !important; }
 .ant-input-number-handler-wrap { background: var(--bg-hover) !important; border-color: var(--border) !important; }
 .ant-input-number-handler { border-color: var(--border) !important; color: var(--text-muted) !important; }
 

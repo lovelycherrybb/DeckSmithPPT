@@ -19,11 +19,11 @@ import { useTheme } from '@/components/ThemeProvider';
 import { useAuth } from '@/components/AuthProvider';
 import { ChangePasswordModal, LoginModal } from '@/components/AuthModals';
 
-// 未登录需跳登录才能进的标签（工作台对访客开放）
-const AUTH_REQUIRED_TABS = new Set(['history', 'settings', 'users']);
-
 // 角色中文名（下拉组头展示，让用户自证权限身份）
 const ROLE_LABEL = { manager: '管理员', vip: '高级用户', normal: '普通用户' };
+
+// 未登录进入这些标签会展示缺省页（自带「立即登录」CTA）；此时隐藏右上角登录，避免同屏两个登录按钮
+const GUEST_GATE_TABS = new Set(['history', 'settings']);
 
 export default function StudioLayout({ children, activeTab = 'workspace', onTabChange }) {
   const [currentTab, setCurrentTab] = useState(activeTab);
@@ -38,11 +38,7 @@ export default function StudioLayout({ children, activeTab = 'workspace', onTabC
   }, [activeTab]);
 
   const handleTabChange = (key) => {
-    // 菜单守卫：未登录点受保护标签 → 弹登录，不切换
-    if (AUTH_REQUIRED_TABS.has(key) && !authenticated) {
-      setLoginOpen(true);
-      return;
-    }
+    // 未登录点受保护标签不再弹登录框拦截：直接切换，由页面渲染缺省页引导登录
     setCurrentTab(key);
     if (onTabChange) onTabChange(key);
   };
@@ -182,7 +178,7 @@ export default function StudioLayout({ children, activeTab = 'workspace', onTabC
                 <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>{user.nickname || user.username}</span>
               </div>
             </Dropdown>
-          ) : (
+          ) : GUEST_GATE_TABS.has(currentTab) ? null : (
             <button
               onClick={() => setLoginOpen(true)}
               style={{

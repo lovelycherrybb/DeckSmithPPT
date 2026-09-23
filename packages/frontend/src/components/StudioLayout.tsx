@@ -95,9 +95,9 @@ export default function StudioLayout({ children, activeTab = 'workspace', onTabC
           background: 'var(--bg-card)',
           borderBottom: '1px solid var(--border)',
           padding: '0 32px',
-          display: 'flex',
+          display: 'grid',
+          gridTemplateColumns: '1fr auto 1fr',
           alignItems: 'center',
-          justifyContent: 'space-between',
           height: 56,
           position: 'sticky',
           top: 0,
@@ -106,7 +106,7 @@ export default function StudioLayout({ children, activeTab = 'workspace', onTabC
         }}
       >
         {/* 左侧：Logo */}
-        <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 12, textDecoration: 'none' }}>
+        <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 12, textDecoration: 'none', justifySelf: 'start' }}>
           <div
             style={{
               width: 32,
@@ -138,7 +138,7 @@ export default function StudioLayout({ children, activeTab = 'workspace', onTabC
         />
 
         {/* 右侧：操作区（深浅切换 + 账户；回首页交给左上角 Logo，不再放重复入口） */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, justifySelf: 'end' }}>
           {/* 主题切换按钮 */}
           <button
             className="theme-toggle"

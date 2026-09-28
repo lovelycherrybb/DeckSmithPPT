@@ -2,7 +2,7 @@ name: CI Contract
 
 on:
   push:
-    paths: ["docs/contracts/**", "scripts/check-drift.sh", ".github/workflows/ci-contract.yml"]
+    paths: ["docs/contracts/**", "scripts/check-drift.sh", "scripts/check-alignment.py", ".github/workflows/ci-contract.yml"]
   pull_request:
     paths: ["docs/contracts/**"]
 
@@ -18,8 +18,13 @@ jobs:
       - name: 检查契约漂移
         run: bash scripts/check-drift.sh
       - name: 安装测试依赖
-        # 契约测试经 registry/stub 连带 import pptx（python-pptx），其余全是标准库，
-        # 故只装这两个包，不拖 backend/engine 的完整运行时依赖树。
-        run: pip install pytest python-pptx==1.0.2
+        # 契约测试经 registry/stub 连带 import pptx（python-pptx），其余全是标准库；
+        # 但 check-alignment.py 要解析 YAML 契约，故额外装 pyyaml —— 它是第三方包，
+        # 不在这句话原先"其余全是标准库"的范围内，注释与安装清单必须同步。
+        run: pip install pytest python-pptx==1.0.2 pyyaml
+      - name: 检查 vc_design 与 contracts 对齐
+        # 状态层校验口径是「引擎态 ⊆ 任务态」（分层枚举，见 ADR-018），
+        # 同时比对对象层/必填字段/pattern/接口清单。改契约若漏同步任一处，这里当场红。
+        run: python scripts/check-alignment.py
       - name: 运行契约测试
         run: python -m pytest tests/contract/ -q

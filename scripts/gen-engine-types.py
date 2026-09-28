@@ -80,7 +80,10 @@ def main() -> None:
         out.append("")
 
     # 枚举导出（字面量联合，前端状态映射用）
-    for enum_name in ("JobStatus", "EngineType", "TaskType"):
+    # 注意 JobStatus 已改名 EngineJobStatus 并与 openapi 的 JobStatus 分层
+    # （queued / cancelled 属编排层，引擎不产出，见 ADR-018）；两个名字都留着导出，
+    # 契约里缺哪个就跳过哪个，避免生成器与契约改名互相绑死。
+    for enum_name in ("EngineJobStatus", "JobStatus", "EngineType", "TaskType"):
         if enum_name in defs:
             values = defs[enum_name].get("enum", [])
             union = " | ".join(f'"{v}"' for v in values)

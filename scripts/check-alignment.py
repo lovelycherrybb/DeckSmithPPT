@@ -75,15 +75,21 @@ def check_state_alignment(openapi, schema):
     
     issues = []
     
-    # 检查 JobStatus
+    # 检查任务状态（分层枚举，见 ADR-018）：
+    # 引擎协议的 EngineJobStatus 必须是面向用户的 openapi JobStatus 的**子集**，
+    # 而不是相等 —— queued / cancelled 属编排层，引擎自身永远不产出它们。
     openapi_status = set(openapi['components']['schemas']['JobStatus']['enum'])
-    schema_status = set(schema['$defs']['JobStatus']['enum'])
-    
-    if openapi_status == schema_status:
-        print(f"✓ JobStatus: {sorted(openapi_status)}")
+    engine_status = set(schema['$defs']['EngineJobStatus']['enum'])
+    orphan_engine_states = engine_status - openapi_status
+
+    if orphan_engine_states:
+        issues.append(
+            f"❌ 状态集合不满足「引擎态 ⊆ 任务态」: 引擎有而契约没有 {sorted(orphan_engine_states)}"
+        )
+        print(f"❌ 引擎有而契约没有: {sorted(orphan_engine_states)}")
     else:
-        issues.append(f"❌ JobStatus 不一致: openapi={sorted(openapi_status)}, schema={sorted(schema_status)}")
-        print(f"❌ JobStatus 不一致: openapi={sorted(openapi_status)}, schema={sorted(schema_status)}")
+        print(f"✓ EngineJobStatus ⊆ JobStatus（引擎态 {sorted(engine_status)}）")
+        print(f"  仅编排层、引擎不产出的状态: {sorted(openapi_status - engine_status)}")
     
     # 检查 EngineType
     openapi_engine_type = set(openapi['components']['schemas']['EngineInfo']['properties']['engine_type']['enum'])
@@ -221,6 +227,7 @@ def check_interface_alignment(openapi):
         '获取项目下的任务列表': '/api/jobs',
         '获取任务详情': '/api/jobs/{job_id}',
         '重试任务': '/api/jobs/{job_id}/retry',
+        '撤销任务': '/api/jobs/{job_id}/cancel',
         '获取项目下的草稿列表': '/api/projects/{project_id}/drafts',
         '获取草稿详情': '/api/drafts/{draft_id}',
         '获取草稿指定版本': '/api/drafts/{draft_id}/versions/{version}',

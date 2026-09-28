@@ -306,9 +306,9 @@
         }
       }
     },
-    "JobStatus": {
+    "EngineJobStatus": {
       "type": "string",
-      "description": "任务状态（与 vc_design 一致：只有4种状态）",
+      "description": "引擎侧任务状态（引擎协议 PptEngine.status() 的唯一值域）。与面向用户/前端的 openapi JobStatus **分层**：queued（等待调度认领）与 cancelled（被撤销）属编排层概念，引擎自身永远不产出这两个值，故不在本枚举内。引擎只报告自己进程的真相：running（子进程在跑）、completed（产出有效产物）、failed（进程出错或无产物）、timeout（超过最大执行时间被终止）。openapi JobStatus 必须包含本枚举的全部值（引擎态 ⊆ 任务态），由 scripts/check-alignment.py 校验。",
       "enum": [
         "running",
         "timeout",
@@ -387,7 +387,7 @@
           "description": "任务类型：draft=草稿引擎任务，output=输出引擎任务"
         },
         "status": {
-          "$ref": "#/$defs/JobStatus"
+          "$ref": "#/$defs/EngineJobStatus"
         },
         "status_detail": {
           "type": "string",

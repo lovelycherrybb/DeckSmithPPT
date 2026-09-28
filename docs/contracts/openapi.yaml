@@ -6,7 +6,9 @@ info:
 
     与 engine.schema.json 保持一致：通用层（DeckRequest/Job）。引擎参数层已移至 engine.schema.json 定义。
 
-    生成流程：草稿引擎任务和输出引擎任务各自独立提交，提交即运行。草稿引擎任务：running → completed（生成草稿）。输出引擎任务：running → completed/failed/timeout。
+    生成流程：草稿引擎任务和输出引擎任务各自独立提交，提交即入队（queued），由调度侧认领后转 running。
+    草稿引擎任务：queued → running → completed（生成草稿）。输出引擎任务：queued → running → completed/failed/timeout。
+    未进入终态的任务可撤销（queued/running → cancelled），详见 components.schemas.JobStatus 的状态机说明。
 
     与 vc_design 保持一致：接口定义来自 docs/vc_design/interfaces/01-系统接口-SystemAPI.md。
 
@@ -750,8 +752,10 @@ paths:
         - 项目名称默认为上传文件名（去除扩展名）
 
         任务状态流转：
-        - 草稿引擎任务：running → completed（生成草稿）
-        - 输出引擎任务：running → completed/failed/timeout
+        - 草稿引擎任务：queued → running → completed（生成草稿）
+        - 输出引擎任务：queued → running → completed/failed/timeout
+        - 本接口返回的任务处于 queued（已受理、引擎进程尚未拉起），
+          调度侧认领并把引擎子进程 fork 成功后才转 running；见 components.schemas.JobStatus
 
         '
       operationId: submitDeck
@@ -797,12 +801,7 @@ paths:
         in: query
         required: false
         schema:
-          type: string
-          enum:
-          - running
-          - timeout
-          - failed
-          - completed
+          $ref: '#/components/schemas/JobStatus'
       - name: task_type
         in: query
         required: false
@@ -839,7 +838,7 @@ paths:
       summary: 获取任务详情
       description: '返回任务信息，包含当前状态和状态明细。
 
-        状态明细（status_detail）仅在 running 状态下有意义，内容随执行进度变化。
+        状态明细（status_detail）仅在非终态（queued / running）下有意义，内容随执行进度变化。
 
         前端通过轮询获取最新状态。
 
@@ -867,12 +866,13 @@ paths:
 
   /api/jobs/{job_id}/retry:
     post:
-      summary: 重试失败的任务（创建新任务）
-      description: '任务失败或超时后，创建一个新任务重新执行。
+      summary: 重试未成功结束的任务（创建新任务）
+      description: '任务未成功结束后，创建一个新任务重新执行。
 
-        仅 failed 或 timeout 状态的任务可重试。
+        可重试的状态 = 未成功的终态：failed / timeout / cancelled。
+        completed（已成功）与 queued / running（未结束）一律拒绝。
 
-        原任务状态不变（保持终态），新任务有独立的 job_id。
+        原任务状态不变（保持终态），新任务有独立的 job_id，并从 queued 开始排队。
 
         '
       operationId: retryJob
@@ -896,7 +896,53 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '409':
-          description: 任务状态不允许重试（非 failed/timeout）
+          description: 任务状态不允许重试（仅 failed/timeout/cancelled 可重试）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/jobs/{job_id}/cancel:
+    post:
+      summary: 撤销任务（排队中或运行中）
+      description: '撤销一个尚未进入终态的任务，状态 → cancelled。
+
+        两种非终态的撤销语义不同：
+
+        - queued：调度侧尚未认领、引擎子进程还没拉起，直接从队列摘掉；
+
+        - running：请求引擎终止其子进程。**是否支持取决于引擎能力位**——
+          EngineInfo.capabilities 含 cancel 的引擎才会真正中断，
+          不含的引擎对 running 任务返回 409，**绝不静默返回"已撤销"而让子进程继续跑**。
+
+        终态不可逆：已 completed / failed / timeout / cancelled 的任务返回 409。
+
+        撤销只改变任务状态，不删除磁盘上已写出的中间产物或成品（文件保护口径，
+        重跑与审计可能还要用）；已撤销任务已消耗的 token 仍如实保留（ADR-016 口径）。
+
+        '
+      operationId: cancelJob
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '202':
+          description: 撤销已受理，返回置为 cancelled 的任务
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '404':
+          description: 任务不存在（或不属于当前身份）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: 任务已是终态，或该引擎不支持中断运行中的任务
           content:
             application/json:
               schema:
@@ -1358,7 +1404,7 @@ components:
           additionalProperties: true
         capabilities:
           type: array
-          description: '引擎能力位声明，前端据此决定可用交互，与具体引擎名解耦。已知值：page_preview=支持逐页产物预览（由引擎实现逐页枚举钩子自动派生）；页可以是独立文件（如逐页 SVG），也可以是同一份单文件 HTML 里的第 N 个页面（由预览路由注入引导脚本按 ?slide=N 定位），能力位本身不对应「每页一个文件」。默认空数组。'
+          description: '引擎能力位声明，前端据此决定可用交互，与具体引擎名解耦。已知值：page_preview=支持逐页产物预览（由引擎实现逐页枚举钩子自动派生）；页可以是独立文件（如逐页 SVG），也可以是同一份单文件 HTML 里的第 N 个页面（由预览路由注入引导脚本按 ?slide=N 定位），能力位本身不对应「每页一个文件」。cancel=支持中断**运行中**的任务（由引擎实现取消钩子自动派生）；不具备该能力位的引擎，对 running 任务调用撤销接口会返回 409，只有 queued 任务能被撤销——前端据此决定撤销按钮的语义，不得假设撤销一定能杀掉进程。默认空数组。'
           items:
             type: string
           default: []
@@ -1455,12 +1501,31 @@ components:
 
     JobStatus:
       type: string
-      description: 任务状态（与 vc_design 一致：只有4种状态）
+      description: '任务状态（面向用户与前端），与引擎协议的 EngineJobStatus **分层**：
+        queued / cancelled 属编排层，引擎自身永远不会产出这两个状态。
+
+        非终态：queued（已入库、等待调度认领，引擎子进程尚未拉起）、running（引擎子进程已在执行）。
+
+        终态（不可逆）：completed（成功产出）、failed（执行出错）、timeout（超过最大执行时间）、
+        cancelled（被撤销）。
+
+        状态机：
+          提交 → queued → running → completed / failed / timeout
+          queued / running → cancelled（撤销）
+          未成功的终态（failed / timeout / cancelled）可重试，重试即新建、从 queued 起。
+
+        消费侧口径（重要）：判"任务是否还在推进"用 status ∈ {queued, running}，
+        **不要用 status != ''running''** ——后者会把排队态误判为终态
+        （历史上全仓库按"非 running 即终态"写死，引入 queued 后这些判断必须改成"是否终态"）。
+
+        '
       enum:
+      - queued
       - running
-      - timeout
-      - failed
       - completed
+      - failed
+      - timeout
+      - cancelled
 
     TokenUsage:
       type: object
@@ -1513,8 +1578,11 @@ components:
         - 草稿引擎任务：调用草稿生成引擎，将用户文件转化为 Markdown 草稿
         - 输出引擎任务：调用输出引擎，将草稿内容生成最终展示文件
 
+        状态（status）：queued / running / completed / failed / timeout / cancelled，
+        状态机与非终态判定口径见 components.schemas.JobStatus。
+
         状态明细（status_detail）：
-        - 仅在 running 状态下有意义
+        - 仅在非终态（queued / running）下有意义
         - 内容随执行进度变化（如"正在生成第3页..."）
         - 前端通过轮询获取最新状态
 
@@ -1540,7 +1608,13 @@ components:
           $ref: '#/components/schemas/JobStatus'
         status_detail:
           type: string
-          description: '状态明细（引擎当前正在做什么，仅 running 时有意义）。前端通过轮询获取最新状态。'
+          description: '状态明细（引擎当前正在做什么，仅非终态 queued/running 时有意义）。前端通过轮询获取最新状态。'
+        queue_position:
+          type: [integer, "null"]
+          description: '排队位序：本任务前面还有多少个尚未被认领的 queued 任务。
+            仅 status=queued 时给出，其余状态为 null。
+            读取时按 created_at 现算的派生值——仅供参考、不构成承诺、
+            两次轮询之间可能因他人撤销或认领而变化；不入库、不参与任何状态判定。'
         engine_job_id:
           type: string
           description: '引擎任务编号（用于查询 Agent 执行状态，即 Agent 的会话标识）。非 Agent 类引擎可为空。'
@@ -1578,7 +1652,7 @@ components:
           description: 草稿 Markdown 内容（已废弃，使用 Draft 实体）
         error:
           type: string
-          description: 失败/超时原因（仅 failed/timeout 时有值）
+          description: 失败/超时/撤销原因（仅终态 failed/timeout/cancelled 时有值）
         token_usage:
           allOf:
           - $ref: '#/components/schemas/TokenUsage'
@@ -1867,7 +1941,7 @@ components:
         status:
           allOf:
           - $ref: '#/components/schemas/JobStatus'
-          description: 任务状态，供前端决定是否追加末尾转圈/导出格
+          description: 任务状态，供前端决定是否追加末尾转圈/导出格；queued 表示尚未开跑（既无转圈页也无导出格，显示「排队中 · 前面还有 N 个」）
         stage:
           type: string
           nullable: true

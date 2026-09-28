@@ -229,8 +229,10 @@ class JobOut(BaseModel):
     - 输出引擎任务：调用输出引擎，将草稿内容生成最终展示文件
     
     状态明细（status_detail）：
-    - 仅在 running 状态下有意义
-    - 内容随执行进度变化（如"正在生成第3页..."）
+    - 仅在非终态（queued / running）下有意义
+    - queued：出参时现算成带排队位序的文案（如"排队中 · 前方还有 3 个任务"），
+      与 Job.queue_position 同一口径；不落库，位序每次读取都可能变
+    - running：随执行进度变化（如"正在生成第3页..."）
     - 前端通过轮询获取最新状态
     """
     model_config = ConfigDict(extra="ignore")

@@ -53,6 +53,20 @@ def _version_stamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
 
 
+def _queued_status_detail(position: int | None, *, retry: bool = False) -> str:
+    """queued 行的状态明细：把排队位序写进文案（出参时现算，**不落库**）。
+
+    静态的"排队中"没有信息量——排队时该知道的就是"还要等几个"。口径与契约
+    Job.queue_position 完全一致：只数前面尚未被认领的 queued 任务，不含正在生成
+    的占槽任务；队首说"即将开始"；位序拿不到时退回原静态文案，绝不编数字。
+    落库行仍写静态"排队中"：位序是读取时快照，落库那一刻就已过期。
+    """
+    base = "排队中（重试）" if retry else "排队中"
+    if position is None:
+        return base
+    return f"{base} · 即将开始" if position <= 0 else f"{base} · 前方还有 {position} 个任务"
+
+
 _VERSION_RE = re.compile(r"^[0-9]{14}$")
 
 # 上传文件名消毒：只留安全字符，防路径穿越
@@ -259,8 +273,20 @@ class JobService:
         )
 
         out = JobOut(**row)
-        out.queue_position = self.repo.queue_position(db, job_id)
-        return out
+        return self._with_queue_detail(db, out)
+
+    def _with_queue_detail(self, db: Session, job: JobOut) -> JobOut:
+        """queued 行出参时补两件套：位序 + 把位序写进状态明细。
+
+        所有 JobOut 出口（submit / list / get / retry）都走这里，判据只有
+        `status == 'queued'` —— **不要写 status != 'running'**（ADR-018 口径）。
+        重试行靠落库文案里的"（重试）"标记保留语义，其余整句重写为带位序的现算案。
+        """
+        if job.status == "queued":
+            job.queue_position = self.repo.queue_position(db, job.job_id)
+            job.status_detail = _queued_status_detail(
+                job.queue_position, retry=(job.status_detail or "").endswith("（重试）"))
+        return job
 
     @staticmethod
     def engine_submit(engine, **kwargs):
@@ -282,13 +308,12 @@ class JobService:
              project_ids: list[str] | None = None) -> list[JobOut]:
         rows = self.repo.list(db, project_id=project_id, status=status, task_type=task_type,
                               limit=limit, offset=offset, project_ids=project_ids)
+        # 只为**排队中**的行补位序与状态明细（一次派生查询），为**运行中**的行补进度
+        # （读引擎产物）。queued 刻意不读盘：它连子进程都还没有，扫不到任何东西，读了纯属浪费请求线程。
         jobs = [JobOut(**row) for row in rows]
-        # 只为**排队中**的行补位序（一次派生查询），为**运行中**的行补进度（读引擎产物）。
-        # queued 刻意不读盘：它连子进程都还没有，扫不到任何东西，读了纯属浪费请求线程。
-        for job in jobs:
-            if job.status == "queued":
-                job.queue_position = self.repo.queue_position(db, job.job_id)
-        return [self._enrich_with_progress(job, self._get_engine_safe(job.engine)) for job in jobs]
+        return [self._enrich_with_progress(self._with_queue_detail(db, job),
+                                           self._get_engine_safe(job.engine))
+                for job in jobs]
 
     # ── get：查任务 ──
     def get(self, db: Session, job_id: str) -> JobOut:
@@ -296,9 +321,8 @@ class JobService:
         if row is None:
             raise HTTPException(status_code=404, detail="任务不存在")
         job = JobOut(**row)
-        if job.status == "queued":
-            job.queue_position = self.repo.queue_position(db, job_id)
-        return self._enrich_with_progress(job, self._get_engine_safe(job.engine))
+        return self._enrich_with_progress(self._with_queue_detail(db, job),
+                                          self._get_engine_safe(job.engine))
 
     # ── 逐页预览（引擎无关：能力由钩子实现派生，无引擎名分支）──
     def list_pages(self, db: Session, job_id: str) -> JobPages:
@@ -507,8 +531,7 @@ class JobService:
             raise HTTPException(status_code=400, detail=str(exc))
 
         out = JobOut(**new_row)
-        out.queue_position = self.repo.queue_position(db, new_job_id)
-        return out
+        return self._with_queue_detail(db, out)
 
     # ── cancel：撤销未到终态的任务（ADR-019 决策 4/5）──
     def cancel(self, db: Session, job_id: str) -> JobOut:

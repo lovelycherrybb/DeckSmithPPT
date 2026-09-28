@@ -940,7 +940,8 @@ paths:
       summary: 获取任务详情
       description: '返回任务信息，包含当前状态和状态明细。
 
-        状态明细（status_detail）仅在非终态（queued / running）下有意义，内容随执行进度变化。
+        状态明细（status_detail）仅在非终态（queued / running）下有意义：queued 给出按
+        queue_position 现算的排队文案，running 随执行进度变化。
 
         前端通过轮询获取最新状态。
 
@@ -1689,7 +1690,9 @@ components:
 
         状态明细（status_detail）：
         - 仅在非终态（queued / running）下有意义
-        - 内容随执行进度变化（如"正在生成第3页..."）
+        - queued：出参时按 queue_position 现算成排队文案（如"排队中 · 前方还有 3 个任务"，
+            队首为"即将开始"），不入库、每次轮询都可能变，不构成承诺
+        - running：内容随执行进度变化（如"正在生成第3页..."）
         - 前端通过轮询获取最新状态
 
         '

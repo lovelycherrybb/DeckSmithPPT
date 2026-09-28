@@ -47,10 +47,11 @@ export const engineCancellable = (capabilities?: string[] | null) =>
 /**
  * 排队位置的中文表述。
  * 后端给的是"读取时现算的派生值，仅供参考"（契约 Job.queue_position），
- * 所以文案不写成承诺；队首（0 个在前）说"即将开始"，不说"前面还有 0 个"。
+ * 所以文案不写成承诺；队首（0 个在前）说"即将开始"，不说"前方还有 0 个"。
+ * 措辞与后端 service.jobs._queued_status_detail 一字不差（契约：界面与后端不得两套说法）。
  */
 export function queuePositionLabel(position?: number | null): string {
   if (position == null) return '排队中';
   if (position <= 0) return '即将开始';
-  return `前面还有 ${position} 个任务`;
+  return `前方还有 ${position} 个任务`;
 }

@@ -358,6 +358,40 @@ def test_queue_position只数未认领的队头(db):
     assert repo.queue_position(db, "nope") is None
 
 
+def test_排队状态明细现算带位序(db):
+    """queued 行的 status_detail 出参时现算成排队文案（用户点名：不给静态"排队中"）。
+
+    钉三件事：① 位序被写进明细；② 这是读取时快照、**不回写 DB**（原位序会过期）；
+    ③ 只有 queued 被改，running/终态行的明细不受这条路径影响。
+    """
+    _mk(db, "a", created_at="2026-01-01T00:00:00+00:00")
+    _mk(db, "b", created_at="2026-01-02T00:00:00+00:00")
+    _mk(db, "c", created_at="2026-01-03T00:00:00+00:00")
+    _mk(db, "run", status="running")
+    eng = FakeEngine()
+    svc = JobService(JobRepo(), engine_factory=lambda name: eng)
+
+    assert svc.get(db, "c").status_detail == "排队中 · 前方还有 2 个任务"
+    # 队首不说"前方还有 0 个"，说"即将开始"
+    assert svc.get(db, "a").status_detail == "排队中 · 即将开始"
+
+    # 派生值不污染存储：读取后 DB 里仍是静态原值（None），位序不进库
+    assert JobRepo().get(db, "c")["status_detail"] is None
+
+    # list 路径同样补齐，且不动 running 行的明细
+    listed = {j.job_id: j for j in svc.list(db, limit=50)}
+    assert listed["b"].status_detail == "排队中 · 前方还有 1 个任务"
+    assert listed["run"].status_detail is None
+
+
+def test_重试探针保留重试语义(db):
+    """重试行的落库明细带"（重试）"标记，现算后必须保留，不能被排队文案冲掉。"""
+    _mk(db, "rt", status_detail="排队中（重试）")
+    svc = JobService(JobRepo(), engine_factory=lambda name: FakeEngine())
+    out = svc.get(db, "rt")
+    assert out.status_detail == "排队中（重试） · 即将开始"
+
+
 def test_单身份未完成任务达上限时提交被拒(db):
     """per-identity 粗闸（ADR-019 决策 7）：取代加权调度，防止一个人把队排到 50 个。"""
     from fastapi import HTTPException

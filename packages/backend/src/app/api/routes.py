@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 import uuid
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, UploadFile, HTTPException
+from fastapi import APIRouter, Depends, File, UploadFile, HTTPException
 from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 
@@ -244,13 +244,14 @@ def api_claim_project(project_id: str, body: ClaimProjectRequest, db: Session = 
 # ===== 任务相关 =====
 
 @router.post("/api/decks", response_model=JobOut, status_code=202)
-def api_submit(req: DeckRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db),
+def api_submit(req: DeckRequest, db: Session = Depends(get_db),
                identity: Identity = Depends(get_identity)):
     """提交生成任务（草稿引擎任务或输出引擎任务）。支持项目自动创建。
 
     新建项目按当前身份打归属戳（登录→owner / 试用→visitor）；传入他人 project_id → 404。
+    受理即排队（status=queued），由调度循环认领；未完成任务数超上限 → 409。
     """
-    return service.submit(db, req, background_tasks, identity)
+    return service.submit(db, req, identity)
 
 
 @router.get("/api/jobs", response_model=list[JobOut])
@@ -275,11 +276,23 @@ def api_get(job_id: str, db: Session = Depends(get_db), identity: Identity = Dep
 
 
 @router.post("/api/jobs/{job_id}/retry", response_model=JobOut, status_code=202)
-def api_retry_job(job_id: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db),
+def api_retry_job(job_id: str, db: Session = Depends(get_db),
                   identity: Identity = Depends(get_identity)):
-    """重试失败的任务。非归属任务 → 404。"""
+    """重试未成功结束的任务（新建一条从 queued 开始的任务）。非归属任务 → 404。"""
     _guard_job(db, job_id, identity)
-    return service.retry(db, job_id, background_tasks)
+    return service.retry(db, job_id, identity)
+
+
+@router.post("/api/jobs/{job_id}/cancel", response_model=JobOut, status_code=202)
+def api_cancel_job(job_id: str, db: Session = Depends(get_db),
+                   identity: Identity = Depends(get_identity)):
+    """撤销未到终态的任务。非归属任务 → 404；已终态或引擎不支持中断运行中任务 → 409。
+
+    语义与状态机见契约 `/api/jobs/{job_id}/cancel` 与 ADR-019 决策 5：queued 直接摘队，
+    running 只有在引擎实现了 cancel 钩子（能力位含 cancel）时才会真的杀进程。
+    """
+    _guard_job(db, job_id, identity)
+    return service.cancel(db, job_id)
 
 
 @router.get("/api/presentations/{presentation_id}/download")

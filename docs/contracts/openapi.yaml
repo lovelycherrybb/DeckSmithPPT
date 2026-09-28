@@ -767,13 +767,19 @@ paths:
               $ref: '#/components/schemas/DeckRequest'
       responses:
         '202':
-          description: 已受理，返回任务
+          description: 已受理并入队（返回 status=queued 的任务），由调度循环认领后转 running
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Job'
         '400':
           description: 请求不合法（参数校验失败）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: 该身份未完成任务数（queued + running）已达上限 DECKSMITH_MAX_UNFINISHED_PER_IDENTITY，先等一个结束或撤销一个再提交（ADR-019 决策 7）
           content:
             application/json:
               schema:
@@ -1714,7 +1720,7 @@ components:
           description: 项目下的演示文件数量（列表接口附带统计）
         running_task_count:
           type: integer
-          description: 项目下正在运行中的任务数量（列表接口附带统计）
+          description: 项目下**未结束**的任务数（queued + running；列表接口附带统计）。引入排队态后口径不再是"status 等于 running"，否则项目卡上会出现"看着 0 个在跑、其实 3 个在排队"的假象
 
     ProjectDetail:
       type: object

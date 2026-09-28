@@ -1,17 +1,20 @@
-"""引擎数据模型（占位骨架，与 docs/contracts/engine.schema.json 对齐）。
+"""引擎数据模型（与 docs/contracts/engine.schema.json 的 $defs 对齐）。
 
-最终应由 docs/contracts/engine.schema.json 代码生成，
-禁止手写与契约不一致的类型（见 scripts/generate-types.sh）。
+契约是唯一事实来源；本文件目前是**人工同步的第 5 份副本**（docstring 里的
+"最终应由 engine.schema.json 代码生成"这条偏差仍未消除，见 ADR-018 后果 3），
+改名/加值时务必与契约同批修改。
 
-与 vc_design 一致：任务状态只有 running、completed、failed、timeout 4种。
+分层枚举（ADR-018）：引擎只报告自己那个子进程的真相，状态值域是 `EngineJobStatus`
+（4 值）。面向用户与前端的 `queued`（等待调度认领）与 `cancelled`（被撤销）属编排层
+概念，引擎永远不产出，故**不在本枚举内**——不要在这里加它们。
 """
 
 from dataclasses import dataclass, field
 from enum import Enum
 
 
-class JobStatus(str, Enum):
-    """任务状态（与 vc_design 一致：只有4种状态）。"""
+class EngineJobStatus(str, Enum):
+    """引擎侧任务状态（`PptEngine.status()` 的值域，契约见 engine.schema.json）。"""
     RUNNING = "running"
     TIMEOUT = "timeout"
     FAILED = "failed"
@@ -49,7 +52,7 @@ class DeckContent:
 @dataclass
 class Job:
     job_id: JobId
-    status: JobStatus
+    status: EngineJobStatus
     task_type: EngineType = EngineType.DRAFT
     status_detail: str | None = None
     result_path: str | None = None

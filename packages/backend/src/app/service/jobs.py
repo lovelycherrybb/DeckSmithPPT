@@ -1,7 +1,9 @@
 """业务逻辑层：提交/查询，串联引擎（PptEngine 协议）与数据存取。
 
 - 只依赖 PptEngine 协议，不关心具体引擎（stub 或真实 PptMasterEngine 皆可替换）。
-- 草稿引擎任务和输出引擎任务各自独立提交，提交即运行。
+- **提交即入库排队**（status=queued），由 `app.service.scheduler` 的调度循环认领、
+  轮询并落终态（ADR-019）。本层不再挂 BackgroundTasks 轮询，也不再在请求线程里 fork
+  引擎子进程 —— 那正是"约 36 条并发就把整个后端冻住"的根因。
 - 支持项目自动创建、草稿版本管理、状态明细（status_detail）。
 """
 # 与 repository/jobs.py 同源：本类有名为 list 的方法，注解里再用 `list[...]` 在
@@ -16,14 +18,31 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
 
-from fastapi import BackgroundTasks, HTTPException
+from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from ..core.db import SessionLocal, JOBS_ROOT
 from ..core import ownership
+from ..core.config import get_max_unfinished_per_identity
 from ..repository.jobs import ProjectRepo, JobRepo, DraftRepo, DraftVersionRepo, PresentationRepo
 from ..core.schemas import DeckRequest, JobOut, ProgressInfo, PageItem, JobPages
 from ..engines.registry import implements_hook
+
+# ── 状态集合（ADR-018 消费侧口径）──────────────────────────────────
+# 全仓库判"任务是否还在推进"一律走这两个集合，**不要写 status != 'running'**：
+# 那是引入 queued 之前的等价写法，之后就错了（排队中的任务会被当成已结束）。
+PENDING_STATUSES = ("queued", "running")
+TERMINAL_STATUSES = ("completed", "failed", "timeout", "cancelled")
+#: 可重试 = 未成功的终态。刻意**不含 completed**：那等于给一条已成功出片的历史
+#: 任务开二次烧额度的口子（ADR-018 决策 4）。
+RETRYABLE_STATUSES = ("failed", "timeout", "cancelled")
+
+
+def is_terminal(status: str | None) -> bool:
+    """是否终态。未知值按"不是终态"处理更安全？不——未知值说明有东西写歪了，
+    按终态处理会让调度器再也接管不到它，所以这里如实返回 False 并让上层去报警。
+    """
+    return status in TERMINAL_STATUSES
 
 
 def _now() -> str:
@@ -40,8 +59,8 @@ _VERSION_RE = re.compile(r"^[0-9]{14}$")
 # 上传文件名消毒：只留安全字符，防路径穿越
 _SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9._\-\u4e00-\u9fff]")
 
-_DEFAULT_POLL_INTERVAL = 15
-_DEFAULT_TIMEOUT_SECONDS = 3600
+# 轮询节拍与超时预算已随调度循环搬到 core.config（DECKSMITH_SCHEDULER_INTERVAL /
+# DECKSMITH_JOB_TIMEOUT，见 ADR-019）。这里不再留第二份口径。
 
 
 def sanitize_filename(name: str | None) -> str:
@@ -142,12 +161,32 @@ class JobService:
         )
         return new_project_id
 
-    # ── submit：提交任务（草稿引擎任务或输出引擎任务）──
-    def submit(self, db: Session, req: DeckRequest, background_tasks: BackgroundTasks,
-               identity=None) -> JobOut:
+    # ── submit：提交任务 = 校验 + 入库排队，然后立刻返回 ──
+    def submit(self, db: Session, req: DeckRequest, identity=None) -> JobOut:
+        """受理任务：只负责校验与入库（status=queued），**不启动引擎**。
+
+        认领、fork 引擎子进程与轮询全部由调度循环负责（ADR-019 决策 2）。这是并发闸
+        能成立的前提：不在请求线程里 fork，用户瞬间提交 50 个也只会有
+        `MAX_CONCURRENT_JOBS` 条真在跑。
+        """
         # 校验版本号格式（与契约 pattern 一致）
         if req.version and not _VERSION_RE.match(req.version):
             raise HTTPException(status_code=400, detail="version 必须是 14 位数字（年月日时分秒）")
+
+        # per-identity 粗闸（ADR-019 决策 7）：取代加权公平调度。
+        # 本期真正的风险只是"一个人把队排到 50 个"，所以只数该身份的未完成任务。
+        # identity 为 None（内部调用/旧单测）不设闸，与引擎参数门控同一口径。
+        if identity is not None:
+            limit = get_max_unfinished_per_identity()
+            user = getattr(identity, "user", None)   # Identity.user 是 ORM 对象或 None
+            unfinished = self.repo.count_unfinished_for_identity(
+                db, user_id=getattr(user, "user_id", None),
+                visitor_id=getattr(identity, "visitor_id", None))
+            if unfinished >= limit:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"你已有 {unfinished} 个任务未结束，达到上限 {limit}；"
+                           "请等待其中一个完成或先撤销")
 
         # 如果提供了 draft_id，从草稿版本中获取 content
         content = req.content
@@ -188,21 +227,23 @@ class JobService:
         # 确保项目存在
         project_id = self._ensure_project(db, req.project_id, self._default_project_name(req), identity)
 
-        # 按请求选择引擎（引擎可插拔：选什么跑什么，不再静默降级到全局单例）
+        # 按请求选择引擎（引擎可插拔：选什么跑什么，不再静默降级到全局单例）。
+        # 这里只校验名字可用，**不 fork 任何东西**；无效名字仍然当场 400。
         try:
-            engine = self._get_engine(req.engine)
+            self._get_engine(req.engine)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
 
-        # 先落库（running），再调引擎；引擎抛异常时回滚为 failed
+        # 落库即排队。sources 必须一起入库：引擎提交已搬到调度器里执行，
+        # 认领时要靠它还原入参（ADR-019 决策 2 的硬前置）。
         now = _now()
         row = self.repo.create(
             db,
             job_id=job_id,
             project_id=project_id,
             task_type=req.engine_type,
-            status="running",
-            status_detail="正在启动引擎",
+            status="queued",
+            status_detail="排队中",
             title=effective_title,
             pages=req.pages,
             engine=req.engine,
@@ -210,26 +251,16 @@ class JobService:
             content_style=req.content_style,
             engine_params=engine_params,
             content=content,
+            sources=sources,
             draft_id=req.draft_id if req.engine_type == "output" else None,
             draft_version=used_version,
             created_at=now,
             updated_at=now,
         )
 
-        try:
-            self.engine_submit(engine, content=content, title=effective_title, pages=req.pages,
-                               engine_params=engine_params, sources=sources,
-                               job_id=job_id, engine_type=req.engine_type)
-        except Exception as exc:
-            self.repo.update(db, job_id, status="failed", error=f"引擎提交失败：{exc}",
-                             updated_at=_now(), status_detail="引擎提交失败")
-            row = self.repo.get(db, job_id)
-            return JobOut(**row)
-
-        # 所有任务类型都走后台轮询：终态由引擎真实状态决定（不再对 draft 假 completed）
-        background_tasks.add_task(self._poll_until_done, job_id, req.engine)
-
-        return JobOut(**row)
+        out = JobOut(**row)
+        out.queue_position = self.repo.queue_position(db, job_id)
+        return out
 
     @staticmethod
     def engine_submit(engine, **kwargs):
@@ -252,7 +283,11 @@ class JobService:
         rows = self.repo.list(db, project_id=project_id, status=status, task_type=task_type,
                               limit=limit, offset=offset, project_ids=project_ids)
         jobs = [JobOut(**row) for row in rows]
-        # 为 running 状态的任务附加进度（引擎按各自任务的 engine 名选择；无效引擎名容错跳过）
+        # 只为**排队中**的行补位序（一次派生查询），为**运行中**的行补进度（读引擎产物）。
+        # queued 刻意不读盘：它连子进程都还没有，扫不到任何东西，读了纯属浪费请求线程。
+        for job in jobs:
+            if job.status == "queued":
+                job.queue_position = self.repo.queue_position(db, job.job_id)
         return [self._enrich_with_progress(job, self._get_engine_safe(job.engine)) for job in jobs]
 
     # ── get：查任务 ──
@@ -261,6 +296,8 @@ class JobService:
         if row is None:
             raise HTTPException(status_code=404, detail="任务不存在")
         job = JobOut(**row)
+        if job.status == "queued":
+            job.queue_position = self.repo.queue_position(db, job_id)
         return self._enrich_with_progress(job, self._get_engine_safe(job.engine))
 
     # ── 逐页预览（引擎无关：能力由钩子实现派生，无引擎名分支）──
@@ -424,15 +461,19 @@ class JobService:
             raise HTTPException(status_code=404, detail="预览文件不存在")
         return target, media_type
 
-    # ── retry：重试失败的任务（创建新任务）──
-    def retry(self, db: Session, job_id: str, background_tasks: BackgroundTasks) -> JobOut:
+    # ── retry：重试未成功结束的任务（创建新任务，从排队开始）──
+    def retry(self, db: Session, job_id: str, identity=None) -> JobOut:
         row = self.repo.get(db, job_id)
         if row is None:
             raise HTTPException(status_code=404, detail="任务不存在")
-        if row["status"] not in ("failed", "timeout"):
-            raise HTTPException(status_code=409, detail="任务状态不允许重试（非 failed/timeout）")
+        # 可重试 = 未成功的终态（failed/timeout/cancelled）。completed 拒绝——已成功
+        # 的条目不该有二次烧额度的入口；queued/running 拒绝——它还没结束（ADR-018 决策 4）
+        if row["status"] not in RETRYABLE_STATUSES:
+            raise HTTPException(
+                status_code=409,
+                detail=f"任务状态不允许重试（仅 {'/'.join(RETRYABLE_STATUSES)} 可重试）")
 
-        # 创建新任务，复用原任务的参数
+        # 创建新任务，复用原任务的参数（含 sources：契约的"参数复用"口径）
         new_job_id = uuid.uuid4().hex
         now = _now()
 
@@ -443,8 +484,8 @@ class JobService:
             job_id=new_job_id,
             project_id=row.get("project_id"),
             task_type=row.get("task_type"),
-            status="running",
-            status_detail="正在重试",
+            status="queued",
+            status_detail="排队中（重试）",
             title=row.get("title"),
             pages=row.get("pages"),
             engine=row.get("engine"),
@@ -452,30 +493,79 @@ class JobService:
             content_style=row.get("content_style"),
             engine_params=row.get("engine_params") or {},
             content=content,
+            sources=row.get("sources") or [],
+            draft_id=row.get("draft_id"),
+            draft_version=row.get("draft_version"),
             created_at=now,
             updated_at=now,
         )
 
-        # 调用引擎提交新任务（参数存于 job.json / 引擎内部，无需重读 DB）
+        # 只校验引擎名可用（无效名字仍然当场 400）；真正的提交交给调度循环
         try:
-            engine = self._get_engine(row.get("engine"))
+            self._get_engine(row.get("engine"))
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
+
+        out = JobOut(**new_row)
+        out.queue_position = self.repo.queue_position(db, new_job_id)
+        return out
+
+    # ── cancel：撤销未到终态的任务（ADR-019 决策 4/5）──
+    def cancel(self, db: Session, job_id: str) -> JobOut:
+        """撤销 queued 或 running 的任务。
+
+        与调度器的竞态靠**带前置条件的写入**解决，不靠锁：
+        - queued → cancelled 抢到了：直接从队列摘掉，引擎进程根本还没起；
+          没抢到（调度器刚好在同一瞬把它提升成 running）：重读后走 running 分支。
+        - running → 先问引擎能不能杀（`cancel` 钩子），**不能杀就 409**，
+          绝不改库假装已撤销——那正是契约里明令禁止的"静默假撤销"。
+
+        已烧掉的 token 一律保留（ADR-016），撤销不抹账。
+        """
+        row = self.repo.get(db, job_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="任务不存在")
+        status = row["status"]
+        if is_terminal(status):
+            raise HTTPException(status_code=409, detail="任务已结束，无法撤销")
+
+        if status == "queued":
+            if self.repo.cas_status(
+                    db, job_id, from_status="queued", status="cancelled",
+                    status_detail="已撤销", error="任务在排队期间被撤销",
+                    claimed_by=None, claimed_at=None):
+                return self.get(db, job_id)
+            row = self.repo.get(db, job_id) or row     # 抢输了：调度器刚接手，重读再判
+            status = row["status"]
+            if is_terminal(status):
+                raise HTTPException(status_code=409, detail="任务已结束，无法撤销")
+
+        # 到这里一定是 running：必须引擎真的能停，才允许落 cancelled
+        engine = self._get_engine_safe(row.get("engine"))
+        if engine is None or not implements_hook(engine, "cancel"):
+            raise HTTPException(
+                status_code=409,
+                detail="该引擎不支持中断运行中的任务，只能撤销还在排队的任务")
+        if not self._terminate(engine, job_id):
+            raise HTTPException(status_code=409, detail="引擎进程终止失败，任务未撤销，请重试")
+        if not self.repo.cas_status(
+                db, job_id, from_status="running", status="cancelled",
+                status_detail="已撤销", error="用户撤销，引擎子进程已终止"):
+            # 我们杀进程的这段时间里调度器已把真实终态落了（比如它刚好跑完）。
+            # 谁先落谁赢，这里如实返回当前状态，不覆盖别人的结论。
+            pass
+        return self.get(db, job_id)
+
+    @staticmethod
+    def _terminate(engine, job_id: str) -> bool:
+        """调引擎的 cancel 钩子；没实现或抛异常都算"杀不掉"（返回 False）。"""
+        cancel = getattr(engine, "cancel", None)
+        if cancel is None or not callable(cancel):
+            return False
         try:
-            self.engine_submit(engine, content=content,
-                               title=row.get("title"), pages=row.get("pages"),
-                               engine_params=row.get("engine_params") or {},
-                               job_id=new_job_id, engine_type=row.get("task_type"))
-        except Exception as exc:
-            self.repo.update(db, new_job_id, status="failed", error=f"引擎提交失败：{exc}",
-                             updated_at=_now(), status_detail="引擎提交失败")
-            new_row = self.repo.get(db, new_job_id)
-            return JobOut(**new_row)
-
-        # 所有任务类型都挂轮询（draft 任务重试也需要终态回写）
-        background_tasks.add_task(self._poll_until_done, new_job_id, row.get("engine"))
-
-        return JobOut(**new_row)
+            return bool(cancel(job_id))
+        except Exception:  # noqa: BLE001
+            return False
 
     # ── restore_draft_version：还原草稿到历史版本 ──
     def restore_draft_version(self, db: Session, draft_id: str, version: str) -> dict:
@@ -502,7 +592,8 @@ class JobService:
         return self.draft_repo.get(db, draft_id)
 
     # ── 草稿实体落库：draft 任务 completed 后写 Draft + DraftVersion ──
-    def _persist_draft_entity(self, job_row: dict) -> None:
+    # 公开给调度器调用（终态收割的一侧），本层自身不再触发它
+    def persist_draft_entity(self, job_row: dict) -> None:
         db = SessionLocal()
         try:
             draft_id = uuid.uuid4().hex
@@ -550,8 +641,8 @@ class JobService:
         finally:
             db.close()
 
-    # ── 演示文件落库：输出任务 completed 后写 Presentation ──
-    def _persist_presentation(self, job_row: dict, result_path: str) -> None:
+    # ── 演示文件落库：输出任务 completed 后写 Presentation（由调度器在终态收割时调用）──
+    def persist_presentation(self, job_row: dict, result_path: str) -> None:
         db = SessionLocal()
         try:
             presentation_id = uuid.uuid4().hex
@@ -578,110 +669,6 @@ class JobService:
         finally:
             db.close()
 
-    # ── 引擎上报的标题（引擎 job.json 里的 title 字段；引擎协议未定义 getter，直接读文件） ──
-    @staticmethod
-    def _engine_reported_title(engine, job_id: str) -> str | None:
-        try:
-            from engine.core.config import get_jobs_root
-            job_json = get_jobs_root() / job_id / "job.json"
-            if job_json.exists():
-                data = json.loads(job_json.read_text(encoding="utf-8"))
-                t = data.get("title")
-                return t if isinstance(t, str) and t.strip() and t != "Untitled" else None
-        except Exception:
-            return None
-        return None
-
-    # ── 引擎上报的 token 消耗（同样直接读引擎 job.json；口径见 ADR-016）──
-    # 为什么不调 engine.resume() 拿 Job.token_usage：协议里 resume 对未完成任务会
-    # **重新提交一次生成**（ppt_master / ppt_master_v6 即如此），为一个数字把用户额度
-    # 再烧一遍不可接受。job.json 是引擎自己写的落点，与标题回填同一通道。
-    @staticmethod
-    def _engine_reported_usage(job_id: str) -> dict | None:
-        try:
-            from engine.core.config import get_jobs_root
-            job_json = get_jobs_root() / job_id / "job.json"
-            if not job_json.exists():
-                return None
-            data = json.loads(job_json.read_text(encoding="utf-8"))
-            usage = data.get("token_usage")
-            # 只认带派生总数的形态；残缺对象按未记录处理，不补 0
-            if isinstance(usage, dict) and isinstance(usage.get("total_tokens"), int):
-                return usage
-        except Exception:
-            return None
-        return None
-
-    # ── 后台轮询：把引擎状态同步回 SQLite 任务表 ──
-    def _poll_until_done(self, job_id: str, engine_name: str | None = None,
-                         timeout_seconds: int = _DEFAULT_TIMEOUT_SECONDS) -> None:
-        from engine.core.models import JobStatus  # 延迟导入，确保 engine 包已在 sys.path
-
-        engine = self._get_engine(engine_name)
-        deadline = time.time() + timeout_seconds
-        while time.time() < deadline:
-            status = engine.status(job_id)
-            if status == JobStatus.COMPLETED:
-                try:
-                    result_path = engine.result(job_id)
-                except Exception:
-                    result_path = None
-                db = SessionLocal()
-                try:
-                    row = JobRepo().get(db, job_id)
-                    # 引擎提取的标题回填（用户未传 title 时，引擎从素材拟了标题）
-                    engine_title = self._engine_reported_title(engine, job_id)
-                    update_fields: dict = {
-                        "result_path": result_path,
-                        "updated_at": _now(),
-                        "status_detail": "生成完成",
-                    }
-                    if engine_title and not (row or {}).get("title"):
-                        update_fields["title"] = engine_title
-                    # token 消耗：引擎未上报就留 NULL（未记录），不写 0
-                    usage = self._engine_reported_usage(job_id)
-                    if usage:
-                        update_fields["token_usage"] = usage
-                    JobRepo().update(db, job_id, status="completed", **update_fields)
-                    row = JobRepo().get(db, job_id)  # 取回填后的行给落库逻辑用
-                    # 落库演示文件 / 草稿实体（幂等：仅在尚未落库时）
-                    if row:
-                        if row.get("task_type") == "output" and result_path:
-                            self._persist_presentation(row, result_path)
-                        elif row.get("task_type") == "draft":
-                            self._persist_draft_entity(row)
-                finally:
-                    db.close()
-                return
-            if status in (JobStatus.FAILED, JobStatus.TIMEOUT):
-                db = SessionLocal()
-                try:
-                    # 注意用 .value（str(status) 会得到 "JobStatus.FAILED" 而非 "failed"）
-                    # 失败任务烧掉的 token 也是事实：引擎侧每个 result 都已累加进 job.json，
-                    # 终态一律如实回填（未上报仍为 NULL=未记录），不冒领也不抹掉（ADR-016）
-                    fail_fields: dict = {"updated_at": _now(), "status_detail": "生成失败"}
-                    usage = self._engine_reported_usage(job_id)
-                    if usage:
-                        fail_fields["token_usage"] = usage
-                    JobRepo().update(db, job_id, status=status.value,
-                                     error="生成失败，详见引擎 run.log", **fail_fields)
-                finally:
-                    db.close()
-                return
-            # 刷新 status_detail（给前端实时反馈）
-            db = SessionLocal()
-            try:
-                JobRepo().update(db, job_id, status_detail=f"引擎执行中（{status.value}）", updated_at=_now())
-            finally:
-                db.close()
-            time.sleep(_DEFAULT_POLL_INTERVAL)
-        # 超时兜底
-        db = SessionLocal()
-        try:
-            timeout_fields: dict = {"updated_at": _now(), "status_detail": "生成超时"}
-            usage = self._engine_reported_usage(job_id)
-            if usage:
-                timeout_fields["token_usage"] = usage
-            JobRepo().update(db, job_id, status="timeout", error="生成超时", **timeout_fields)
-        finally:
-            db.close()
+    # 终态收割（读引擎上报的标题与 token、落演示文件/草稿实体）原先在本文件的
+    # `_poll_until_done` 里做。那段已整体搬到 `app.service.scheduler` —— 它才是唯一
+    # 推动状态机的角色，一个任务只会被调度器判一次终态（CAS 先到先得，ADR-019 决策 4）。

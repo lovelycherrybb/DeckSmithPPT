@@ -44,11 +44,11 @@ class Job(Base):
     - 草稿引擎任务（task_type=draft）：调用草稿生成引擎，将用户文件转化为 Markdown 草稿
     - 输出引擎任务（task_type=output）：调用输出引擎，将草稿内容生成最终展示文件
     
-    状态（与 vc_design 一致）：
-    - running：运行中，引擎正在执行
-    - completed：完成，已成功生成输出
-    - failed：失败，执行过程中出错
-    - timeout：超时，未能在规定时间内完成
+    状态（与 contracts 的 JobStatus 一致，见 ADR-018 分层枚举）：
+    - queued：已入库、等待调度认领，引擎子进程尚未 fork 成功
+    - running：引擎子进程已在执行
+    - completed / failed / timeout / cancelled：四个终态，不可逆
+    判"是否还在推进"用 {queued, running}，不要用"是否等于 running"（ADR-018 消费侧口径）。
     """
     __tablename__ = "jobs"
 
@@ -56,8 +56,15 @@ class Job(Base):
     job_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     project_id: Mapped[str | None] = mapped_column(String(64), ForeignKey("projects.project_id"), nullable=True, index=True)
     task_type: Mapped[str] = mapped_column(String(16), default="draft")  # draft=草稿引擎任务，output=输出引擎任务
-    status: Mapped[str] = mapped_column(String(16), default="running", index=True)
+    status: Mapped[str] = mapped_column(String(16), default="queued", index=True)
     status_detail: Mapped[str | None] = mapped_column(Text, nullable=True)  # 状态明细（引擎当前正在做什么）
+    # ── 调度器内部字段（ADR-019 决策 3；**不进契约**，编排层私有状态）──
+    # 两段式认领：先把 queued 行的槽位占住（写 claimed_by），fork 成功后才 CAS 成 running。
+    # 不这么做的后果：契约把 queued 定义为"子进程尚未 fork 成功"，先置 running 再 fork 会让
+    # fork 失败的行冒充 running。
+    claimed_by: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)  # "host:pid"
+    claimed_at: Mapped[str | None] = mapped_column(String(32), nullable=True)               # 占位时刻（判陈旧用）
+    started_at: Mapped[str | None] = mapped_column(String(32), nullable=True)               # 真正开始跑引擎的时刻，超时预算的起点
     engine_job_id: Mapped[str | None] = mapped_column(String(128), nullable=True)  # 与 contracts 对齐：引擎任务编号
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)  # 可选，可从源材料提取或由 AI 自动生成
     pages: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 可选，可由 AI 决定或使用默认值
@@ -69,6 +76,10 @@ class Job(Base):
     engine_params: Mapped[str] = mapped_column(Text, default="{}")
 
     content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 素材来源（JSON 文本）。ADR-019 决策 2 把 engine.submit 从请求线程搬进调度器，
+    # 于是认领时必须能还原 sources —— 它原先只在请求线程的栈上活着，从不入库。
+    # 这是搬家的**硬前置**：漏了这一列，带上传文件的草稿任务会静默丢掉素材。
+    sources: Mapped[str | None] = mapped_column(Text, nullable=True)
     draft_content: Mapped[str | None] = mapped_column(Text, nullable=True)
     draft_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     draft_id: Mapped[str | None] = mapped_column(String(64), nullable=True)  # 输出任务所用的草稿

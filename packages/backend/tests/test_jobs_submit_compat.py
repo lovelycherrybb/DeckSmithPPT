@@ -150,15 +150,25 @@ def _seed_db(tmp_path):
 
 
 def _submit_output(db, rec, **req_kwargs):
-    from fastapi import BackgroundTasks
+    """提交后**再走一拍调度**，验的是整条交接链。
 
+    ADR-019 把 engine.submit 从请求线程搬进调度器，于是 submit() 只负责入库排队，
+    引擎真正收到什么参数取决于"落库 → 认领"这一趟往返。这里连着跑一拍，
+    比搬家前只验 submit() 更严：标题/内容/参数若在中途丢失，当场就露。
+    """
     from app.core.schemas import DeckRequest
     from app.repository.jobs import JobRepo
+    from app.service.scheduler import Scheduler
 
     svc = JobService(JobRepo(), engine_factory=lambda name: rec)
     req = DeckRequest(engine="guizang_ppt", engine_type="output", draft_id="d1",
                       project_id="p1", **req_kwargs)
-    return svc.submit(db, req, BackgroundTasks())
+    out = svc.submit(db, req)
+    assert out.status == "queued"          # 受理即排队，不在请求线程里 fork
+    Scheduler(service=svc, max_concurrent=1, engine_factory=lambda name: rec,
+                session_factory=lambda: db).sweep()
+    # 认领那一拍：把参数交给引擎
+    return out, db, rec
 
 
 def test_未传标题时从草稿任务继承(tmp_path):
@@ -166,7 +176,7 @@ def test_未传标题时从草稿任务继承(tmp_path):
 
     db = _seed_db(tmp_path)
     rec = _RecordingEngine()
-    out = _submit_output(db, rec)
+    out, _, rec = _submit_output(db, rec)
 
     assert out.title == "2025_年交通工程质量安全检查问题"   # 落库不再为空
     assert rec.received["title"] == out.title              # 引擎也收到同一标题
@@ -177,6 +187,39 @@ def test_未传标题时从草稿任务继承(tmp_path):
 def test_用户显式标题不被覆盖(tmp_path):
     db = _seed_db(tmp_path)
     rec = _RecordingEngine()
-    out = _submit_output(db, rec, title="我自己起的名字")
+    out, _, rec = _submit_output(db, rec, title="我自己起的名字")
     assert out.title == "我自己起的名字"
     assert rec.received["title"] == "我自己起的名字"
+
+
+def test_素材随任务入库并被调度器还原(tmp_path):
+    """sources 曾是只活在请求栈上的入参；搬到调度器执行后必须落库才能还原。
+
+    这一条钉的是 ADR-019 决策 2 的硬前置：漏了 sources 列，带上传文件的草稿任务
+    会在认领时静默丢掉素材（表现为"引擎说没收到文件"，而不是报错）。
+    """
+    from app.core.schemas import DeckRequest
+    from app.repository.jobs import JobRepo
+    from app.service.scheduler import Scheduler
+
+    class _NewStyleEngine:
+        def __init__(self):
+            self.received = {}
+
+        def submit(self, content=None, title=None, pages=None, engine_params=None,
+                   sources=None, job_id=None, engine_type=None):
+            self.received = dict(sources=sources, engine_type=engine_type)
+            return job_id
+
+    db = _seed_db(tmp_path)
+    rec = _NewStyleEngine()
+    svc = JobService(JobRepo(), engine_factory=lambda name: rec)
+    out = svc.submit(db, DeckRequest(
+        engine="ppt_master_draft", engine_type="draft", project_id="p1",
+        sources=[{"type": "file_path", "value": "/tmp/材料.docx"}]))
+    Scheduler(service=svc, max_concurrent=1, engine_factory=lambda name: rec,
+                session_factory=lambda: db).sweep()
+
+    assert rec.received["sources"] == [{"type": "file_path", "value": "/tmp/材料.docx"}]
+    assert rec.received["engine_type"] == "draft"
+    assert JobRepo().get(db, out.job_id)["sources"] == rec.received["sources"]

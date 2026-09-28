@@ -41,7 +41,8 @@ from pathlib import Path
 from typing import Any
 
 from engine.core.config import get_jobs_root
-from engine.core.models import Job, JobId, JobStatus, EngineType
+from engine.core.models import Job, JobId, EngineJobStatus, EngineType
+from engine.core.proc import terminate_tree
 from engine.core.protocol import PptEngine
 from engine.core.usage import add_usage, usage_from_result
 
@@ -505,6 +506,8 @@ class PptMasterV6Engine(PptEngine):
                     prompt,
                 ],
                 cwd=str(job_dir),  # ADR-012 决策 1：产物落 <jobs_root>/<job_id>/projects/
+                # 自成进程组：取消时必须能把 claude 连同它 fork 的技能脚本子树一起终止
+                start_new_session=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
@@ -590,25 +593,40 @@ class PptMasterV6Engine(PptEngine):
             except Exception:  # noqa: BLE001
                 pass
 
-    def status(self, job_id: Any) -> JobStatus:
+    def status(self, job_id: Any) -> EngineJobStatus:
         data = self._read_job(job_id)
         status = data.get("status", "running")
         if status != "running":
-            return JobStatus(status)
+            return EngineJobStatus(status)
         # running：先看进程是否还活着
         if self._process_alive(data.get("pid")):
-            return JobStatus.RUNNING
+            return EngineJobStatus.RUNNING
         # 进程已结束 -> 看产物
         since = data.get("started_at", 0.0)
         result = self._newest_export(job_id, since)
         if result is not None:
             self._write_job(job_id, status="completed", result_path=str(result), updated_at=_now())
-            return JobStatus.COMPLETED
+            return EngineJobStatus.COMPLETED
         self._write_job(
             job_id, status="failed",
             error="claude 子进程结束但未找到产物（详见 run.log）", updated_at=_now(),
         )
-        return JobStatus.FAILED
+        return EngineJobStatus.FAILED
+
+    def cancel(self, job_id: Any) -> bool:
+        """终止本任务的 claude 进程树（协议可选钩子，见 PptEngine.cancel）。
+
+        与 `ppt_master` 同形：引擎只记自己的终态 failed，cancelled 由编排层落 DB
+        （ADR-018 分层枚举）。
+        """
+        data = self._read_job(job_id)
+        terminated = terminate_tree(data.get("pid"))
+        if terminated and data.get("status") == "running":
+            self._write_job(
+                job_id, status="failed",
+                error="引擎执行已被终止（cancel）", updated_at=_now(),
+            )
+        return terminated
 
     def result(self, job_id: Any) -> str:
         data = self._read_job(job_id)
@@ -642,7 +660,7 @@ class PptMasterV6Engine(PptEngine):
     def _to_job(job_id: Any, data: dict) -> Job:
         return Job(
             job_id=JobId(str(job_id)),
-            status=JobStatus(data.get("status", "running")),
+            status=EngineJobStatus(data.get("status", "running")),
             task_type=EngineType.OUTPUT,
             status_detail=data.get("status_detail"),
             result_path=data.get("result_path"),

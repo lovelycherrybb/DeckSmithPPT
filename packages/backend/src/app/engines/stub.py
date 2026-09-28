@@ -22,7 +22,7 @@ if str(_PACKAGES_DIR) not in sys.path:
     sys.path.insert(0, str(_PACKAGES_DIR))
 
 from engine.core.config import get_jobs_root
-from engine.core.models import Job, JobId, JobStatus, EngineType
+from engine.core.models import Job, JobId, EngineJobStatus, EngineType
 from engine.core.protocol import PptEngine
 
 
@@ -107,9 +107,21 @@ class StubPptMasterEngine(PptEngine):
     def _run_generation(self, job_id, content) -> None:
         """后台线程：模拟 PPT 生成过程。"""
         time.sleep(self.simulate_seconds)
+        if self._read_job(job_id).get("cancel_requested"):
+            return  # 已被 cancel：不覆写终态，让编排层落的 cancelled 留在原位
         title = self._read_job(job_id).get("title", "")
         result = self.generate_ppt(self._job_dir(job_id), title, content)
         self._write_job(job_id, status="completed", result_path=str(result), updated_at=_now())
+
+    def cancel(self, job_id) -> bool:
+        """stub 也实现终止钩子：让「能力位派生 → running 任务可中断」这条链路在离线
+        测试与压测里真的可跑（不烧额度）。没有真子进程，用取消标记让模拟生成收手。
+        """
+        self._write_job(
+            job_id, cancel_requested=True, status="failed",
+            error="模拟生成已被终止（cancel）", updated_at=_now(),
+        )
+        return True
 
     # ── PptEngine 协议 ──
     def submit(self, content, title=None, pages=None, engine_params=None, sources=None, job_id=None, engine_type=None) -> JobId:
@@ -149,8 +161,8 @@ class StubPptMasterEngine(PptEngine):
         
         return JobId(job_id)
 
-    def status(self, job_id) -> JobStatus:
-        return JobStatus(self._read_job(job_id).get("status", "running"))
+    def status(self, job_id) -> EngineJobStatus:
+        return EngineJobStatus(self._read_job(job_id).get("status", "running"))
 
     def result(self, job_id) -> str:
         rp = self._read_job(job_id).get("result_path")
@@ -173,7 +185,7 @@ class StubPptMasterEngine(PptEngine):
     def _to_job(job_id, data) -> Job:
         return Job(
             job_id=JobId(str(job_id)),
-            status=JobStatus(data.get("status", "running")),
+            status=EngineJobStatus(data.get("status", "running")),
             task_type=EngineType.OUTPUT,
             status_detail=data.get("status_detail"),
             result_path=data.get("result_path"),

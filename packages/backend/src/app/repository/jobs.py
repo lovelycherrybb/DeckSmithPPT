@@ -10,8 +10,8 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
-from sqlalchemy import delete, select
+from datetime import datetime, timedelta, timezone
+from sqlalchemy import delete, select, update
 
 from ..models import Project, Job, Draft, DraftVersion, Presentation
 from ..core.db import SessionLocal
@@ -22,7 +22,7 @@ def _now() -> str:
 
 
 def _encode_json_columns(fields: dict) -> dict:
-    """把「以 JSON 文本存列」的 dict 值就地序列化（engine_params / token_usage）。
+    """把「以 JSON 文本存列」的容器值就地序列化（engine_params / token_usage / sources）。
 
     create 与 update 两条写路径必须同规则，否则一边存对象一边存字符串。
     None 保持 None（落库为 NULL）——token_usage 的 NULL 就是「未记录」这个语义
@@ -31,6 +31,8 @@ def _encode_json_columns(fields: dict) -> dict:
     for key in ("engine_params", "token_usage"):
         if isinstance(fields.get(key), dict):
             fields[key] = json.dumps(fields[key], ensure_ascii=False)
+    if isinstance(fields.get("sources"), (list, tuple)):
+        fields["sources"] = json.dumps(list(fields["sources"]), ensure_ascii=False)
     return fields
 
 
@@ -86,7 +88,12 @@ class ProjectRepo:
         return self._row_to_dict(obj)
 
     def stats(self, db, project_ids: list[str]) -> dict[str, dict]:
-        """批量统计各项目的草稿数 / 演示文件数 / 运行中任务数（三条 group-by，避免 N+1）。"""
+        """批量统计各项目的草稿数 / 演示文件数 / 未结束任务数（三条 group-by，避免 N+1）。
+
+        `running_task_count` 的口径是**未结束**（queued + running），不是"status 等于
+        running"：引入排队态之后再只数 running，项目卡上就会出现"看着 0 个在跑、
+        其实有 3 个在排队"的假象（ADR-018 消费侧口径）。字段名沿用契约不改。
+        """
         from sqlalchemy import func
         if not project_ids:
             return {}
@@ -99,12 +106,12 @@ class ProjectRepo:
 
         drafts = group_count(Draft, Draft.project_id)
         presentations = group_count(Presentation, Presentation.project_id)
-        running = group_count(Job, Job.project_id, Job.status == "running")
+        unfinished = group_count(Job, Job.project_id, Job.status.in_(("queued", "running")))
         return {
             pid: {
                 "draft_count": drafts.get(pid, 0),
                 "presentation_count": presentations.get(pid, 0),
-                "running_task_count": running.get(pid, 0),
+                "running_task_count": unfinished.get(pid, 0),
             }
             for pid in project_ids
         }
@@ -173,6 +180,11 @@ class JobRepo:
             "task_type": obj.task_type,
             "status": obj.status,
             "status_detail": obj.status_detail,
+            # 调度器要用这三个值做认领判定与超时预算（ADR-019）。它们**不进契约**：
+            # JobOut 是 extra="ignore"，多出来的键不会出现在任何响应体里。
+            "claimed_by": obj.claimed_by,
+            "claimed_at": obj.claimed_at,
+            "started_at": obj.started_at,
             "engine_job_id": obj.engine_job_id,  # 与 contracts 对齐
             "title": obj.title,
             "pages": obj.pages,
@@ -181,6 +193,9 @@ class JobRepo:
             "content_style": obj.content_style,
             "engine_params": json.loads(obj.engine_params) if obj.engine_params else {},
             "content": obj.content,
+            # 调度器认领时要靠它还原 engine.submit 的 sources 入参（ADR-019 决策 2）。
+            # JobOut 是 extra="ignore"，所以多出来这个键不会污染契约响应。
+            "sources": json.loads(obj.sources) if obj.sources else [],
             "draft_content": obj.draft_content,
             "draft_path": obj.draft_path,
             "draft_id": obj.draft_id,
@@ -227,6 +242,11 @@ class JobRepo:
         return [self._row_to_dict(obj) for obj in rows]
 
     def update(self, db, job_id: str, **fields) -> dict | None:
+        """无条件更新（仅供调用方持有该行写权限时使用）。
+
+        并发敏感的终态写入**不要**用本方法，走 `cas_status`——本方法不带前置条件，
+        会把别人刚落好的终态抹掉（ADR-019 决策 4）。
+        """
         obj = db.execute(select(Job).where(Job.job_id == job_id)).scalar_one_or_none()
         if obj is None:
             return None
@@ -238,6 +258,157 @@ class JobRepo:
         db.commit()
         db.refresh(obj)
         return self._row_to_dict(obj)
+
+    # ── 调度器专用写入（ADR-019 决策 3/4）──────────────────────────────
+    # 共同口径：**一律带前置条件**，以 rowcount 判定自己是否抢到；抢不到就放弃覆写，
+    # 绝不"先 SELECT 再 UPDATE"（那是 TOCTOU），也绝不无条件 UPDATE（那会把别人已落的
+    # 终态抹掉）。于是"用户撤队 vs 调度器 fork 成功 vs 引擎判超时"三方竞态都有确定答案。
+
+    #: 认领占位超过这个秒数仍未提升 = 上一个认领者大概已经崩了，允许被抢回。
+    #: 判定证据由调度器的收尸阶段负责（job.json 里有活 pid 或有产物 → 提升为 running）。
+    CLAIM_STALE_SECONDS = 120
+
+    @staticmethod
+    def _claim_stale_before() -> str:
+        """陈旧占位的判定界。
+
+        刻意与 `_now()` 同用 UTC：`claimed_at` 存的是 ISO 字符串，比较走字典序，
+        混用本地时区（带 +08:00 偏移）会让"界"和"值"不同格式、判定当场失真。
+        """
+        return (datetime.now(timezone.utc)
+                - timedelta(seconds=JobRepo.CLAIM_STALE_SECONDS)).isoformat()
+
+    def list_stale_claims(self, db) -> list[dict]:
+        """被占了位却迟迟没提升为 running 的 queued 行（认领者大概已经崩了）。
+
+        时间比较只留在这一个地方（见 `_claim_stale_before` 的注释），调度器不再自己算界。
+        """
+        stale_before = self._claim_stale_before()
+        rows = db.execute(
+            select(Job).where(Job.status == "queued", Job.claimed_at.is_not(None),
+                              Job.claimed_at < stale_before)
+            .order_by(Job.created_at.asc(), Job.id.asc())
+        ).scalars().all()
+        return [self._row_to_dict(obj) for obj in rows]
+
+    def claim_next_queued(self, db, claimant: str) -> dict | None:
+        """预留队头一个可认领的 queued 任务（严格 FIFO），返回抢到的行；无则 None。
+
+        只打 `claimed_by/claimed_at`，**status 仍是 queued** ——fork 成功后才由
+        `promote_to_running` 翻态（契约把 queued 定义为"子进程尚未 fork 成功"，
+        先置 running 再 fork 会让 fork 失败的行冒充 running）。
+        """
+        stale_before = self._claim_stale_before()
+        for _ in range(10):  # 有界重试：这一行被别人抢先就换下一行，不空转
+            cand = db.execute(
+                select(Job.job_id).where(
+                    Job.status == "queued",
+                    (Job.claimed_by.is_(None)) | (Job.claimed_at < stale_before),
+                ).order_by(Job.created_at.asc(), Job.id.asc()).limit(1)
+            ).scalar_one_or_none()
+            if cand is None:
+                return None
+            res = db.execute(
+                update(Job)
+                .where(Job.job_id == cand, Job.status == "queued")
+                .values(claimed_by=claimant, claimed_at=_now())
+            )
+            db.commit()
+            if res.rowcount:
+                return self.get(db, cand)
+        return None
+
+    def promote_to_running(self, db, job_id: str, claimant: str) -> bool:
+        """CAS：queued（且仍是我占的位）→ running，并记 `started_at` 作超时预算起点。
+
+        返回 False **不是异常**，而是"这一行已被别人落走"（多半是用户在这空档撤销了）。
+        调用方必须回收刚 fork 出来的子进程，否则就是"库里已 cancelled、claude 还在跑"
+        的新僵尸——本设计最容易写错的一处（ADR-019 决策 3）。
+        """
+        res = db.execute(
+            update(Job)
+            .where(Job.job_id == job_id, Job.status == "queued", Job.claimed_by == claimant)
+            .values(status="running", started_at=_now(), status_detail="引擎执行中",
+                    updated_at=_now())
+        )
+        db.commit()
+        return res.rowcount > 0
+
+    def release_claim(self, db, job_id: str, claimant: str) -> bool:
+        """交还预留槽位（fork 失败或提升 CAS 输掉时调用），让任务重新排队。"""
+        res = db.execute(
+            update(Job)
+            .where(Job.job_id == job_id, Job.status == "queued", Job.claimed_by == claimant)
+            .values(claimed_by=None, claimed_at=None, updated_at=_now())
+        )
+        db.commit()
+        return res.rowcount > 0
+
+    def cas_status(self, db, job_id: str, *, from_status: str, **fields) -> bool:
+        """带前置条件的状态写入：只有当前仍是 from_status 才改，改不到就 False。"""
+        fields.setdefault("updated_at", _now())
+        _encode_json_columns(fields)
+        res = db.execute(
+            update(Job).where(Job.job_id == job_id, Job.status == from_status).values(**fields)
+        )
+        db.commit()
+        return res.rowcount > 0
+
+    def count_by_status(self, db, *statuses: str) -> int:
+        """按状态集合计数（并发闸口径 = running 的行数；"未结束"= queued + running）。"""
+        from sqlalchemy import func
+        return db.execute(
+            select(func.count()).select_from(Job).where(Job.status.in_(statuses))
+        ).scalar_one()
+
+    def list_by_status(self, db, *statuses: str) -> list[dict]:
+        rows = db.execute(
+            select(Job).where(Job.status.in_(statuses)).order_by(Job.created_at.asc(), Job.id.asc())
+        ).scalars().all()
+        return [self._row_to_dict(obj) for obj in rows]
+
+    def count_unfinished_for_identity(self, db, *, user_id: str | None = None,
+                                      visitor_id: str | None = None) -> int:
+        """该身份未完成任务数（queued + running），用于 per-identity 粗闸（ADR-019 决策 7）。
+
+        归属沿 projects 走：登录用户看 owner_user_id，访客看未认领的 visitor_id。
+        两个都传就取并集（同一个人可能既有登录项目又有登录前的访客项目）。
+        """
+        from sqlalchemy import func, or_
+        conds = []
+        if user_id:
+            conds.append(Project.owner_user_id == user_id)
+        if visitor_id:
+            conds.append(
+                (Project.owner_user_id.is_(None)) & (Project.visitor_id == visitor_id)
+            )
+        if not conds:
+            return 0
+        query = (select(func.count()).select_from(Job)
+                 .join(Project, Project.project_id == Job.project_id)
+                 .where(Job.status.in_(("queued", "running")), or_(*conds)))
+        return db.execute(query).scalar_one()
+
+    def queue_position(self, db, job_id: str) -> int | None:
+        """排队位序：本任务前面还有多少个未认领的 queued 任务；非 queued 返回 None。
+
+        口径与契约一致（openapi Job.queue_position）：**读取时现算的派生值**，
+        按 created_at FIFO，只数 claimed_by IS NULL 的（已被占位的等于轮到它了）。
+        不入库、不构成承诺。
+        """
+        from sqlalchemy import func
+        mine = db.execute(
+            select(Job.created_at, Job.id, Job.status).where(Job.job_id == job_id)
+        ).one_or_none()
+        if mine is None or mine[2] != "queued":
+            return None
+        return db.execute(
+            select(func.count()).select_from(Job).where(
+                Job.status == "queued", Job.claimed_by.is_(None),
+                (Job.created_at < mine[0])
+                | ((Job.created_at == mine[0]) & (Job.id < mine[1])),
+            )
+        ).scalar_one()
 
 
 class DraftRepo:

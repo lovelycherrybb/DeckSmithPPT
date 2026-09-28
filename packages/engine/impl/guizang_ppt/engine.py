@@ -40,7 +40,8 @@ from pathlib import Path
 from typing import Any
 
 from engine.core.config import get_jobs_root
-from engine.core.models import Job, JobId, JobStatus, EngineType
+from engine.core.models import Job, JobId, EngineJobStatus, EngineType
+from engine.core.proc import terminate_tree
 from engine.core.protocol import OutputEngine
 from engine.core.usage import add_usage, usage_from_result
 
@@ -418,6 +419,8 @@ class GuizangPptEngine(OutputEngine):
                 ],
                 # cwd 用 job 目录而非技能目录：技能是上游只读区，且产物必须落在本任务目录
                 cwd=str(job_dir),
+                # 自成进程组：cancel 时要连 claude fork 出来的 node 校验脚本一起终止
+                start_new_session=True,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
@@ -571,6 +574,7 @@ class GuizangPptEngine(OutputEngine):
                 prompt,
             ],
             cwd=str(job_dir), stdin=subprocess.DEVNULL,
+            start_new_session=True,   # 与 submit 同口径：续跑的子进程树也要能被整组终止
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
         )
         self._write_job(job_id, pid=proc.pid, resume_attempt=attempt, updated_at=_now())
@@ -634,6 +638,11 @@ class GuizangPptEngine(OutputEngine):
         data = self._read_job(job_id)
         if data.get("status") != "running":
             return  # 其它路径已落终态（如 timeout），不覆盖
+        if data.get("cancel_requested"):
+            # 用户已撤销：绝不能再 --resume。否则"撤销成功"之后子进程被 supervisor
+            # 亲手拉起来继续烧额度——这个分支就是本钩子存在的理由（ADR-019 决策 5）。
+            self._append_log(job_id, "\n⏹ 已收到撤销，不再续跑\n")
+            return
         since = data.get("started_at", 0.0) or 0.0
         if self._artifact_ready(job_id, since):
             # 产物已落盘：释放租约，终态交给 status() 判 completed
@@ -674,7 +683,7 @@ class GuizangPptEngine(OutputEngine):
             error=self._diagnose_failure(job_id, data),
         )
 
-    def status(self, job_id: Any) -> JobStatus:
+    def status(self, job_id: Any) -> EngineJobStatus:
         """状态推进：已终态直接返回；running 时看进程，进程已结束时按钉死的产物判定。
 
         进程已退出且产物缺失时，若本进程内的 supervisor 仍在决策（可能正要 --resume 续跑），
@@ -683,26 +692,45 @@ class GuizangPptEngine(OutputEngine):
         data = self._read_job(job_id)
         status = data.get("status", "running")
         if status != "running":
-            return JobStatus(status)
+            return EngineJobStatus(status)
         if self._process_alive(data.get("pid")):
-            return JobStatus.RUNNING
+            return EngineJobStatus.RUNNING
 
         since = data.get("started_at", 0.0) or 0.0
         result_file = self._result_path(job_id)
         if self._artifact_ready(job_id, since):
             self._write_job(job_id, status="completed", result_path=str(result_file), updated_at=_now())
-            return JobStatus.COMPLETED
+            return EngineJobStatus.COMPLETED
 
         lease = data.get("supervisor_pid")
         if lease and self._process_alive(lease):
-            return JobStatus.RUNNING  # 交给 supervisor 决策（续跑或判失败）
+            return EngineJobStatus.RUNNING  # 交给 supervisor 决策（续跑或判失败）
 
         self._write_job(
             job_id, status="failed",
             error=self._diagnose_failure(job_id, data),
             updated_at=_now(), supervisor_pid=None,
         )
-        return JobStatus.FAILED
+        return EngineJobStatus.FAILED
+
+    def cancel(self, job_id: Any) -> bool:
+        """终止本任务的 claude 进程树，并阻止 supervisor 续跑（协议可选钩子）。
+
+        顺序**必须**是先立 `cancel_requested` 牌子、再杀进程：supervisor 在子进程退出后
+        会按"产物没写出来 → --resume 续跑"的原逻辑再拉起一条会话，先杀后立牌就给了它
+        续跑的窗口（撤销完额度照烧）。见 `_supervise` 里的对应分支。
+
+        引擎侧记自己的终态 failed；`cancelled` 由编排层落 DB（ADR-018 分层枚举）。
+        """
+        self._write_job(job_id, cancel_requested=True, updated_at=_now())
+        data = self._read_job(job_id)
+        terminated = terminate_tree(data.get("pid"))
+        if terminated and data.get("status") == "running":
+            self._write_job(
+                job_id, status="failed", error="引擎执行已被终止（cancel）",
+                updated_at=_now(), supervisor_pid=None,
+            )
+        return terminated
 
     def result(self, job_id: Any) -> str:
         data = self._read_job(job_id)
@@ -734,7 +762,7 @@ class GuizangPptEngine(OutputEngine):
     def _to_job(job_id: Any, data: dict) -> Job:
         return Job(
             job_id=JobId(str(job_id)),
-            status=JobStatus(data.get("status", "running")),
+            status=EngineJobStatus(data.get("status", "running")),
             task_type=EngineType.OUTPUT,
             status_detail=data.get("status_detail"),
             result_path=data.get("result_path"),

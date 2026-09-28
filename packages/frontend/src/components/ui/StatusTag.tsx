@@ -6,10 +6,15 @@ import { Tag } from 'antd';
 import type { JobStatus } from '@/lib/api';
 
 const STATUS_META: Record<JobStatus, { color: string; label: string }> = {
+  queued: { color: 'blue', label: '排队中' },
   running: { color: 'gold', label: '运行中' },
   completed: { color: 'green', label: '已完成' },
   failed: { color: 'red', label: '失败' },
   timeout: { color: 'orange', label: '超时' },
+  // cancelled 的中文文案与配色属于前端那一批的设计（撤销按钮、排队中文案一并敲）；
+  // 这里先补齐键位是为了让 `Record<JobStatus, …>` 的穷尽检查过编译 ——
+  // 少了它 `next build` 直接红，容器镜像就构建不出来。
+  cancelled: { color: 'default', label: '已撤销' },
 };
 
 export function StatusTag({ status }: { status?: JobStatus | string }) {

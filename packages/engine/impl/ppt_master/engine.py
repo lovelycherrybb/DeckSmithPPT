@@ -34,7 +34,8 @@ from pathlib import Path
 from typing import Any
 
 from engine.core.config import get_jobs_root
-from engine.core.models import Job, JobId, JobStatus, EngineType
+from engine.core.models import Job, JobId, EngineJobStatus, EngineType
+from engine.core.proc import terminate_tree
 from engine.core.protocol import PptEngine
 from engine.core.usage import add_usage, usage_from_result
 
@@ -473,6 +474,9 @@ class PptMasterEngine(PptEngine):
                 prompt,
             ],
             cwd=str(job_dir),  # ADR-012 决策 1：产物落 <jobs_root>/<job_id>/projects/
+            # 自成进程组：claude 还会 fork python3/node 跑技能脚本，取消时必须能整棵子树
+            # 一起终止（否则孤儿继续吃 CPU 与额度）。proc.terminate_tree 依赖这个前提。
+            start_new_session=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -575,29 +579,47 @@ class PptMasterEngine(PptEngine):
             except Exception:  # noqa: BLE001
                 pass
 
-    def status(self, job_id: Any) -> JobStatus:
+    def status(self, job_id: Any) -> EngineJobStatus:
         data = self._read_job(job_id)
         status = data.get("status", "running")
         if status != "running":
-            return JobStatus(status)
+            return EngineJobStatus(status)
         # 草稿任务（异步提交）无 claude 子进程，终态由后台提取线程置 completed/failed；
         # 不能走下面的「进程不在→找产物→判失败」租约逻辑，否则刚提交就会被误判失败。
         if data.get("engine_type") == "draft":
-            return JobStatus.RUNNING
+            return EngineJobStatus.RUNNING
         # running：先看进程是否还活着
         if self._process_alive(data.get("pid")):
-            return JobStatus.RUNNING
+            return EngineJobStatus.RUNNING
         # 进程已结束 -> 看产物
         since = data.get("started_at", 0.0)
         result = self._newest_export(job_id, since)
         if result is not None:
             self._write_job(job_id, status="completed", result_path=str(result), updated_at=_now())
-            return JobStatus.COMPLETED
+            return EngineJobStatus.COMPLETED
         self._write_job(
             job_id, status="failed",
             error="claude 子进程结束但未找到产物（详见 run.log）", updated_at=_now(),
         )
-        return JobStatus.FAILED
+        return EngineJobStatus.FAILED
+
+    def cancel(self, job_id: Any) -> bool:
+        """终止本任务的 claude 进程树（协议可选钩子，见 PptEngine.cancel）。
+
+        本引擎原先连"超时杀进程"都没有实现（只有 guizang 的 supervisor 会 kill），
+        于是出现过"库里已 timeout、claude 还在后台跑并继续写产物"的僵尸（ADR-019 背景 3）。
+
+        引擎侧只说自己的真话：杀完把 job.json 记成 failed（引擎态**没有** cancelled ——
+        那是编排层对用户意图的记录，见 ADR-018 分层枚举）。DB 里的 cancelled 由调度器落。
+        """
+        data = self._read_job(job_id)
+        terminated = terminate_tree(data.get("pid"))
+        if terminated and data.get("status") == "running":
+            self._write_job(
+                job_id, status="failed",
+                error="引擎执行已被终止（cancel）", updated_at=_now(),
+            )
+        return terminated
 
     def result(self, job_id: Any) -> str:
         data = self._read_job(job_id)
@@ -631,7 +653,7 @@ class PptMasterEngine(PptEngine):
     def _to_job(job_id: Any, data: dict) -> Job:
         return Job(
             job_id=JobId(str(job_id)),
-            status=JobStatus(data.get("status", "running")),
+            status=EngineJobStatus(data.get("status", "running")),
             task_type=EngineType.OUTPUT,
             status_detail=data.get("status_detail"),
             result_path=data.get("result_path"),
@@ -736,3 +758,7 @@ class PptMasterDraftEngine(PptMasterEngine):
 
     get_pages = None  # type: ignore[assignment]
     get_preview_root = None  # type: ignore[assignment]
+    # 也退出「终止」钩子：草稿路径是在线程里跑确定性的 source_to_md，job.json 里没有
+    # 可杀的 pid，继承父类 cancel 会对 pid=None 返回 True、构成契约禁止的"静默假撤销"。
+    # 排队中的草稿任务仍能正常撤销——那是编排层直接从队列摘掉，不调本钩子（ADR-019 决策 5）。
+    cancel = None  # type: ignore[assignment]

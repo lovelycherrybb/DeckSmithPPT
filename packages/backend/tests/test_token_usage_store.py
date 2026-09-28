@@ -28,6 +28,7 @@ for p in (str(_BACKEND_SRC), str(_PACKAGES)):
 from app.core.schemas import JobOut  # noqa: E402
 from app.repository.jobs import JobRepo  # noqa: E402
 from app.service.jobs import JobService  # noqa: E402
+from app.service.scheduler import Scheduler  # noqa: E402
 
 _USAGE = {
     "input_tokens": 100,
@@ -131,16 +132,17 @@ def test_jobout缺usage为None_分项null原样出参():
     assert part.model_dump()["token_usage"]["cache_read_input_tokens"] == 900
 
 
-# ── 收割通道：job.json → dict ──
+# ── 收割通道：job.json → dict（收割已搬到调度器，ADR-019）──
 def _reported_usage(tmp_path, monkeypatch, job_json: dict | None):
-    from engine.core import config as engine_config
+    from app.core import db as app_db
+    from app.service.scheduler import Scheduler
 
     jobs_root = tmp_path / "jobs" / "jid"
     jobs_root.mkdir(parents=True, exist_ok=True)
     if job_json is not None:
         (jobs_root / "job.json").write_text(json.dumps(job_json), encoding="utf-8")
-    monkeypatch.setattr(engine_config, "get_jobs_root", lambda: tmp_path / "jobs")
-    return JobService._engine_reported_usage("jid")
+    monkeypatch.setattr(app_db, "JOBS_ROOT", tmp_path / "jobs")
+    return Scheduler._engine_reported_usage("jid")
 
 
 def test_收割只认带派生总数的形态(tmp_path, monkeypatch):
@@ -152,25 +154,31 @@ def test_收割只认带派生总数的形态(tmp_path, monkeypatch):
     assert _reported_usage(tmp_path, monkeypatch, {"status": "completed"}) is None
 
 
-# ── 轮询终态一律回填（completed / failed / 超时兜底）──
+# ── 调度器落终态时一律回填用量（completed / failed / 超时兜底）──
 class _FakeEngine:
     """status() 依次吐出给定序列，吐完后停在最后一个值（轮询会多次调用）。"""
 
     def __init__(self, statuses):
         self._queue = list(statuses)
+        self._last = statuses[-1]
+        self.cancelled: list = []
 
     def status(self, job_id):
-        from engine.core.models import JobStatus
+        from engine.core.models import EngineJobStatus
 
         raw = self._queue.pop(0) if self._queue else self._last
         self._last = raw
-        return JobStatus(raw)
+        return EngineJobStatus(raw)
 
     def result(self, job_id):
         raise FileNotFoundError(job_id)
 
     def get_progress(self, job_id):
         return None
+
+    def cancel(self, job_id):
+        self.cancelled.append(job_id)
+        return True
 
 
 def _seed_running(db, job_id="pj1"):
@@ -180,27 +188,30 @@ def _seed_running(db, job_id="pj1"):
     )
 
 
-def _make_service(monkeypatch, db, tmp_path, statuses):
-    import app.service.jobs as sj
+def _make_scheduler(monkeypatch, db, tmp_path, statuses):
+    """造一个只跑一拍的调度器：假引擎 + 临时库 + 临时 jobs 根。
 
-    monkeypatch.setattr(sj, "SessionLocal", lambda: db)
-    monkeypatch.setattr(sj, "_DEFAULT_POLL_INTERVAL", 0)
-    from engine.core import config as engine_config
+    原先这批用例打的是 `JobService._poll_until_done`（每任务一条线程的轮询）。
+    ADR-019 之后推状态机的只有调度循环一处，所以断言原样保留、驱动入口换掉——
+    要钉的仍是那句话：**失败/超时烧掉的 token 也是事实，一律如实回填**。
+    """
+    import app.core.db as app_db
 
     jobs_root = tmp_path / "jobs" / "pj1"
     jobs_root.mkdir(parents=True, exist_ok=True)
     (jobs_root / "job.json").write_text(json.dumps({"token_usage": _USAGE}), encoding="utf-8")
-    monkeypatch.setattr(engine_config, "get_jobs_root", lambda: tmp_path / "jobs")
+    monkeypatch.setattr(app_db, "JOBS_ROOT", tmp_path / "jobs")
 
-    svc = JobService(JobRepo(), engine_factory=lambda name: None)
-    monkeypatch.setattr(svc, "_get_engine", lambda name: _FakeEngine(statuses))
-    return svc
+    eng = _FakeEngine(statuses)
+    svc = JobService(JobRepo(), engine_factory=lambda name: eng)
+    return Scheduler(service=svc, engine_factory=lambda name: eng,
+                     session_factory=lambda: db), eng
 
 
 def test_failed任务也回填用量(db, tmp_path, monkeypatch):
     _seed_running(db)
-    svc = _make_service(monkeypatch, db, tmp_path, ["failed"])
-    svc._poll_until_done("pj1", "guizang_ppt")  # noqa: SLF001
+    sched, _eng = _make_scheduler(monkeypatch, db, tmp_path, ["failed"])
+    sched.sweep()
 
     row = JobRepo().get(db, "pj1")
     assert row["status"] == "failed"
@@ -209,20 +220,28 @@ def test_failed任务也回填用量(db, tmp_path, monkeypatch):
 
 def test_completed任务收割用量(db, tmp_path, monkeypatch):
     _seed_running(db)
-    svc = _make_service(monkeypatch, db, tmp_path, ["completed"])
-    monkeypatch.setattr(JobService, "_persist_presentation", lambda self, row, p: None)
-    svc._poll_until_done("pj1", "guizang_ppt")  # noqa: SLF001
+    sched, _eng = _make_scheduler(monkeypatch, db, tmp_path, ["completed"])
+    monkeypatch.setattr(JobService, "persist_presentation", lambda self, row, p: None)
+    sched.sweep()
 
     row = JobRepo().get(db, "pj1")
     assert row["status"] == "completed"
     assert row["token_usage"] == _USAGE
 
 
-def test_轮询超时兜底也收割用量(db, tmp_path, monkeypatch):
+def test_超时兜底也收割用量并杀进程(db, tmp_path, monkeypatch):
+    """引擎还在报 running，但已越过超时预算 → 判 timeout **且必须回收子进程**。
+
+    这条同时钉 ADR-019 的两件事：超时不再只改库不管进程（原先 ppt_master 就是这样，
+    于是出现过"库里已 timeout、claude 还在跑"的僵尸），以及失败/超时同样要入账。
+    """
     _seed_running(db)
-    svc = _make_service(monkeypatch, db, tmp_path, ["running"])
-    svc._poll_until_done("pj1", "guizang_ppt", timeout_seconds=0)  # noqa: SLF001
+    sched, eng = _make_scheduler(monkeypatch, db, tmp_path, ["running"])
+    sched.timeout_seconds = -1          # 让预算立刻越过（宽限期一并被越过）
+    sched.sweep()
 
     row = JobRepo().get(db, "pj1")
     assert row["status"] == "timeout"
     assert row["token_usage"] == _USAGE
+    assert eng.cancelled == ["pj1"], "超时必须先杀进程再落终态"
+    assert "已终止引擎子进程" in row["error"]

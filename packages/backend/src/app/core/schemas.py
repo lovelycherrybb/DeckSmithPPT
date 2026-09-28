@@ -186,8 +186,11 @@ class JobOut(BaseModel):
     job_id: str
     project_id: str | None = None
     task_type: str = "draft"  # draft=草稿引擎任务，output=输出引擎任务
-    status: str
-    status_detail: str | None = None  # 状态明细（引擎当前正在做什么，仅 running 时有意义）
+    status: str  # queued/running/completed/failed/timeout/cancelled（终态判定见 service.jobs）
+    status_detail: str | None = None  # 状态明细（引擎当前正在做什么，仅非终态时有意义）
+    # 排队位序：仅 status=queued 时有值，读取时按 created_at 现算的派生值，仅供参考
+    # （契约 openapi Job.queue_position；不入库、不构成承诺、不参与任何状态判定）
+    queue_position: int | None = None
     engine_job_id: str | None = None  # 与 contracts 对齐：引擎任务编号
     title: str | None = None
     pages: int | None = None

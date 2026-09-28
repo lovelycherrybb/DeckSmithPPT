@@ -10,7 +10,7 @@
 from pathlib import Path
 from typing import Protocol
 
-from engine.core.models import Job, JobId, JobStatus, EngineType
+from engine.core.models import Job, JobId, EngineJobStatus, EngineType
 
 
 class PptEngine(Protocol):
@@ -36,8 +36,29 @@ class PptEngine(Protocol):
             job_id: 任务 ID（可选，不提供则自动生成）
         """
 
-    def status(self, job_id: JobId) -> JobStatus:
-        """查询任务状态。"""
+    def status(self, job_id: JobId) -> EngineJobStatus:
+        """查询任务状态。
+
+        值域是引擎态（4 值，见 engine.core.models.EngineJobStatus 与 ADR-018 分层枚举）：
+        引擎只报告自己那个子进程的真相，**永远不产出** queued / cancelled——
+        排队与撤销是编排层（app.service.scheduler）的决定。
+        """
+
+    def cancel(self, job_id: JobId) -> bool:
+        """【可选钩子】终止该任务的引擎执行（杀掉子进程，不再产生新产物）。
+
+        实现它即点亮 `EngineInfo.capabilities` 的 `cancel` 能力位——由
+        `registry.implements_hook()` 鸭子类型派生，不按引擎名门控（ADR-001/ADR-019 决策 5）。
+
+        两处在调它：
+        1. 用户对 running 任务点撤销（不具备本钩子的引擎，该请求返回 409，
+           **绝不静默"假撤销"而让子进程继续跑继续烧额度**）；
+        2. 调度器发现"已 fork 但落库 CAS 输给了撤销/终态"时回收刚起的子进程（ADR-019 决策 3）。
+
+        Returns:
+            True  : 已终止，或进程本就不存在（幂等，重复调用安全）。
+            False : 无法终止（引擎内部错误）。调用方不得据此把任务判成 cancelled。
+        """
 
     def result(self, job_id: JobId) -> str:
         """取回生成的 PPTX 文件路径。"""
@@ -69,7 +90,7 @@ class DraftEngine(Protocol):
             job_id: 任务 ID（可选，不提供则自动生成）
         """
 
-    def status(self, job_id: JobId) -> JobStatus:
+    def status(self, job_id: JobId) -> EngineJobStatus:
         """查询任务状态。"""
 
     def result(self, job_id: JobId) -> str:
@@ -104,7 +125,7 @@ class OutputEngine(Protocol):
             job_id: 任务 ID（可选，不提供则自动生成）
         """
 
-    def status(self, job_id: JobId) -> JobStatus:
+    def status(self, job_id: JobId) -> EngineJobStatus:
         """查询任务状态。"""
 
     def result(self, job_id: JobId) -> str:

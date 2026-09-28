@@ -45,6 +45,13 @@ _MIGRATIONS = {
         "draft_version": "ALTER TABLE jobs ADD COLUMN draft_version VARCHAR(32)",
         # token 消耗（JSON 文本，NULL=未记录）。可空列，按本文件规矩不升 SCHEMA_VERSION
         "token_usage": "ALTER TABLE jobs ADD COLUMN token_usage TEXT",
+        # 调度器认领字段（ADR-019 决策 3）：两段式认领与超时预算起点。
+        # 三个都是可空列，按本文件规矩不升 SCHEMA_VERSION；且**不进契约**（编排层私有状态）。
+        "claimed_by": "ALTER TABLE jobs ADD COLUMN claimed_by VARCHAR(128)",
+        "claimed_at": "ALTER TABLE jobs ADD COLUMN claimed_at VARCHAR(32)",
+        "started_at": "ALTER TABLE jobs ADD COLUMN started_at VARCHAR(32)",
+        # 素材来源（JSON 文本）：调度器认领任务时还原 engine.submit 的入参（ADR-019 决策 2）
+        "sources": "ALTER TABLE jobs ADD COLUMN sources TEXT",
     },
     "projects": {
         "project_name": "ALTER TABLE projects ADD COLUMN project_name VARCHAR(255)",

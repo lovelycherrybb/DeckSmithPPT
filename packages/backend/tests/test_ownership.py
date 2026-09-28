@@ -230,26 +230,39 @@ class _RecordingEngine:
         self.received = dict(engine_params=engine_params)
         return job_id
     def status(self, job_id):
-        from engine.core.models import JobStatus
-        return JobStatus.RUNNING
+        from engine.core.models import EngineJobStatus
+        return EngineJobStatus.RUNNING
 
 
 def test_submit_普通用户引擎参数被后端剥离(db):
-    from fastapi import BackgroundTasks
+    """门控发生在**入库那一刻**；再各跑一拍调度，确认剥离后的参数原样交到引擎手上。
+
+    两条任务分别提交、分别调度：它们共用同一个引擎名，一次 sweep 会把队列里两条
+    都认领掉，断言就分不清谁是谁了。ADR-019 之后 submit 不再同步 fork，
+    参数交接全部发生在调度器里，所以"入库的参数"和"引擎收到的参数"要分开钉。
+    """
     from app.core.schemas import DeckRequest
     from app.service.jobs import JobService
-    rec = _RecordingEngine()
-    svc = JobService(JobRepo(), engine_factory=lambda name: rec)
-    svc._get_engine = lambda name: rec
-    normal = _user(db, "n2", role="normal")
-    vip = _user(db, "v2", role="vip")
+    from app.service.scheduler import Scheduler
+
     req = DeckRequest(engine="guizang_ppt", engine_type="output", content="# 草稿\n正文",
                       engine_params={"style": "swiss", "pages": 9})
+    expected_vip = {"style": "swiss", "pages": 9}
 
-    svc.submit(db, req, BackgroundTasks(), Identity(user=normal, visitor_id=None))
-    assert rec.received["engine_params"] == {}  # 普通用户：后端剥离自定义参数
+    def submit_and_claim(user_id: str, role: str):
+        rec = _RecordingEngine()
+        svc = JobService(JobRepo(), engine_factory=lambda name: rec)
+        out = svc.submit(db, req, Identity(user=_user(db, user_id, role=role),
+                                           visitor_id=None))
+        # max_concurrent 给到 5：假引擎的 status() 恒为 RUNNING，第一条任务会一直占着
+        # running 槽位。闸门给 1 的话第二拍就没空位认领了——这恰好也侧面验证了
+        # "并发闸的口径是 DB 里 running 的行数"（ADR-019）。
+        Scheduler(service=svc, max_concurrent=5, engine_factory=lambda name: rec,
+                  session_factory=lambda: db).sweep()
+        stored = JobRepo().get(db, out.job_id)["engine_params"]
+        return stored, rec.received["engine_params"]
 
-    rec2 = _RecordingEngine()
-    svc._get_engine = lambda name: rec2
-    svc.submit(db, req, BackgroundTasks(), Identity(user=vip, visitor_id=None))
-    assert rec2.received["engine_params"] == {"style": "swiss", "pages": 9}  # 高级用户：保留
+    # 普通用户：后端剥离自定义参数，引擎侧也不该看到它们
+    assert submit_and_claim("n2", "normal") == ({}, {})
+    # 高级用户：原样保留并原样交付
+    assert submit_and_claim("v2", "vip") == (expected_vip, expected_vip)

@@ -183,6 +183,13 @@ a {
   border-radius: var(--radius-lg);
   gap: 4px;
 }
+/* 管理员有 5 个标签（含「系统设置」）。antd Tabs 判定"溢出"后插入的「⋯」按钮宽 45px，
+   而它占的正是标签条缺的那点宽 —— 越挤越溢出的自锁：实测标签条只需 487px、
+   容器给了 532px，本来就放得下。顶部导航是居中的定宽胶囊，不参与横向滚动，
+   所以这里直接禁掉折叠指示，让 5 个标签始终平铺。 */
+.header-tabs .ant-tabs-nav-more { display: none !important; }
+.header-tabs .ant-tabs-nav-wrap { overflow: visible !important; }
+
 .header-tabs .ant-tabs-tab {
   padding: 8px 16px !important;
   margin: 0 !important;

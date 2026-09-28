@@ -30,6 +30,7 @@ import {
 } from 'antd';
 import { RotateCcw, Save } from 'lucide-react';
 import {
+  ApiError,
   getSystemSettings,
   saveSystemSettings,
   type SystemSettingsField,
@@ -39,6 +40,29 @@ import {
 const { Text } = Typography;
 
 type DraftValue = string | number | boolean;
+
+/**
+ * 把加载失败翻译成人话。
+ *
+ * 直接把框架原文糊到脸上是不合格的：实测后端进程是改动前起的、不认识新路由时，
+ * 这里显示的是 `Not Found` —— 管理员看到只会以为"权限不对"或"东西被删了"，
+ * 而真实原因是"后端服务需要重启"，是一个他自己能动手解决的动作。
+ */
+function describeLoadError(e: unknown): string {
+  if (e instanceof ApiError) {
+    if (e.status === 404) {
+      return '后端未提供系统设置接口。若这些功能是刚发布的，重启后端服务即可（旧进程不认识新路由）。';
+    }
+    if (e.status === 403) {
+      return '当前账号不是管理员，无法查看或修改系统设置。';
+    }
+    if (e.status === 401) {
+      return '登录状态已失效，请重新登录后再试。';
+    }
+    return e.message || `读取失败（HTTP ${e.status}）`;
+  }
+  return e instanceof Error ? e.message : '读取系统设置失败';
+}
 
 export default function SystemSettingsTab() {
   const [messageApi, contextHolder] = message.useMessage();
@@ -59,7 +83,7 @@ export default function SystemSettingsTab() {
       setCleared(new Set());
       setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : '读取系统设置失败');
+      setError(describeLoadError(e));
     } finally {
       setLoading(false);
     }
@@ -248,6 +272,8 @@ export default function SystemSettingsTab() {
           );
         })}
 
+        {/* 读不到设置项时不摆这条：底下没有任何可保存的东西，"保存"只会再吃一次 404 */}
+        {data && (
         <Card styles={{ body: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } }}>
           <Text type="secondary" style={{ fontSize: 12 }}>
             {dirty > 0 ? `${dirty} 项改动未保存` : '没有未保存的改动'}
@@ -266,6 +292,7 @@ export default function SystemSettingsTab() {
             </Button>
           </Space>
         </Card>
+        )}
       </Space>
     </div>
   );

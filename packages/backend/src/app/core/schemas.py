@@ -89,6 +89,57 @@ class UserPreferenceOut(BaseModel):
     updated_at: str | None = None
 
 
+class CapacityInfo(BaseModel):
+    """只读容量提示（任意身份可取，ADR-020 决策 7）。
+
+    刻意只有三个数：不暴露配置项清单、不暴露密钥状态。给等待中的人解释"为什么慢"，
+    不是给普通用户开一个只读的设置面。
+    """
+    max_concurrent_jobs: int
+    running: int
+    queued: int
+
+
+class SystemSettingsFieldOut(BaseModel):
+    """一个设置项的元数据 + 生效值（对齐契约 SystemSettingsField）。
+
+    前端按本对象通用渲染，不写死任何键名 —— 加设置项只改后端注册表。
+    secret 类型：value 恒 null，只回 configured/masked，明文不出后端。
+    """
+    key: str
+    group: str
+    label: str
+    description: str | None = None
+    type: str  # int | bool | string | secret
+    unit: str | None = None
+    min: int | None = None
+    max: int | None = None
+    default: Any = None
+    value: Any = None
+    configured: bool | None = None
+    masked: str | None = None
+    overridden: bool
+    source: str  # default | override
+    restart_required: bool
+
+
+class SystemSettingsGroupOut(BaseModel):
+    id: str
+    label: str
+    description: str | None = None
+
+
+class SystemSettingsOut(BaseModel):
+    groups: list[SystemSettingsGroupOut]
+    fields: list[SystemSettingsFieldOut]
+    updated_at: str | None = None
+
+
+class SystemSettingsUpdate(BaseModel):
+    """部分提交：values 里出现的键才改；值为 null 表示删除覆盖、恢复默认。"""
+    values: dict[str, Any]
+
+
 class UserPreferenceUpdate(BaseModel):
     default_engine: str | None = None
     default_pages: int | None = None

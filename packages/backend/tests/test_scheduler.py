@@ -378,11 +378,10 @@ def test_单身份未完成任务达上限时提交被拒(db):
     import app.service.jobs as sj
 
     # 上限设 2（真实默认 10，用例里没必要造十条）。
-    # 桩必须打在 service.jobs 里那个**已绑定的名字**上：模块顶部是
-    # `from ..core.config import get_max_unfinished_per_identity`，
-    # 再去 patch core.config 的原函数对本次调用无效。
+    # 桩打在 service.jobs 里那个**已绑定的名字**上：模块顶部是
+    # `from ..core import runtime_settings`，再去 patch core.config 的原函数对本次调用无效。
     monkey = pytest.MonkeyPatch()
-    monkey.setattr(sj, "get_max_unfinished_per_identity", lambda: 2)
+    monkey.setattr(sj.runtime_settings, "max_unfinished_per_identity", lambda: 2)
     try:
         first = svc.submit(db, req, identity)
         second = svc.submit(db, req, identity)

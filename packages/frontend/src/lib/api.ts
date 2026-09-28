@@ -28,6 +28,9 @@ export type UserRole = components['schemas']['UserRole'];
 export type CurrentUser = components['schemas']['CurrentUser'];
 export type LoginResult = components['schemas']['LoginResult'];
 export type UserPreference = components['schemas']['UserPreference'];
+export type SystemSettingsView = components['schemas']['SystemSettings'];
+export type SystemSettingsField = components['schemas']['SystemSettingsField'];
+export type CapacityInfo = components['schemas']['CapacityInfo'];
 
 /** 后端 JobOut 的超集字段（进度信息，运行中任务附带） */
 export interface ProgressInfo {
@@ -151,6 +154,33 @@ export function saveMyPreferences(body: {
   auto_save?: boolean;
 }): Promise<UserPreference> {
   return requestJson('/api/settings/preferences', { method: 'PUT', body: JSON.stringify(body) });
+}
+
+// ── 系统设置（仅管理员，ADR-020）──
+// 表单元数据由后端注册表下发，前端按 type 通用渲染、不写死任何键名：
+// 以后后端加设置项（含 agent CLI 那一组），这里和设置页都不用改。
+
+export function getSystemSettings(): Promise<SystemSettingsView> {
+  return requestJson('/api/admin/settings');
+}
+
+/**
+ * 保存系统设置。只提交改动过的键（后端对未出现的键不动）；
+ * 某键传 null = 删除覆盖、恢复 env 默认。
+ * secret 项不提交即保持原值不变——绝不要把 masked 值回传回去。
+ */
+export function saveSystemSettings(
+  values: Record<string, string | number | boolean | null>
+): Promise<SystemSettingsView> {
+  return requestJson('/api/admin/settings', {
+    method: 'PUT',
+    body: JSON.stringify({ values }),
+  });
+}
+
+/** 只读容量提示（任意身份）：并发上限 + 当前在跑/排队数 */
+export function getCapacity(): Promise<CapacityInfo> {
+  return requestJson('/api/settings/capacity');
 }
 
 // ── 上传 ──

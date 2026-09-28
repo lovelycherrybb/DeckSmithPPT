@@ -35,6 +35,7 @@ import DraftsPanel, { selectUnfinishedDraftJobs } from '@/components/workspace/D
 import GenerationJobsPanel from '@/components/workspace/GenerationJobsPanel';
 import PresentationsPanel from '@/components/workspace/PresentationsPanel';
 import RunningTasksDock from '@/components/workspace/RunningTasksDock';
+import CapacityNotice from '@/components/workspace/CapacityNotice';
 import { collectPreviewableTaskIds } from '@/components/features/job/PagePreviewGrid';
 
 interface Props {
@@ -246,6 +247,9 @@ export default function WorkspaceTab({ initialProjectId = null }: Props) {
           );
         })}
       </div>
+
+      {/* 只读容量提示：解释"为什么要等"，数字来自后端（管理员改闸门这里跟着变） */}
+      <CapacityNotice />
 
       {/* 当前项目信息行（对齐设计稿 .project-info） */}
       <div className="project-info">

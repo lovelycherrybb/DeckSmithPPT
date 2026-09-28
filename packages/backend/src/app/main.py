@@ -11,6 +11,7 @@ from .api.agent import router as agent_router
 from .api.auth import router as auth_router
 from .api.users import router as users_router
 from .api.settings import router as settings_router
+from .api.admin_settings import router as admin_settings_router
 from .core.bootstrap import seed_default_admin
 from .core.db import SessionLocal, init_db
 from .engines.runtime import report as report_runtime_readiness
@@ -72,3 +73,4 @@ app.include_router(agent_router)
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(settings_router)
+app.include_router(admin_settings_router)

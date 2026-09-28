@@ -9,6 +9,7 @@ import {
   Settings as SettingsIcon,
   Users as UsersIcon,
   Sparkles,
+  SlidersHorizontal,
   Sun,
   Moon,
   LogOut,
@@ -71,7 +72,8 @@ export default function StudioLayout({ children, activeTab = 'workspace', onTabC
         </span>
       ),
     },
-    // 用户管理：仅管理员可见（后端接口也强制 require_admin）
+    // 用户管理与系统设置：仅管理员可见（后端接口同样强制 require_admin，
+    // 这里隐藏只是体验，不是权限）
     ...(isAdmin
       ? [
           {
@@ -80,6 +82,15 @@ export default function StudioLayout({ children, activeTab = 'workspace', onTabC
               <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <UsersIcon size={15} />
                 用户管理
+              </span>
+            ),
+          },
+          {
+            key: 'system',
+            label: (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <SlidersHorizontal size={15} />
+                系统设置
               </span>
             ),
           },

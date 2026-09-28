@@ -27,12 +27,8 @@ import threading
 import time
 from datetime import datetime
 
-from ..core.config import (
-    JOB_TIMEOUT_GRACE_SECONDS,
-    get_job_timeout_seconds,
-    get_max_concurrent_jobs,
-    get_scheduler_interval,
-)
+from ..core import runtime_settings
+from ..core.config import JOB_TIMEOUT_GRACE_SECONDS
 from ..core.db import SessionLocal
 from ..engines.factory import get_engine   # 它会把 packages/ 塞进 sys.path，engine 包因此可导入
 from ..repository.jobs import JobRepo
@@ -80,16 +76,45 @@ class Scheduler:
         # 真去认领那里的任务。测试必须能把它指向临时库。
         self.engine_factory = engine_factory or get_engine
         self.session_factory = session_factory or SessionLocal
-        self.interval = interval if interval is not None else get_scheduler_interval()
-        self.max_concurrent = (
-            max_concurrent if max_concurrent is not None else get_max_concurrent_jobs())
-        self.timeout_seconds = (
-            timeout_seconds if timeout_seconds is not None else get_job_timeout_seconds())
+        # None = 不覆盖，每拍去读系统设置的生效值；给了具体值 = 钉死（测试与特殊部署用）
+        self._interval = interval
+        self._max_concurrent = max_concurrent
+        self._timeout = timeout_seconds
         #: 认领者标识：host:pid。写进 claimed_by，于是"谁占的位"在 DB 里看得见，
         #: 多副本或同机多进程时也能判定该不该按陈旧处理。
         self.claimant = f"{socket.gethostname()}:{os.getpid()}"
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+
+    # ── 生效值：每拍重读，所以设置页改完不用重启容器（ADR-020 决策 2）──
+    # 做成 property 而不是在 __init__ 里取一次快照：后者会让"改了设置要重启才生效"
+    # 这件事悄悄成立，而契约里那些项的 restart_required 明明写的是 false。
+    @property
+    def max_concurrent(self) -> int:
+        return (self._max_concurrent if self._max_concurrent is not None
+                else runtime_settings.max_concurrent_jobs())
+
+    @max_concurrent.setter
+    def max_concurrent(self, value: int | None) -> None:
+        self._max_concurrent = value
+
+    @property
+    def interval(self) -> float:
+        return (self._interval if self._interval is not None
+                else runtime_settings.scheduler_interval())
+
+    @interval.setter
+    def interval(self, value: float | None) -> None:
+        self._interval = value
+
+    @property
+    def timeout_seconds(self) -> int:
+        return (self._timeout if self._timeout is not None
+                else runtime_settings.job_timeout_seconds())
+
+    @timeout_seconds.setter
+    def timeout_seconds(self, value: int | None) -> None:
+        self._timeout = value
 
     # ── 生命周期 ──
     def start(self) -> None:

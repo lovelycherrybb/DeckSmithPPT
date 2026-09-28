@@ -22,8 +22,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from ..core.db import SessionLocal, JOBS_ROOT
-from ..core import ownership
-from ..core.config import get_max_unfinished_per_identity
+from ..core import ownership, runtime_settings
 from ..repository.jobs import ProjectRepo, JobRepo, DraftRepo, DraftVersionRepo, PresentationRepo
 from ..core.schemas import DeckRequest, JobOut, ProgressInfo, PageItem, JobPages
 from ..engines.registry import implements_hook
@@ -175,9 +174,10 @@ class JobService:
 
         # per-identity 粗闸（ADR-019 决策 7）：取代加权公平调度。
         # 本期真正的风险只是"一个人把队排到 50 个"，所以只数该身份的未完成任务。
+        # 上限走系统设置的**生效值**（管理员在设置页改了立即生效，不用重启容器）。
         # identity 为 None（内部调用/旧单测）不设闸，与引擎参数门控同一口径。
         if identity is not None:
-            limit = get_max_unfinished_per_identity()
+            limit = runtime_settings.max_unfinished_per_identity()
             user = getattr(identity, "user", None)   # Identity.user 是 ORM 对象或 None
             unfinished = self.repo.count_unfinished_for_identity(
                 db, user_id=getattr(user, "user_id", None),

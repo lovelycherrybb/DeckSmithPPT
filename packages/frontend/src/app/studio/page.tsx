@@ -6,13 +6,14 @@ import WorkspaceTab from '@/components/tabs/WorkspaceTab';
 import HistoryTab from '@/components/tabs/HistoryTab';
 import SettingsTab from '@/components/tabs/SettingsTab';
 import UsersTab from '@/components/tabs/UsersTab';
+import SystemSettingsTab from '@/components/tabs/SystemSettingsTab';
 import GuestGate from '@/components/GuestGate';
 import { AuthProvider, useAuth } from '@/components/AuthProvider';
 
 // 管理员专属标签：非管理员（含未登录）直接回落工作台，不给缺省页
-const ADMIN_TABS = new Set(['users']);
+const ADMIN_TABS = new Set(['users', 'system']);
 // ?tab= 深链允许直达的标签
-const VALID_TABS = new Set(['workspace', 'history', 'settings', 'users']);
+const VALID_TABS = new Set(['workspace', 'history', 'settings', 'users', 'system']);
 
 export default function StudioPage() {
   return (
@@ -72,6 +73,9 @@ function StudioInner() {
         return <SettingsTab />;
       case 'users':
         return <UsersTab />;
+      case 'system':
+        // 系统设置：ADMIN_TABS 已把非管理员弹回工作台，这里不再判权限（后端也强制）
+        return <SystemSettingsTab />;
       default:
         return <WorkspaceTab />;
     }

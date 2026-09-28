@@ -2467,9 +2467,9 @@ components:
           description: 稳定标识（如 max_concurrent_jobs）。与部署环境变量同名去前缀，便于对照
         group:
           type: string
-          description: 所属分组 id（对应 SystemSettings.groups）
-          enum:
-          - scheduler
+          description: '所属分组 id，必须能在响应体的 groups[] 里找到对应项。
+            刻意不写成枚举：分组清单本身由后端注册表动态下发（ADR-020 决策 4），
+            写成枚举就等于"加一个 agent 分组要回来改契约"，与"前端与契约均不需改动"的承诺自相矛盾。'
         label:
           type: string
           description: 中文名（界面显示用，不是机器判据）

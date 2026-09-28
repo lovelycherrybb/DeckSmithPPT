@@ -205,6 +205,28 @@ class UserSetting(Base):
     updated_at: Mapped[str] = mapped_column(String(32))
 
 
+class SystemSetting(Base):
+    """系统设置覆盖值（ADR-020）：全实例共享、运行期可改、仅管理员。
+
+    **只存覆盖，不存默认**——表里没有的键即表示走环境变量/内置默认。
+    好处是"恢复默认"就是删掉这一行，语义上没有"存了个等于默认的值"这种歧义。
+
+    一行一项（不是整包 JSON）：单项可审计、可单独回落、加设置项不改表。
+    代价是表更"碎"，所以配 updated_by/updated_at 留下改动痕迹。
+
+    关于 secret：值在本表里是**明文**存储。它必须能被原样注入子进程环境变量，
+    所以不能哈希；本系统没有 KMS，做可逆加密只是把明文换个地方放，属自欺。
+    边界是：明文永不出接口（GET 只回 masked）、不落日志、库文件权限随数据卷保护。
+    """
+    __tablename__ = "system_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    key: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    value: Mapped[str] = mapped_column(Text)  # JSON 编码后的单项值
+    updated_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    updated_at: Mapped[str] = mapped_column(String(32))
+
+
 def make_engine(database_url: str):
     """根据连接串创建 SQLAlchemy 引擎（SQLite 需 check_same_thread=False）。"""
     connect_args = {"check_same_thread": False} if database_url.startswith("sqlite") else {}

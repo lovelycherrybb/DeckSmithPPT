@@ -252,6 +252,10 @@ def check_interface_alignment(openapi):
         '保存本人偏好': '/api/settings/preferences',
         '删除项目': '/api/projects/{project_id}',
         '代为认领项目': '/api/projects/{project_id}/claim',
+        # 系统设置（ADR-020）
+        '读取系统设置': '/api/admin/settings',
+        '保存系统设置': '/api/admin/settings',
+        '并发容量只读提示': '/api/settings/capacity',
     }
     
     openapi_paths = set(openapi['paths'].keys())

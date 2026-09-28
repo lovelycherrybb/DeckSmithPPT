@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: DeckSmithPPT API
-  version: 0.9.0
+  version: 0.10.0
   description: '前后端契约（唯一来源）。后端实现本契约，前端从本文件生成类型。
 
     与 engine.schema.json 保持一致：通用层（DeckRequest/Job）。引擎参数层已移至 engine.schema.json 定义。
@@ -334,6 +334,102 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+
+  # ===== 系统设置（管理员，ADR-020）=====
+
+  /api/admin/settings:
+    get:
+      summary: 读取系统设置（含元数据与生效值）
+      description: '仅管理员。返回**描述即渲染**的表单元数据：前端不写死任何字段名，
+        新增设置项只改后端注册表，本接口自动带出来。
+
+        与部署环境变量的关系：env 提供默认值，本表提供"当前生效值"；
+        DB 有覆盖则生效值取 DB，否则取默认（见 SystemSettingsField.source）。
+        调度器每拍读取生效值，因此**改完对下一个任务立即生效、不需要重启容器**。
+
+        '
+      operationId: getSystemSettings
+      security:
+      - sessionCookie: []
+      responses:
+        '200':
+          description: 系统设置全貌
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemSettings'
+        '401':
+          description: 未登录
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: 非管理员
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    put:
+      summary: 保存系统设置（部分提交；null 值 = 恢复默认）
+      description: '仅管理员。提交 values 里出现的键，未出现的键不改（与偏好接口同一口径）。
+
+        校验一律在后端：类型、上下限、枚举成员不合法即整次请求 400 并逐项列出原因——
+        **不做"部分成功"**，否则管理员会以为改成了而实际没有。
+        某项 value 传 null 表示删除该键的 DB 覆盖、回落到 env 默认值。
+
+        '
+      operationId: saveSystemSettings
+      security:
+      - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SystemSettingsUpdate'
+      responses:
+        '200':
+          description: 保存后的系统设置全貌（含新生效值）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemSettings'
+        '400':
+          description: 取值不合法（逐项列出原因）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: 未登录
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: 非管理员
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/settings/capacity:
+    get:
+      summary: 读取并发容量与排队情况（任意身份只读）
+      description: '给普通用户/访客的只读提示：系统同时生成几个任务、当前排了多少。
+        设置页本身仅管理员可见，但等待的人有权知道"为什么慢"，所以单独开这一个口子，
+        只暴露两个计数与一个上限，不暴露任何配置项。
+
+        '
+      operationId: getCapacity
+      responses:
+        '200':
+          description: 并发容量
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CapacityInfo'
 
   # ===== 引擎相关 =====
   /api/engines:
@@ -2350,3 +2446,154 @@ components:
           nullable: true
         auto_save:
           type: boolean
+
+    # ===== 系统设置（ADR-020）=====
+    SystemSettingsField:
+      type: object
+      description: '一个系统设置项的**元数据 + 当前生效值**。前端按本对象通用渲染，
+        不写死任何键名——新增设置项只改后端注册表，界面自动长出来（与引擎参数
+        params_schema 同一套"描述即渲染"的原则）。'
+      required:
+      - key
+      - group
+      - label
+      - type
+      - value
+      - source
+      - overridden
+      properties:
+        key:
+          type: string
+          description: 稳定标识（如 max_concurrent_jobs）。与部署环境变量同名去前缀，便于对照
+        group:
+          type: string
+          description: 所属分组 id（对应 SystemSettings.groups）
+          enum:
+          - scheduler
+        label:
+          type: string
+          description: 中文名（界面显示用，不是机器判据）
+        description:
+          type: string
+          description: 人话说明：这一项管什么、调大调小各自的代价
+        type:
+          type: string
+          description: '取值类型，决定渲染控件与校验方式。
+            secret 类型有额外硬约束：value 永不回显明文，只回掩码，见 masked/configured。'
+          enum:
+          - int
+          - bool
+          - string
+          - secret
+        unit:
+          type: string
+          description: 单位（秒 / 个），仅用于显示
+        min:
+          type: integer
+          nullable: true
+          description: 取值下限（int 有效）
+        max:
+          type: integer
+          nullable: true
+          description: 取值上限（int 有效）
+        default:
+          description: 回落值——来自部署环境变量或内置默认，不是"当前生效值"
+          type:
+          - integer
+          - boolean
+          - string
+          - "null"
+        value:
+          description: '当前生效值。source=override 时等于 DB 覆盖值，否则等于 default。
+            type=secret 时本字段恒为 null，明文永不离开后端。'
+          type:
+          - integer
+          - boolean
+          - string
+          - "null"
+        configured:
+          type: boolean
+          description: 仅 type=secret：该密钥是否已配置过（不告诉调用方是什么）
+        masked:
+          type: string
+          nullable: true
+          description: '仅 type=secret：掩码形式（如 sk-…3f9a），供管理员确认"是不是这一个"。
+            任何接口都不得回显明文，也不得把明文写进日志与错误信息。'
+        overridden:
+          type: boolean
+          description: 是否被 DB 覆盖（true 表示当前值来自设置页，false 表示仍走 env/默认）
+        source:
+          type: string
+          enum:
+          - default
+          - override
+          description: 生效值来源。与 overridden 同源，分开给是为了前端少算一次
+        restart_required:
+          type: boolean
+          description: '改动是否需要重启容器才对**所有**在途任务生效。调度器每拍读取的项为 false
+            （下一个任务即生效）；只有那些在进程启动时才读的东西才是 true——
+            设置页应据此提示"已生效"还是"需重启后生效"，不得一律说"稍后生效"。'
+
+    SystemSettings:
+      type: object
+      description: 系统设置全貌：分组 + 逐项元数据与生效值
+      required:
+      - groups
+      - fields
+      properties:
+        groups:
+          type: array
+          description: 分组清单（前端按此渲染分区；本期只有 scheduler，
+            agent 分组待其配置项定义后由后端注册表带出，契约与前端均不需改动）
+          items:
+            type: object
+            required:
+            - id
+            - label
+            properties:
+              id:
+                type: string
+              label:
+                type: string
+              description:
+                type: string
+        fields:
+          type: array
+          items:
+            $ref: '#/components/schemas/SystemSettingsField'
+        updated_at:
+          type: string
+          format: date-time
+          description: 最近一次有人改动的时间
+
+    SystemSettingsUpdate:
+      type: object
+      description: '部分提交：values 里出现的键才改，未出现的不改。
+        某键的值传 null = 删除该键的覆盖、回落到 env 默认。
+        不认识的键一律 400（静默忽略会让管理员以为改成功了）。'
+      required:
+      - values
+      properties:
+        values:
+          type: object
+          additionalProperties: true
+          description: 键为 SystemSettingsField.key，值为新值或 null
+
+    CapacityInfo:
+      type: object
+      description: '只读容量提示（任意身份可取，供提交处显示"为什么慢"）。
+        刻意只给这三个数：不暴露配置项清单、不暴露密钥状态。'
+      required:
+      - max_concurrent_jobs
+      - running
+      - queued
+      properties:
+        max_concurrent_jobs:
+          type: integer
+          description: 系统同时生成任务的上限（当前生效值）
+        running:
+          type: integer
+          description: 正在生成的任务数（全局，不分身份）
+        queued:
+          type: integer
+          description: 排队中的任务数（全局，不分身份）

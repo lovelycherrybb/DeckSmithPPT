@@ -92,8 +92,11 @@ FIELDS: tuple[SettingField, ...] = (
         min=1,
         max=32,
         default=get_max_concurrent_jobs,
-        description="引擎子进程（claude）的并发上限。调大会同时多吃内存与模型额度，"
-                    "第三方网关还可能触发限流；调小则任务更多时间在排队。",
+        # 刻意不提 claude：这道闸计的是"处于生成中的任务条数"，与引擎用什么实现无关。
+        # 现在三个输出引擎恰好都靠 claude 子进程跑，将来接别的引擎（或本地模型、
+        # 其他 agent CLI）时这句话依然成立。把实现细节写进语义里，换引擎就成假话。
+        description="同一时刻允许处于生成中的任务条数，超出的任务在队列里等待。"
+                    "调大会同时多吃机器内存与模型额度、也可能触发网关限流；调小则更多时间在排队。",
     ),
     SettingField(
         key="max_unfinished_per_identity",

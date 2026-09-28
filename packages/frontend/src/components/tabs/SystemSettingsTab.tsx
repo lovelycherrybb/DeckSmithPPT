@@ -212,7 +212,10 @@ export default function SystemSettingsTab() {
   }
 
   return (
-    <div style={{ maxWidth: 880 }}>
+    // 限宽 + 居中：与 globals.css 里子标签胶囊、当前项目行同一套路。
+    // 只给 maxWidth 不给 margin:auto 会让整块靠左，宽屏下右侧空一大片。
+    // 表单说明文字较长，铺满整屏反而不好读，所以保留宽度上限。
+    <div style={{ maxWidth: 880, margin: '0 auto' }}>
       {contextHolder}
       {error && (
         <Alert type="error" showIcon message="系统设置不可用" description={error} style={{ marginBottom: 16 }} />

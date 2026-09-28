@@ -252,11 +252,14 @@ def test_空secret被拒(db, monkeypatch):
 
 # ───────────────── 6. 与契约对齐 ─────────────────
 
-def test_env越界的默认值被夹回注册表边界(monkeypatch):
+def test_env越界的默认值被夹回注册表边界(db, monkeypatch):
     """真浏览器复验抓到的：env 写 500 而注册表上限 200，设置页就会显示一个填不出来的值。
 
     边界只能有注册表一个真源，否则"生效值 500、输入框最大 200"，管理员一碰这个框
     反而把系统调严了。
+
+    必须带 `db` fixture：生效值是去表里查覆盖的，不打桩 SessionLocal 就会读到
+    开发者自己的 outputs/decksmith.db —— 那里可能真有覆盖行（实测被这条坑过一次）。
     """
     monkeypatch.setenv("DECKSMITH_MAX_UNFINISHED_PER_IDENTITY", "500")
     f = BY_KEY["max_unfinished_per_identity"]
@@ -266,6 +269,20 @@ def test_env越界的默认值被夹回注册表边界(monkeypatch):
 
     monkeypatch.setenv("DECKSMITH_MAX_CONCURRENT_JOBS", "0")
     assert BY_KEY["max_concurrent_jobs"].default_value() == 1     # 下限同理
+
+
+def test_设置项文案不得绑定具体引擎实现():
+    """闸门计的是"任务条数"，与引擎内部起什么进程无关。
+
+    今天三个输出引擎都靠 claude 跑，很容易顺手把描述写成"claude 的并发上限"——
+    接进别的引擎或别家 CLI 的那天，这句就变成假话，而且没人会想起来改设置页的文案。
+    所以把这条语义约束写成断言，而不是只写在注释里。
+    """
+    banned = ("claude", "codex", "hermes", "gpt", "anthropic", "ppt-master", "guizang")
+    for f in FIELDS:
+        text = f"{f.label} {f.description} {f.unit or ''}"
+        hit = [b for b in banned if b in text.lower()]
+        assert not hit, f"设置项「{f.key}」的文案绑定了具体实现：{hit} —— 闸门语义应与引擎无关"
 
 
 def test_后端产出的字段与分组都在契约枚举内():

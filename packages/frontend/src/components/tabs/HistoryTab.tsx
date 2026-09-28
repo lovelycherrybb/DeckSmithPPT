@@ -147,12 +147,14 @@ export default function HistoryTab({ onOpenInWorkspace }: Props) {
     { title: '草稿数量', dataIndex: 'draft_count', width: 90, align: 'center' as const },
     { title: '演示文件数量', dataIndex: 'presentation_count', width: 110, align: 'center' as const },
     {
-      title: '运行中任务',
+      title: '进行中任务',
       dataIndex: 'running_task_count',
-      width: 100,
+      width: 110,
       align: 'center' as const,
+      // 后端口径是"未结束 = 排队中 + 生成中"（契约 running_task_count 描述），
+      // 所以列名不能说"运行中"——那会把只在排队的任务也算进来却让人以为在跑
       render: (n: number) =>
-        n > 0 ? <Tag color="gold">{n} 个运行中</Tag> : <span style={{ color: 'var(--text-muted)' }}>0</span>,
+        n > 0 ? <Tag color="gold">{n} 个进行中</Tag> : <span style={{ color: 'var(--text-muted)' }}>0</span>,
     },
     { title: '创建时间', dataIndex: 'created_at', width: 150, render: (t: string) => formatDate(t) },
     { title: '更新时间', dataIndex: 'updated_at', width: 150, render: (t: string) => formatDate(t) },
@@ -282,6 +284,8 @@ export default function HistoryTab({ onOpenInWorkspace }: Props) {
                       fileNameByTaskId={fileNameByTaskId}
                       readOnly
                       onRetry={() => {}}
+                      // 只读模式下面板内部就不出重试/取消按钮了，这里的空实现只是占位
+                      onCancel={() => {}}
                       onRefresh={() => {
                         refreshJobs();
                         loadViewData(viewProjectId);

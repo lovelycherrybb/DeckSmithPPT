@@ -532,7 +532,7 @@ class JobService:
         if status == "queued":
             if self.repo.cas_status(
                     db, job_id, from_status="queued", status="cancelled",
-                    status_detail="已撤销", error="任务在排队期间被撤销",
+                    status_detail="已取消", error="任务在排队期间被取消",
                     claimed_by=None, claimed_at=None):
                 return self.get(db, job_id)
             row = self.repo.get(db, job_id) or row     # 抢输了：调度器刚接手，重读再判
@@ -550,7 +550,7 @@ class JobService:
             raise HTTPException(status_code=409, detail="引擎进程终止失败，任务未撤销，请重试")
         if not self.repo.cas_status(
                 db, job_id, from_status="running", status="cancelled",
-                status_detail="已撤销", error="用户撤销，引擎子进程已终止"):
+                status_detail="已取消", error="用户取消，引擎子进程已终止"):
             # 我们杀进程的这段时间里调度器已把真实终态落了（比如它刚好跑完）。
             # 谁先落谁赢，这里如实返回当前状态，不覆盖别人的结论。
             pass

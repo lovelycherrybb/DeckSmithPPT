@@ -376,6 +376,15 @@ export function retryJob(jobId: string): Promise<Job> {
   return requestJson(`/api/jobs/${jobId}/retry`, { method: 'POST' });
 }
 
+/**
+ * 取消任务。queued 直接摘队；running 只有在引擎能力位含 cancel 时才可用，
+ * 否则后端返回 409（绝不"静默假撤销"）。按钮可见性请一律用
+ * `lib/jobStatus.engineCancellable(engine.capabilities)` 预判，别等 409。
+ */
+export function cancelJob(jobId: string): Promise<Job> {
+  return requestJson(`/api/jobs/${jobId}/cancel`, { method: 'POST' });
+}
+
 export function jobDownloadUrl(jobId: string): string {
   return `${API_BASE}/api/jobs/${jobId}/download`;
 }

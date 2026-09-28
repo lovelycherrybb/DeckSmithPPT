@@ -40,6 +40,7 @@ import {
 } from 'lucide-react';
 import {
   ApiError,
+  cancelJob,
   getDraft,
   getDraftVersion,
   getMyPreferences,
@@ -57,6 +58,7 @@ import {
   type Project,
   type UserPreference,
 } from '@/lib/api';
+import { isPending, isRetryable, queuePositionLabel } from '@/lib/jobStatus';
 import { StatusTag } from '@/components/ui/StatusTag';
 import MarkdownView from '@/components/ui/MarkdownView';
 import MdEditor from '@/components/ui/MdEditor';
@@ -101,7 +103,11 @@ export function selectUnfinishedDraftJobs(
   return jobs.filter(
     (j) =>
       j.task_type === 'draft' &&
-      ['running', 'failed', 'timeout'].includes(j.status) &&
+      // 未落库且"还没有正常结束"的草稿任务都要看得见：排队中、生成中、
+      // 失败/超时/已取消（后三者供重试）。
+      // 原先这里是一份 ['running','failed','timeout'] 白名单 —— 引入 queued 之后，
+      // 刚提交的草稿任务会被整个过滤掉：用户点了提交、列表空空，像没提交成功。
+      (isPending(j.status) || isRetryable(j.status)) &&
       !drafts.some((d) => d.task_id === j.job_id)
   );
 }
@@ -350,6 +356,24 @@ export default function DraftsPanel({
     }
   };
 
+  // ── 取消排队中的草稿任务 ──
+  // 草稿类引擎（ppt_master_draft / claude_draft）都显式退出了 cancel 钩子：它们把
+  // claude 跑在阻塞调用里、没有可杀的 pid，所以"生成中"阶段没有取消入口（不是漏做，
+  // 是不做假撤销）。因此这里只给 queued 一个「取消排队」。
+  const [cancelling, setCancelling] = useState<string | null>(null);
+  const handleCancel = async (jobId: string) => {
+    setCancelling(jobId);
+    try {
+      await cancelJob(jobId);
+      messageApi.success('已取消排队');
+      onRefresh();
+    } catch (e) {
+      messageApi.error(e instanceof Error ? e.message : '取消失败');
+    } finally {
+      setCancelling(null);
+    }
+  };
+
   const handleGenerateSubmit = async () => {
     if (!generateTarget) return;
     try {
@@ -452,15 +476,16 @@ export default function DraftsPanel({
             ]}
             renderItem={(item) =>
               item.kind === 'generating' ? (
-                // 未落库的草稿任务：生成中 / 失败（可重试） / 超时（可重试）
+                // 未落库的草稿任务：排队中 / 生成中 / 失败·超时·已取消（均可重试）
                 (() => {
                   const job = item.job;
-                  const failed = job.status === 'failed' || job.status === 'timeout';
+                  const retryable = isRetryable(job.status);
+                  const queued = job.status === 'queued';
                   const pName = projectNameMap.get(job.project_id || '') || job.project_id?.slice(0, 8) || '-';
                   return (
                     <List.Item
                       actions={
-                        failed
+                        retryable
                           ? !readOnly && [
                               <Button
                                 key="retry"
@@ -472,11 +497,28 @@ export default function DraftsPanel({
                                 重试
                               </Button>,
                             ]
-                          : [
-                              <Button key="gen" size="small" type="primary" icon={<Rocket size={13} />} disabled>
-                                生成中…
-                              </Button>,
-                            ]
+                          : queued && !readOnly
+                            ? [
+                                <Button
+                                  key="cancel"
+                                  size="small"
+                                  loading={cancelling === job.job_id}
+                                  onClick={() => handleCancel(job.job_id)}
+                                >
+                                  取消排队
+                                </Button>,
+                              ]
+                            : [
+                                <Button
+                                  key="gen"
+                                  size="small"
+                                  type="primary"
+                                  icon={<Rocket size={13} />}
+                                  disabled
+                                >
+                                  {queued ? '排队中…' : '生成中…'}
+                                </Button>,
+                              ]
                       }
                     >
                       <List.Item.Meta
@@ -487,14 +529,18 @@ export default function DraftsPanel({
                           </Space>
                         }
                         description={
-                          failed ? (
+                          retryable ? (
                             <>
-                              {`所属项目 ${pName} · ${job.error || job.status_detail || '生成失败，详见任务日志'}`}
-                              {/* 失败任务烧掉的 token 也是事实（终态才落库，生成中不显示） */}
+                              {`所属项目 ${pName} · ${job.error || job.status_detail || '生成未完成，详见任务日志'}`}
+                              {/* 未成功任务烧掉的 token 也是事实（终态才落库，排队/生成中不显示） */}
                               {` · ${tokenUsageSummary(job.token_usage)}`}
                             </>
                           ) : (
-                            `所属项目 ${pName} · ${job.status_detail || '引擎执行中'}`
+                            `所属项目 ${pName} · ${
+                              queued
+                                ? queuePositionLabel(job.queue_position)
+                                : job.status_detail || '引擎执行中'
+                            }`
                           )
                         }
                       />

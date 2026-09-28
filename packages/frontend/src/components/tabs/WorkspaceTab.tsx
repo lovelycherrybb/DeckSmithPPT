@@ -20,6 +20,7 @@ import {
   listProjectDrafts,
   listProjectPresentations,
   listProjects,
+  cancelJob,
   retryJob,
   type Draft,
   type EngineInfo,
@@ -27,6 +28,7 @@ import {
   type JobWithProgress,
   type Presentation,
 } from '@/lib/api';
+import { isPending } from '@/lib/jobStatus';
 import { usePollingJobs } from '@/hooks/usePollingJobs';
 import CreateWizard from '@/components/workspace/CreateWizard';
 import DraftsPanel, { selectUnfinishedDraftJobs } from '@/components/workspace/DraftsPanel';
@@ -118,15 +120,17 @@ export default function WorkspaceTab({ initialProjectId = null }: Props) {
     refreshPresentations();
   }, [currentProjectId, refreshDrafts, refreshPresentations]);
 
-  // 任务从 running → 全部结束时刷新草稿/演示文件（新实体落库）
-  const runningCountRef = useRef(-1);
+  // 任务从"未结束"→ 全部结束时刷新草稿/演示文件（新实体落库）。
+  // 口径必须是 isPending（queued + running）：只数 running 会在"还剩排队任务"时
+  // 就判定全部结束、提前刷一次。
+  const activeCountRef = useRef(-1);
   useEffect(() => {
-    const running = jobs.filter((j) => j.status === 'running').length;
-    if (runningCountRef.current > 0 && running === 0) {
+    const active = jobs.filter((j) => isPending(j.status)).length;
+    if (activeCountRef.current > 0 && active === 0) {
       refreshDrafts();
       refreshPresentations();
     }
-    runningCountRef.current = running;
+    activeCountRef.current = active;
   }, [jobs, refreshDrafts, refreshPresentations]);
 
   // ── 跨子菜单动作 ──
@@ -166,13 +170,26 @@ export default function WorkspaceTab({ initialProjectId = null }: Props) {
     [refreshJobs, messageApi]
   );
 
+  const handleCancel = useCallback(
+    async (jobId: string) => {
+      try {
+        await cancelJob(jobId);
+        messageApi.success('已取消');
+        refreshJobs();
+      } catch (e) {
+        messageApi.error(e instanceof Error ? e.message : '取消失败');
+      }
+    },
+    [refreshJobs, messageApi]
+  );
+
   const draftEngines = useMemo(() => engines.filter((e) => e.engine_type === 'draft'), [engines]);
   const outputEngines = useMemo(() => engines.filter((e) => e.engine_type === 'output'), [engines]);
 
-  // 常驻进度同口径：只看当前项目的运行中任务，未关联项目时为空
-  // （否则停在 A 项目、甚至没选项目时，会被 B 项目的运行中任务打扰）
+  // 常驻进度同口径：只看当前项目**未结束**的任务（排队中 + 生成中），未关联项目时为空
+  // （否则停在 A 项目、甚至没选项目时，会被 B 项目的任务打扰）
   const projectRunningJobs = currentProjectId
-    ? jobs.filter((j) => j.status === 'running' && j.project_id === currentProjectId)
+    ? jobs.filter((j) => isPending(j.status) && j.project_id === currentProjectId)
     : [];
   // 生成任务与草稿/演示文件同口径：只看当前项目；未关联项目时为空
   const projectOutputJobs = currentProjectId
@@ -262,7 +279,7 @@ export default function WorkspaceTab({ initialProjectId = null }: Props) {
         />
       )}
       {activeKey === 'jobs' && (
-        <GenerationJobsPanel jobs={projectOutputJobs} outputEngines={outputEngines} fileNameByTaskId={fileNameByTaskId} onRetry={handleRetry} onRefresh={refreshJobs} />
+        <GenerationJobsPanel jobs={projectOutputJobs} outputEngines={outputEngines} fileNameByTaskId={fileNameByTaskId} onRetry={handleRetry} onCancel={handleCancel} onRefresh={refreshJobs} />
       )}
       {activeKey === 'presentations' && (
         <PresentationsPanel
@@ -281,6 +298,8 @@ export default function WorkspaceTab({ initialProjectId = null }: Props) {
           setActiveKey('jobs');
           window.dispatchEvent(new CustomEvent('decksmith:open-job', { detail: jobId }));
         }}
+        // 聚合胶囊（排队中 N 个 / 还有 N 个在生成）不指向某一条任务，只切到列表
+        onOpenJobsList={() => setActiveKey('jobs')}
       />
     </div>
   );

@@ -1,6 +1,9 @@
 /**
- * 子菜单③：生成任务——输出任务列表（轮询自动刷新）+ 重试 + 下载 + 详情抽屉。
+ * 子菜单③：生成任务——输出任务列表（轮询自动刷新）+ 重试 + 取消 + 下载 + 详情抽屉。
  * 监听 decksmith:open-job 事件（常驻进度浮窗/外部跳转打开详情）。
+ *
+ * 状态判据一律走 lib/jobStatus 的具名函数：引入 queued 之后，
+ * `!== 'running'` 不再等于"已结束"，散着写必然出错。
  */
 'use client';
 
@@ -14,6 +17,7 @@ import {
   Drawer,
   Empty,
   List,
+  Popconfirm,
   Segmented,
   Space,
   Tag,
@@ -27,6 +31,13 @@ import {
   type JobWithProgress,
 } from '@/lib/api';
 import { StatusTag, contentStyleLabel } from '@/components/ui/StatusTag';
+import {
+  engineCancellable,
+  isPending,
+  isRetryable,
+  isTerminal,
+  queuePositionLabel,
+} from '@/lib/jobStatus';
 import ProgressDisplay from '@/components/features/job/ProgressDisplay';
 import PagePreviewGrid from '@/components/features/job/PagePreviewGrid';
 import { useJobPages } from '@/hooks/useJobPages';
@@ -36,17 +47,19 @@ import { tokenUsagePartRows, tokenUsageSummary, tokenUsageTotal } from '@/lib/to
 
 interface Props {
   jobs: JobWithProgress[];
-  /** 输出引擎清单（含 params_schema），用于按引擎实时渲染任务参数 */
+  /** 输出引擎清单（含 params_schema 与 capabilities），用于按引擎渲染参数与取消可见性 */
   outputEngines: EngineInfo[];
   /** 生成任务 job_id → 演示文件名（任务完成后由 Presentation 提供） */
   fileNameByTaskId?: Record<string, string>;
-  /** 只读模式（历史项目「查看」）：隐藏重试等变更操作，保留下载/详情 */
+  /** 只读模式（历史项目「查看」）：隐藏重试/取消等变更操作，保留下载/详情 */
   readOnly?: boolean;
   onRetry: (jobId: string) => void;
+  onCancel: (jobId: string) => void;
   onRefresh: () => void;
 }
 
-type FilterKey = 'all' | 'running' | 'completed' | 'failed';
+/** 页签四档：「进行中」= 排队中 + 生成中（未结束的都算一个池子，见 lib/jobStatus） */
+type FilterKey = 'all' | 'active' | 'completed' | 'failed';
 
 export default function GenerationJobsPanel({
   jobs,
@@ -54,6 +67,7 @@ export default function GenerationJobsPanel({
   fileNameByTaskId = {},
   readOnly = false,
   onRetry,
+  onCancel,
   onRefresh,
 }: Props) {
   const [filter, setFilter] = useState<FilterKey>('all');
@@ -71,6 +85,14 @@ export default function GenerationJobsPanel({
     [outputEngines],
   );
 
+  // 能中途停止生成的引擎（能力位派生，与 page_preview 同一手法）。
+  // 草稿类引擎显式退出了 cancel 钩子 → 它们的任务在"生成中"阶段没有任何取消入口，
+  // 只能等跑完。这是契约决定的（不支持就隐藏按钮，而不是点了报 409）。
+  const cancellableEngines = useMemo(
+    () => new Set(outputEngines.filter((e) => engineCancellable(e.capabilities)).map((e) => e.name)),
+    [outputEngines],
+  );
+
   // 任务标题优先用生成的演示文件名（项目名_草稿版本号.pptx），未完成时退回任务标题
   const jobTitle = (job: JobWithProgress) =>
     fileNameByTaskId[job.job_id] || job.title || '未命名';
@@ -81,9 +103,10 @@ export default function GenerationJobsPanel({
     ? jobs.find((j) => j.job_id === drawerJob.job_id) ?? drawerJob
     : null;
 
-  // 终态（completed/failed/timeout）抽屉的成品页墙；running 的页墙由 ProgressDisplay 内部按需拉，不双拉同一任务
+  // 终态（completed/failed/timeout/cancelled）抽屉的成品页墙；running 的页墙由
+  // ProgressDisplay 内部按需拉，不双拉同一任务；queued 不拉（还没有产物可列）
   const { data: drawerPages } = useJobPages(
-    drawer && drawer.status !== 'running' ? drawer.job_id : null,
+    drawer && isTerminal(drawer.status) ? drawer.job_id : null,
     drawer?.status
   );
 
@@ -105,9 +128,19 @@ export default function GenerationJobsPanel({
   const outputJobs = jobs.filter((j) => j.task_type === 'output');
   const filtered = outputJobs.filter((j) => {
     if (filter === 'all') return true;
+    if (filter === 'active') return isPending(j.status);
     if (filter === 'failed') return j.status === 'failed' || j.status === 'timeout';
     return j.status === (filter as JobStatus);
   });
+
+  // 取消按钮：排队中随时可取消（还没开始、没有成本，不弹确认）；
+  // 生成中要引擎支持中断才给入口
+  const cancelLabel = (job: JobWithProgress) =>
+    job.status === 'queued' ? '取消排队' : '停止生成';
+  const canCancel = (job: JobWithProgress) =>
+    !readOnly &&
+    isPending(job.status) &&
+    (job.status === 'queued' || cancellableEngines.has(job.engine || ''));
 
   const openDetail = async (jobId: string) => {
     try {
@@ -126,7 +159,7 @@ export default function GenerationJobsPanel({
           <Segmented
             options={[
               { label: '全部', value: 'all' },
-              { label: '运行中', value: 'running' },
+              { label: '进行中', value: 'active' },
               { label: '已完成', value: 'completed' },
               { label: '失败', value: 'failed' },
             ]}
@@ -147,7 +180,29 @@ export default function GenerationJobsPanel({
           renderItem={(job) => (
             <List.Item
               actions={[
-                ...(!readOnly && (job.status === 'failed' || job.status === 'timeout')
+                ...(canCancel(job)
+                  ? job.status === 'queued'
+                    ? [
+                        <Button key="cancel" size="small" onClick={() => onCancel(job.job_id)}>
+                          {cancelLabel(job)}
+                        </Button>,
+                      ]
+                    : [
+                        // 已经在生成了：停下来会丢掉已完成的部分、已消耗的额度也不退，
+                        // 所以必须二次确认，且把代价写在确认里
+                        <Popconfirm
+                          key="cancel"
+                          title="停止这次生成？"
+                          description="停止后本次生成不会保存已完成的部分，已消耗的额度也不退回。"
+                          okText="停止生成"
+                          cancelText="继续等"
+                          onConfirm={() => onCancel(job.job_id)}
+                        >
+                          <Button size="small">{cancelLabel(job)}</Button>
+                        </Popconfirm>,
+                      ]
+                  : []),
+                ...(!readOnly && isRetryable(job.status)
                   ? [
                       <Button key="retry" size="small" icon={<RotateCcw size={13} />} onClick={() => onRetry(job.job_id)}>
                         重试
@@ -178,6 +233,10 @@ export default function GenerationJobsPanel({
                   <Space>
                     <span>{jobTitle(job)}</span>
                     <StatusTag status={job.status} />
+                    {/* 排队中：只报位置，不报页数/耗时——此刻还没有任何产出，显示 0 会被读成卡死 */}
+                    {job.status === 'queued' && (
+                      <Tag style={{ fontSize: 12 }}>{queuePositionLabel(job.queue_position)}</Tag>
+                    )}
                     {job.status === 'running' && (
                       <Tag color="gold" style={{ fontSize: 12 }}>
                         {pagePreviewEngines.has(job.engine || '') &&
@@ -192,8 +251,9 @@ export default function GenerationJobsPanel({
                 description={
                   <>
                     {`${job.engine || '-'} · ${contentStyleLabel(job.content_style)} · ${formatDate(job.created_at)}`}
-                    {/* 运行中不显示：用量要到终态才落库，「未记录」对跑完仍无数据的任务才有信息量 */}
-                    {job.status !== 'running' && ` · ${tokenUsageSummary(job.token_usage)}`}
+                    {/* 只有终态才显示消耗：用量要到结束才落库，「未记录」对跑完仍无数据的
+                        任务才有信息量；排队中显示它会让人以为已经花过钱 */}
+                    {isTerminal(job.status) && ` · ${tokenUsageSummary(job.token_usage)}`}
                   </>
                 }
               />
@@ -210,7 +270,24 @@ export default function GenerationJobsPanel({
         onClose={() => setDrawerJob(null)}
         extra={
           <Space>
-            {drawer && (drawer.status === 'failed' || drawer.status === 'timeout') && (
+            {drawer && canCancel(drawer) && (
+              drawer.status === 'queued' ? (
+                <Button size="small" onClick={() => onCancel(drawer.job_id)}>
+                  {cancelLabel(drawer)}
+                </Button>
+              ) : (
+                <Popconfirm
+                  title="停止这次生成？"
+                  description="停止后本次生成不会保存已完成的部分，已消耗的额度也不退回。"
+                  okText="停止生成"
+                  cancelText="继续等"
+                  onConfirm={() => onCancel(drawer.job_id)}
+                >
+                  <Button size="small">{cancelLabel(drawer)}</Button>
+                </Popconfirm>
+              )
+            )}
+            {drawer && isRetryable(drawer.status) && (
               <Button size="small" onClick={() => onRetry(drawer.job_id)}>
                 重试
               </Button>
@@ -240,12 +317,12 @@ export default function GenerationJobsPanel({
               </Descriptions.Item>
               <Descriptions.Item label="引擎">{drawer.engine || '-'}</Descriptions.Item>
               <Descriptions.Item label="创建时间">{formatDate(drawer.created_at)}</Descriptions.Item>
-              {drawer.status !== 'running' && (
+              {isTerminal(drawer.status) && (
                 <Descriptions.Item label="消耗">
                   {tokenUsageTotal(drawer.token_usage)}
                 </Descriptions.Item>
               )}
-              {drawer.status !== 'running' &&
+              {isTerminal(drawer.status) &&
                 tokenUsagePartRows(drawer.token_usage).map((p) => (
                   <Descriptions.Item key={p.key} label={p.label}>
                     {p.value}
@@ -276,6 +353,14 @@ export default function GenerationJobsPanel({
                 </>
               );
             })()}
+            {drawer.status === 'queued' && (
+              // 排队中不画进度、也不给"已生成 0 页"——那会被读成坏掉了
+              <span style={{ fontSize: 13, color: 'rgba(0,0,0,0.45)' }}>
+                任务在排队
+                {drawer.queue_position != null ? `，${queuePositionLabel(drawer.queue_position)}` : ''}
+                ，尚未开始生成。
+              </span>
+            )}
             {drawer.status === 'running' && <ProgressDisplay progress={drawer.progress} jobId={drawer.job_id} />}
             {drawerPages && drawerPages.supports_page_preview && (
               <div style={{ marginTop: 16 }}>
@@ -284,10 +369,10 @@ export default function GenerationJobsPanel({
             )}
             {drawer.error && (
               <Alert
-                type="error"
+                type={drawer.status === 'cancelled' ? 'warning' : 'error'}
                 showIcon
                 icon={<AlertCircle size={16} />}
-                message="任务失败"
+                message={drawer.status === 'cancelled' ? '任务已取消' : '任务失败'}
                 description={drawer.error}
                 style={{ marginTop: 16 }}
               />

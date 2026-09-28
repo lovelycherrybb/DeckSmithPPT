@@ -1524,6 +1524,10 @@ components:
         **不要用 status != ''running''** ——后者会把排队态误判为终态
         （历史上全仓库按"非 running 即终态"写死，引入 queued 后这些判断必须改成"是否终态"）。
 
+        中文界面用词：cancelled 一律显示「取消 / 已取消」（用户动作词），
+        本文档与 vc_design 里的"撤销"指同一件事、仅作机制叙述；
+        后端写入 status_detail / error 的文案必须与界面用词一致，不得两套说法。
+
         '
       enum:
       - queued

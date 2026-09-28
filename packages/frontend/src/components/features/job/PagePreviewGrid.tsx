@@ -13,6 +13,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Image, Spin, Tooltip, Typography } from 'antd';
 import type { EngineInfo, JobPages, PageItem } from '@/lib/api';
+import { isGenerating } from '@/lib/jobStatus';
 
 const { Text } = Typography;
 
@@ -170,7 +171,9 @@ interface Props {
 }
 
 export default function PagePreviewGrid({ data, showHeader = true }: Props) {
-  const running = data.status === 'running';
+  // 末尾转圈格只在"真在生成"时出现；排队中不转（此刻没有任何东西在产出）。
+  // 用 isGenerating 而不是 isPending，语义差一个字就会骗人。
+  const running = isGenerating(data.status);
   return (
     <div>
       {showHeader && (

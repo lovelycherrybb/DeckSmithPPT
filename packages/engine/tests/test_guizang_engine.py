@@ -48,6 +48,22 @@ def _isolate_claude_config(tmp_path, monkeypatch):
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude-config"))
 
 
+#: 结构合法的最小产物写入片段（ADR-021 结构守卫要求：骨架三件套各 1 次 +
+#: ≥1 完整闭合页 + 无 SLIDES_HERE 残留 + </html> 收尾 + 过 2048B 下限）。
+#: 本文件的用例测的是状态机 / 续跑 / 计量，不是产物结构，所以夹具必须能过守卫——
+#: 原先那种 `<div class="slide">` 拼出来的假 HTML 在真实世界里根本翻不动，
+#: 守卫拦下它是正确的，不能为了迁就旧夹具而放松判据。
+_VALID_PRODUCT_SH = (
+    'printf \'<!doctype html><html><body><div id="hint"></div><div id="deck">'
+    '<section class="slide light" data-slide-id="cover"><div>cover</div></section>'
+    '</div><div id="nav"></div><!-- 演讲备注 -->\' > "$result"\n'
+    'i=0; while [ $i -lt 200 ]; do '
+    'printf \'<p>aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa</p>\' >> "$result"; '
+    'i=$((i+1)); done\n'
+    'printf \'</body></html>\' >> "$result"\n'
+)
+
+
 def _wait_terminal(eng, job_id: str, budget_s: float = 90.0) -> str:
     """轮询到终态并返回状态值；超时则把 job 记录与 run.log 末尾一起抛出。
 
@@ -163,9 +179,7 @@ def test_成功产出单文件HTML(engine_factory, tmp_path):
         "result=$(printf '%s' \"$PROMPT\" | grep -o '/[^ ]*result\\.html' | head -1)\n"
         "printf '{\"type\":\"stream_event\",\"event\":{\"delta\":{\"type\":\"text_delta\",\"text\":\"正在排版\"}}}\\n'\n"
         "printf '{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"name\":\"Write\",\"input\":{\"file_path\":\"%s\"}}]}}\\n' \"$result\"\n"
-        "printf '<!doctype html><html><body>' > \"$result\"\n"
-        "i=0; while [ $i -lt 300 ]; do printf '<div>slide-%d</div>' \"$i\" >> \"$result\"; i=$((i+1)); done\n"
-        "printf '</body></html>' >> \"$result\"\n"
+        + _VALID_PRODUCT_SH +
         "printf '{\"type\":\"result\",\"subtype\":\"success\"}\\n'\n",
         encoding="utf-8",
     )
@@ -282,7 +296,7 @@ def test_resume复用草稿与job_id(engine_factory, tmp_path):
             tmp_path,
             "prompt=\"$PROMPT\"\n"
             "result=$(printf '%s' \"$prompt\" | grep -o '/[^ ]*result\\.html' | head -1)\n"
-            "i=0; while [ $i -lt 300 ]; do printf '<div>aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa</div>' >> \"$result\"; i=$((i+1)); done\n",
+            + _VALID_PRODUCT_SH,
         )
     )
     job_id = eng.submit(content="# 原始草稿\n内容", title="恢复测试", pages=6,
@@ -332,9 +346,7 @@ def test_无产物时自动resume续跑并成功(engine_factory, tmp_path):
         '  exit 0\n'
         'fi\n'
         'result=$(printf \'%s\' "$PROMPT" | grep -o \'/[^ ]*result\\.html\' | head -1)\n'
-        'i=0; while [ $i -lt 300 ]; do '
-        'printf \'<div class="slide">aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa</div>\' >> "$result"; '
-        'i=$((i+1)); done\n'
+        + _VALID_PRODUCT_SH +
         'printf \'{"type":"result","subtype":"success","is_error":false}\\n\'\n'
     )
     eng = engine_factory(claude_bin=_fake_claude(tmp_path, script), timeout_seconds=120)
@@ -368,9 +380,7 @@ def test_resume续跑的token消耗按分项累加(engine_factory, tmp_path):
         '  exit 0\n'
         'fi\n'
         'result=$(printf \'%s\' "$PROMPT" | grep -o \'/[^ ]*result\\.html\' | head -1)\n'
-        'i=0; while [ $i -lt 300 ]; do '
-        'printf \'<div class="slide">aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa</div>\' >> "$result"; '
-        'i=$((i+1)); done\n'
+        + _VALID_PRODUCT_SH +
         'printf \'{"type":"result","subtype":"success","is_error":false,'
         '"usage":{"input_tokens":5,"cache_creation_input_tokens":null,'
         '"cache_read_input_tokens":800,"output_tokens":10}}\\n\'\n'

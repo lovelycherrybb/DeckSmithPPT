@@ -45,6 +45,8 @@ from engine.core.proc import terminate_tree
 from engine.core.protocol import OutputEngine
 from engine.core.usage import add_usage, usage_from_result
 
+from .guard import check_and_heal
+
 # 仓库根：packages/engine/impl/guizang_ppt/engine.py
 # parents[0]=guizang_ppt [1]=impl [2]=engine [3]=packages [4]=仓库根
 _REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -699,8 +701,9 @@ class GuizangPptEngine(OutputEngine):
         since = data.get("started_at", 0.0) or 0.0
         result_file = self._result_path(job_id)
         if self._artifact_ready(job_id, since):
-            self._write_job(job_id, status="completed", result_path=str(result_file), updated_at=_now())
-            return EngineJobStatus.COMPLETED
+            # 产物存在 ≠ 产物能用：结构守卫在这里把关（ADR-021）。
+            # 挂这一处即可 —— _supervise 在产物就绪时只释放租约、把终态交给 status()。
+            return self._guard_and_complete(job_id, result_file)
 
         lease = data.get("supervisor_pid")
         if lease and self._process_alive(lease):
@@ -710,6 +713,56 @@ class GuizangPptEngine(OutputEngine):
             job_id, status="failed",
             error=self._diagnose_failure(job_id, data),
             updated_at=_now(), supervisor_pid=None,
+        )
+        return EngineJobStatus.FAILED
+
+    def _guard_and_complete(self, job_id: Any, result_file: Path) -> EngineJobStatus:
+        """产物就绪后的结构把关（ADR-021）：可自愈就地修，修不了如实判 failed。
+
+        为什么不自动重跑：单次生成实测 378 万 tokens，且重跑掷的是同一个概率骰子。
+        判 failed 后 error 由调度器 `_finalize` 原样抄进 DB（现成链路），用户在
+        任务详情里看得到原因，要不要重跑走既有 retry 入口由人决定。
+
+        已烧的 token 不隐瞒：`token_usage` 早先已由 pump 写入 job.json，本方法不碰它。
+        """
+        try:
+            html_text = result_file.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            return self._guard_reject(job_id, "产物不是合法的 UTF-8 文本，结构校验无法进行（文件可能已损坏）")
+        except OSError as exc:
+            return self._guard_reject(
+                job_id, f"产物文件读取失败，结构校验无法进行（{exc.__class__.__name__}）")
+
+        verdict = check_and_heal(html_text, closed_pages=len(scan_slides(html_text)))
+        if not verdict.ok:
+            return self._guard_reject(job_id, verdict.error_message,
+                                      defects=[d.code for d in verdict.defects])
+
+        if verdict.healed:
+            try:
+                result_file.write_text(verdict.text, encoding="utf-8")
+            except OSError as exc:
+                return self._guard_reject(
+                    job_id, f"产物结构自愈后写回失败，未采用修复（{exc.__class__.__name__}）",
+                    defects=verdict.healed)
+            self._append_log(
+                job_id,
+                "\n🛠 结构守卫自愈：补回缺失的 <div id=\"nav\"></div>（注入过程越界误删，"
+                "详见 ADR-021）\n")
+            self._write_job(job_id, status="completed", result_path=str(result_file),
+                            updated_at=_now(), guard={"healed": verdict.healed, "defects": []})
+        else:
+            self._write_job(job_id, status="completed", result_path=str(result_file),
+                            updated_at=_now())
+        return EngineJobStatus.COMPLETED
+
+    def _guard_reject(self, job_id: Any, message: str,
+                      *, defects: list[str] | None = None) -> EngineJobStatus:
+        """守卫拦截：落 failed + 如实记录缺陷，并在 run.log 留一行（可审计）。"""
+        self._append_log(job_id, f"\n🛑 结构守卫拦截：{message}\n")
+        self._write_job(
+            job_id, status="failed", updated_at=_now(), supervisor_pid=None,
+            error=message, guard={"healed": [], "defects": defects or []},
         )
         return EngineJobStatus.FAILED
 

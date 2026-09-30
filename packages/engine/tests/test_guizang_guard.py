@@ -222,7 +222,8 @@ def test_真实案例_缺nav产物经守卫转为可用(tmp_path):
     pages = len(scan_slides(html))
     assert pages == 12 and 'id="nav"' in html, "基准：真实产物当前是完好形态"
 
-    broken = html.replace('<div id="nav"></div>\n\n', '', count=1)
+    # count 位置传参：3.11 的 str.replace 第三参是仅位置参数（本机 3.14 恰好宽容）
+    broken = html.replace('<div id="nav"></div>\n\n', '', 1)
     assert 'id="nav"' not in broken, "缺陷已按预期复现"
 
     verdict = check_and_heal(broken, closed_pages=len(scan_slides(broken)))

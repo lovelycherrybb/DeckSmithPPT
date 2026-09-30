@@ -155,8 +155,12 @@ def check_and_heal(html_text: str, *, closed_pages: int) -> GuardResult:
         # 锚点缺失或被复制：落点不可靠，退回如实报告
         return GuardResult(ok=False, text=html_text, defects=defects)
 
+    # count 必须**位置传参**：str.replace 的第三个参数在 CPython 里是仅位置参数，
+    # 写成 count=1 在本机 3.14 上恰好能用，CI 的 3.11 直接抛
+    # `TypeError: str.replace() takes no keyword arguments`——本项目 requires-python >=3.11，
+    # 一切以最低支持版本为准（与 repository/jobs.py 顶部那条 3.14 掩盖 3.11 的教训同源）。
     healed_text = html_text.replace(
-        NOTES_ANCHOR, f"{NAV_ELEMENT}\n\n{NOTES_ANCHOR}", count=1)
+        NOTES_ANCHOR, f"{NAV_ELEMENT}\n\n{NOTES_ANCHOR}", 1)
     residual = validate(healed_text, closed_pages=closed_pages)
     if residual:
         # 补完仍不过 → 不采用这次修复，把复检出的真实缺陷报出去

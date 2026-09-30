@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import StudioLayout from '@/components/StudioLayout';
 import WorkspaceTab from '@/components/tabs/WorkspaceTab';
 import HistoryTab from '@/components/tabs/HistoryTab';
@@ -24,10 +24,24 @@ export default function StudioPage() {
 }
 
 function StudioInner() {
-  const { authenticated, isAdmin } = useAuth();
+  const { authenticated, isAdmin, user, visitorId } = useAuth();
   const [activeTab, setActiveTab] = useState('workspace');
   // 历史项目「操作」跳入工作台时携带的项目
   const [workspaceProjectId, setWorkspaceProjectId] = useState<string | null>(null);
+
+  // 身份一变就把「从历史项目跳入时带的绑定」作废。
+  // 为什么单独清它：WorkspaceTab 靠 key 重挂载来重置，但 workspaceProjectId 是这一层的
+  // state，赋值后从来没人清回 null——重挂载时它又被当作 initialProjectId 塞回去，
+  // 于是退出登录后旧项目照样被绑着，提交必 404。组件内的清空见 WorkspaceTab 的身份 effect。
+  const identityKey = `${user?.user_id ?? 'anon'}|${visitorId ?? ''}`;
+  const firstIdentityRef = useRef(true);
+  useEffect(() => {
+    if (firstIdentityRef.current) {
+      firstIdentityRef.current = false;
+      return;
+    }
+    setWorkspaceProjectId(null);
+  }, [identityKey]);
 
   // 支持 ?tab=workspace|history|settings|users 直达某个标签（放 useEffect 避免 SSR hydration 不一致）
   useEffect(() => {

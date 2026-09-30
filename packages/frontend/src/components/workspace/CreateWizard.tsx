@@ -8,7 +8,7 @@
 import { useEffect, useState } from 'react';
 import { Alert, Button, Card, Form, Input, Segmented, Select, Steps, Tag, Upload, message } from 'antd';
 import { ArrowRight, FileText, Sparkles, UploadCloud, X } from 'lucide-react';
-import { submitDeck, suggestTitle, suggestTitleStream, uploadFile, type DeckRequest, type EngineInfo, type UploadResponse } from '@/lib/api';
+import { submitDeck, suggestTitle, suggestTitleStream, uploadFile, ApiError, type DeckRequest, type EngineInfo, type UploadResponse } from '@/lib/api';
 
 const { TextArea } = Input;
 
@@ -16,9 +16,11 @@ interface Props {
   draftEngines: EngineInfo[];
   currentProjectId: string | null;
   onSubmitted: () => void;
+  /** 提交时后端说「项目不存在」（当前项目已失效）→ 请父级清掉选中，切回"提交即新建" */
+  onProjectInvalid?: () => void;
 }
 
-export default function CreateWizard({ draftEngines, currentProjectId, onSubmitted }: Props) {
+export default function CreateWizard({ draftEngines, currentProjectId, onSubmitted, onProjectInvalid }: Props) {
   const [messageApi, contextHolder] = message.useMessage();
   const [step, setStep] = useState(0);
 
@@ -140,7 +142,14 @@ export default function CreateWizard({ draftEngines, currentProjectId, onSubmitt
       setTitle('');
       onSubmitted();
     } catch (e) {
-      messageApi.error(e instanceof Error ? e.message : '提交失败');
+      // 当前项目已失效（被删，或退出登录后归属不再可见）。后端按"不泄露存在性"回 404，
+      // 这句原文用户读不懂，而且他会对着同一个已死的项目反复点提交——就地切回新建并说清楚。
+      if (e instanceof ApiError && e.status === 404 && currentProjectId) {
+        messageApi.warning('当前项目已失效，已切回新建——请重新提交');
+        onProjectInvalid?.();
+      } else {
+        messageApi.error(e instanceof Error ? e.message : '提交失败');
+      }
     } finally {
       setSubmitting(false);
     }

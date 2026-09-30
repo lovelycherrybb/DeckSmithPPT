@@ -35,7 +35,7 @@ import DraftsPanel, { selectUnfinishedDraftJobs } from '@/components/workspace/D
 import GenerationJobsPanel from '@/components/workspace/GenerationJobsPanel';
 import PresentationsPanel from '@/components/workspace/PresentationsPanel';
 import RunningTasksDock from '@/components/workspace/RunningTasksDock';
-import CapacityNotice from '@/components/workspace/CapacityNotice';
+import { useAuth } from '@/components/AuthProvider';
 import { collectPreviewableTaskIds } from '@/components/features/job/PagePreviewGrid';
 
 interface Props {
@@ -115,6 +115,23 @@ export default function WorkspaceTab({ initialProjectId = null }: Props) {
     refreshProjects().then(() => refreshDrafts());
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // 身份一变（登录 / 退出 / 访客令牌换发）就重算可见项目集。
+  // 为什么必须做：currentProjectId 是本组件 state，原地退出登录不会重挂载、没人清它；
+  // 而创建向导提交时带着 `project_id: currentProjectId`，后端归属校验对无权访问的项目
+  // 一律 404「项目不存在」（service.jobs._ensure_project）——现象就是用户"怎么点都生成不了"。
+  // 判"当前项目还合法吗"的规则只有 refreshProjects 里那一条（不在可见列表就置空），
+  // 这里复用，绝不另写第二套清空逻辑。
+  const { user, visitorId } = useAuth();
+  const identityKey = `${user?.user_id ?? 'anon'}|${visitorId ?? ''}`;
+  const firstIdentityRef = useRef(true);
+  useEffect(() => {
+    if (firstIdentityRef.current) {
+      firstIdentityRef.current = false;
+      return;  // 挂载那次由上面的初始化 effect 负责，避免同一件事拉两遍
+    }
+    refreshProjects();
+  }, [identityKey, refreshProjects]);
+
   // currentProjectId 确定后再拉取该项目的草稿和演示文件
   useEffect(() => {
     refreshDrafts();
@@ -147,6 +164,14 @@ export default function WorkspaceTab({ initialProjectId = null }: Props) {
     refreshDrafts();
     refreshJobs();
   }, [refreshProjects, refreshDrafts, refreshJobs, currentProjectId]);
+
+  // 兜底：提交时后端回「项目不存在」（项目被删、或归属已随身份变化而不可见）。
+  // 就地清掉选中、切回"提交即新建"，而不是把 404 原文甩给用户——那句话他读不懂，
+  // 而且他会对着同一个已失效的项目反复点提交。
+  const handleProjectInvalid = useCallback(() => {
+    setCurrentProjectId(null);
+    refreshProjects();
+  }, [refreshProjects]);
 
   // ②「去生成」提交成功 → 切到③生成任务
   const handleOutputSubmitted = useCallback(
@@ -248,9 +273,6 @@ export default function WorkspaceTab({ initialProjectId = null }: Props) {
         })}
       </div>
 
-      {/* 只读容量提示：解释"为什么要等"，数字来自后端（管理员改闸门这里跟着变） */}
-      <CapacityNotice />
-
       {/* 当前项目信息行（对齐设计稿 .project-info） */}
       <div className="project-info">
         当前项目：
@@ -269,6 +291,7 @@ export default function WorkspaceTab({ initialProjectId = null }: Props) {
           draftEngines={draftEngines}
           currentProjectId={currentProjectId}
           onSubmitted={handleDraftJobSubmitted}
+          onProjectInvalid={handleProjectInvalid}
         />
       )}
       {activeKey === 'drafts' && (

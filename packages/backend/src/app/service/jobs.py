@@ -53,18 +53,28 @@ def _version_stamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
 
 
-def _queued_status_detail(position: int | None, *, retry: bool = False) -> str:
+def _queued_status_detail(position: int | None, *, retry: bool = False,
+                          running: int | None = None, capacity: int | None = None) -> str:
     """queued 行的状态明细：把排队位序写进文案（出参时现算，**不落库**）。
 
     静态的"排队中"没有信息量——排队时该知道的就是"还要等几个"。口径与契约
     Job.queue_position 完全一致：只数前面尚未被认领的 queued 任务，不含正在生成
-    的占槽任务；队首说"即将开始"；位序拿不到时退回原静态文案，绝不编数字。
+    的占槽任务；位序拿不到时退回原静态文案，绝不编数字。
     落库行仍写静态"排队中"：位序是读取时快照，落库那一刻就已过期。
+
+    **队首要说两句不同的话**：`queue_position == 0` 只代表"前面没有排队的人"，
+    不代表"马上开始"——并发闸占满时它还得等某个 running 让出槽位。实测踩过一次：
+    闸门 2、2 个在跑、它排第一，界面却显示"即将开始"，用户据此以为马上出片。
+    所以拿到 running/capacity 时按占位情况分说；拿不到（调用方没查）才沿用"即将开始"。
     """
     base = "排队中（重试）" if retry else "排队中"
     if position is None:
         return base
-    return f"{base} · 即将开始" if position <= 0 else f"{base} · 前方还有 {position} 个任务"
+    if position > 0:
+        return f"{base} · 前方还有 {position} 个任务"
+    if running is not None and capacity is not None and running >= capacity:
+        return f"{base} · 等待空位（{running} 个正在生成）"
+    return f"{base} · 即将开始"
 
 
 _VERSION_RE = re.compile(r"^[0-9]{14}$")
@@ -284,8 +294,16 @@ class JobService:
         """
         if job.status == "queued":
             job.queue_position = self.repo.queue_position(db, job.job_id)
+            running = capacity = None
+            if job.queue_position == 0:
+                # 只有队首才需要"有没有空位"这个事实；排在后面时用不上，别白查两次
+                running = self.repo.count_by_status(db, "running")
+                capacity = runtime_settings.max_concurrent_jobs()
             job.status_detail = _queued_status_detail(
-                job.queue_position, retry=(job.status_detail or "").endswith("（重试）"))
+                job.queue_position,
+                retry=(job.status_detail or "").endswith("（重试）"),
+                running=running, capacity=capacity,
+            )
         return job
 
     @staticmethod

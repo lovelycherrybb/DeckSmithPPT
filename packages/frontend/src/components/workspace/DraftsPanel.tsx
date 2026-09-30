@@ -58,7 +58,7 @@ import {
   type Project,
   type UserPreference,
 } from '@/lib/api';
-import { isPending, isRetryable, queuePositionLabel } from '@/lib/jobStatus';
+import { isPending, isRetryable, queueDetailLabel } from '@/lib/jobStatus';
 import { StatusTag } from '@/components/ui/StatusTag';
 import MarkdownView from '@/components/ui/MarkdownView';
 import MdEditor from '@/components/ui/MdEditor';
@@ -538,7 +538,7 @@ export default function DraftsPanel({
                           ) : (
                             `所属项目 ${pName} · ${
                               queued
-                                ? queuePositionLabel(job.queue_position)
+                                ? queueDetailLabel(job.status_detail, job.queue_position)
                                 : job.status_detail || '引擎执行中'
                             }`
                           )

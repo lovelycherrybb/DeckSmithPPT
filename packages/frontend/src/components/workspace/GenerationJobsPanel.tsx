@@ -36,7 +36,7 @@ import {
   isPending,
   isRetryable,
   isTerminal,
-  queuePositionLabel,
+  queueDetailLabel,
 } from '@/lib/jobStatus';
 import ProgressDisplay from '@/components/features/job/ProgressDisplay';
 import PagePreviewGrid from '@/components/features/job/PagePreviewGrid';
@@ -235,7 +235,7 @@ export default function GenerationJobsPanel({
                     <StatusTag status={job.status} />
                     {/* 排队中：只报位置，不报页数/耗时——此刻还没有任何产出，显示 0 会被读成卡死 */}
                     {job.status === 'queued' && (
-                      <Tag style={{ fontSize: 12 }}>{queuePositionLabel(job.queue_position)}</Tag>
+                      <Tag style={{ fontSize: 12 }}>{queueDetailLabel(job.status_detail, job.queue_position)}</Tag>
                     )}
                     {job.status === 'running' && (
                       <Tag color="gold" style={{ fontSize: 12 }}>
@@ -354,11 +354,11 @@ export default function GenerationJobsPanel({
               );
             })()}
             {drawer.status === 'queued' && (
-              // 排队中不画进度、也不给"已生成 0 页"——那会被读成坏掉了
+              // 排队中不画进度、也不给"已生成 0 页"——那会被读成坏掉了。
+              // 位置信息不在这里重复一遍：上方「状态明细」已经带了后端现算的那句完整话，
+              // 这里再拼一次就成了同一事实的两个作者。
               <span style={{ fontSize: 13, color: 'rgba(0,0,0,0.45)' }}>
-                任务在排队
-                {drawer.queue_position != null ? `，${queuePositionLabel(drawer.queue_position)}` : ''}
-                ，尚未开始生成。
+                任务在排队，尚未开始生成。
               </span>
             )}
             {drawer.status === 'running' && <ProgressDisplay progress={drawer.progress} jobId={drawer.job_id} />}

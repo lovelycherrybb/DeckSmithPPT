@@ -45,13 +45,33 @@ export const engineCancellable = (capabilities?: string[] | null) =>
   !!capabilities && capabilities.includes('cancel');
 
 /**
- * 排队位置的中文表述。
+ * 排队位置的中文表述（兜底用）。
  * 后端给的是"读取时现算的派生值，仅供参考"（契约 Job.queue_position），
  * 所以文案不写成承诺；队首（0 个在前）说"即将开始"，不说"前方还有 0 个"。
  * 措辞与后端 service.jobs._queued_status_detail 一字不差（契约：界面与后端不得两套说法）。
+ *
+ * 注意：这句话**不知道并发闸有没有空位**，所以队首可能过于乐观。
+ * 展示排队信息请优先用 queueDetailLabel()，它取的是后端写好的完整句子。
  */
 export function queuePositionLabel(position?: number | null): string {
   if (position == null) return '排队中';
   if (position <= 0) return '即将开始';
   return `前方还有 ${position} 个任务`;
+}
+
+/**
+ * 排队标签文案：取后端 status_detail 里的位序部分，取不到才退回 queuePositionLabel。
+ *
+ * 为什么不在前端重算第二遍：队首到底是"即将开始"还是"等待空位（N 个正在生成）",
+ * 取决于并发闸的占用情况——running 数与闸门值都在后端。前端要自己判就得再拉一次
+ * /api/settings/capacity，于是同一句话有了两个作者，迟早漂移。后端既然已经把
+ * 完整句子写进 status_detail（契约 Job.status_detail 的 queued 语义），这里就
+ * 只负责去掉与旁边那个「排队中」状态标签重复的前缀。
+ */
+export function queueDetailLabel(
+  statusDetail?: string | null,
+  position?: number | null,
+): string {
+  const tail = (statusDetail || '').split(' · ')[1]?.trim();
+  return tail || queuePositionLabel(position);
 }

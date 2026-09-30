@@ -392,6 +392,48 @@ def test_重试探针保留重试语义(db):
     assert out.status_detail == "排队中（重试） · 即将开始"
 
 
+def test_队首要分清有无空位(db):
+    """`queue_position == 0` 只代表"前面没人排队"，不代表"马上开始"。
+
+    实测踩过的坑：闸门 2、2 个在跑、它排第一，界面却显示"即将开始"——用户据此以为
+    马上出片，实际要等某个 running 让出槽位。所以队首分两种说法。
+    """
+    from app.service.jobs import _queued_status_detail as f
+
+    # 拿到占位事实：满了就说"等待空位"，没满才敢说"即将开始"
+    assert f(0, running=2, capacity=2) == "排队中 · 等待空位（2 个正在生成）"
+    assert f(0, running=1, capacity=2) == "排队中 · 即将开始"
+    assert f(0, running=0, capacity=2) == "排队中 · 即将开始"
+    # 没查占位（排在后面时用不上）→ 沿用旧说法，不编造"等待空位"
+    assert f(0) == "排队中 · 即将开始"
+    # 排在后面：占位事实不参与，仍然只报前面排队的人数
+    assert f(3, running=2, capacity=2) == "排队中 · 前方还有 3 个任务"
+
+
+def test_闸满时出参给等待空位(db):
+    """走完整出参链路：2 个 running 占满闸门 + 1 个队首 queued → 文案是"等待空位"。"""
+    eng = FakeEngine()
+    svc = JobService(JobRepo(), engine_factory=lambda name: eng)
+    _mk(db, "r1", status="running")
+    _mk(db, "r2", status="running")
+    _mk(db, "head")   # 队首：前面没有未认领的 queued，但两个槽位都满着
+
+    out = svc.get(db, "head")
+    assert out.queue_position == 0
+    assert out.status_detail == "排队中 · 等待空位（2 个正在生成）"
+
+
+def test_有空位时出参给即将开始(db):
+    """腾出一个槽位（只剩 1 个 running）→ 同一句改口为"即将开始"。"""
+    svc = JobService(JobRepo(), engine_factory=lambda name: FakeEngine())
+    _mk(db, "r1", status="running")
+    _mk(db, "head")
+
+    out = svc.get(db, "head")
+    assert out.queue_position == 0
+    assert out.status_detail == "排队中 · 即将开始"
+
+
 def test_单身份未完成任务达上限时提交被拒(db):
     """per-identity 粗闸（ADR-019 决策 7）：取代加权调度，防止一个人把队排到 50 个。"""
     from fastapi import HTTPException

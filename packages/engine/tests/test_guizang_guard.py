@@ -209,10 +209,23 @@ _REAL = Path(__file__).resolve().parents[3] / "outputs" / "jobs" / \
     "c7f3edd4ae414623b45977b3cb8e49e3" / "result.html"
 
 
-@pytest.mark.skipif(not _REAL.is_file(), reason="真实坏产物未随仓库分发（outputs/ 不入库）")
+@pytest.mark.skipif(not _REAL.is_file(), reason="真实产物未随仓库分发（outputs/ 不入库）")
 def test_真实案例_缺nav产物经守卫转为可用(tmp_path):
+    """拿**真实世界的 12 页杂志产物**当夹具：注释里的假页、真实标签嵌套这些干扰项，
+    合成夹具模拟不出来。
+
+    缺陷是**从真文件反向造**的（删掉那一行 nav），而不是断言"文件本来就是坏的"——
+    该产物已被守卫修好并入库在 outputs/ 下，若断言原始形态，修好产物这一刻就会把
+    这条测试弄坏（曾经真的这样自毁过一次）。
+    """
     html = _REAL.read_text(encoding="utf-8")
-    assert 'id="nav"' not in html, "该产物的已知缺陷"
-    verdict = check_and_heal(html, closed_pages=len(scan_slides(html)))
+    pages = len(scan_slides(html))
+    assert pages == 12 and 'id="nav"' in html, "基准：真实产物当前是完好形态"
+
+    broken = html.replace('<div id="nav"></div>\n\n', '', count=1)
+    assert 'id="nav"' not in broken, "缺陷已按预期复现"
+
+    verdict = check_and_heal(broken, closed_pages=len(scan_slides(broken)))
     assert verdict.ok and verdict.healed == ["skeleton_missing:nav"]
-    assert len(scan_slides(verdict.text)) == 12, "自愈不动内容，页数不变"
+    assert verdict.text == html, "修复结果应与完好产物逐字节一致"
+    assert len(scan_slides(verdict.text)) == pages, "自愈不动内容，页数不变"

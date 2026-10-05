@@ -106,11 +106,15 @@ class SystemSettingsService:
 
     # ── 只读容量（任意身份，见 ADR-020 决策 7）──
     def capacity(self, db: Session) -> dict:
-        """只暴露三个数：上限 + 当前在跑/排队。不给配置项清单、不给密钥状态。"""
+        """只暴露三个数：上限 + 当前在跑/排队。不给配置项清单、不给密钥状态。
+
+        running/queued 一律按**生成通道（output）**计——max_concurrent_jobs 就是生成闸的上限，
+        分母分子必须同口径；走快通道的草稿/修改不占这个额度、不进这里的计数（ADR-024）。
+        """
         return {
             "max_concurrent_jobs": runtime_settings.max_concurrent_jobs(),
-            "running": self.jobs.count_by_status(db, "running"),
-            "queued": self.jobs.count_by_status(db, "queued"),
+            "running": self.jobs.count_generation(db, "running"),
+            "queued": self.jobs.count_generation(db, "queued"),
         }
 
 

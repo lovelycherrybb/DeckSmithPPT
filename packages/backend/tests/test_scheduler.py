@@ -190,6 +190,36 @@ def test_queued不算进运行中但算进未结束(db):
     assert stats["p1"]["running_task_count"] == 2
 
 
+def test_快通道不占生成槽(db):
+    """ADR-024：max_concurrent 只约束 output。闸给 1 且被一条 output 占满时，
+    草稿走快通道照样被认领起跑、不排队；另一条 output 仍卡在队列里。"""
+    _mk(db, "gen-run", status="running")            # 占满生成闸的一条 output
+    _mk(db, "gen-wait")                              # 第二条 output，闸满不该被认领
+    _mk(db, "draft-1", task_type="draft")            # 快通道草稿，该被认领
+    eng = FakeEngine()
+    _sched(eng, max_concurrent=1, db=db).sweep()
+
+    assert "draft-1" in eng.submitted_ids, "草稿走快通道，不等生成槽"
+    assert "gen-wait" not in eng.submitted_ids, "生成闸已满，第二条 output 不该被放进来"
+    assert JobRepo().get(db, "draft-1")["status"] == "running"
+    assert JobRepo().get(db, "gen-wait")["status"] == "queued"
+    # 生成闸分母只数 output：running 里只有 gen-run 这一条算占用
+    assert JobRepo().count_generation(db, "running") == 1
+    assert JobRepo().count_by_status(db, "running") == 2, "快通道那条 draft 也在 running，但不计入生成闸"
+
+
+def test_位序只对输出任务成立(db):
+    """ADR-024：走快通道的草稿没有排队位序（恒 None），只有 output 在生成队列里有位序。"""
+    R = JobRepo()
+    _mk(db, "d1", task_type="draft")
+    _mk(db, "o1", task_type="output", created_at="2026-01-01T00:00:00+00:00")
+    _mk(db, "o2", task_type="output", created_at="2026-01-02T00:00:00+00:00")
+
+    assert R.queue_position(db, "d1") is None        # 草稿不在生成队里
+    assert R.queue_position(db, "o1") == 0           # 生成队队首
+    assert R.queue_position(db, "o2") == 1           # 前面只有 o1（draft 不算进生成位序）
+
+
 # ───────────────── 3. fork 失败 / CAS 输掉的回收 ─────────────────
 
 def test_引擎提交抛异常判failed并交出槽位(db):

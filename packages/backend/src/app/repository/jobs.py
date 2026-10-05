@@ -293,18 +293,22 @@ class JobRepo:
         ).scalars().all()
         return [self._row_to_dict(obj) for obj in rows]
 
-    def claim_next_queued(self, db, claimant: str) -> dict | None:
+    def claim_next_queued(self, db, claimant: str, *, generation_lane: bool = True) -> dict | None:
         """预留队头一个可认领的 queued 任务（严格 FIFO），返回抢到的行；无则 None。
 
-        只打 `claimed_by/claimed_at`，**status 仍是 queued** ——fork 成功后才由
+        两条通道（ADR-024）：`generation_lane=True` 只认领**输出引擎任务**（受 max_concurrent
+        生成闸约束）；`False` 只认领**草稿/修改**等快通道任务（不等生成槽）。
+        只打 `claimed_by/claimed_at`，**status 仍是 queued**——fork 成功后才由
         `promote_to_running` 翻态（契约把 queued 定义为"子进程尚未 fork 成功"，
         先置 running 再 fork 会让 fork 失败的行冒充 running）。
         """
         stale_before = self._claim_stale_before()
+        lane_filter = (Job.task_type == "output") if generation_lane else (Job.task_type != "output")
         for _ in range(10):  # 有界重试：这一行被别人抢先就换下一行，不空转
             cand = db.execute(
                 select(Job.job_id).where(
                     Job.status == "queued",
+                    lane_filter,
                     (Job.claimed_by.is_(None)) | (Job.claimed_at < stale_before),
                 ).order_by(Job.created_at.asc(), Job.id.asc()).limit(1)
             ).scalar_one_or_none()
@@ -357,10 +361,22 @@ class JobRepo:
         return res.rowcount > 0
 
     def count_by_status(self, db, *statuses: str) -> int:
-        """按状态集合计数（并发闸口径 = running 的行数；"未结束"= queued + running）。"""
+        """按状态集合计数（跨所有任务类型；快通道/粗闸等总量口径用它）。"""
         from sqlalchemy import func
         return db.execute(
             select(func.count()).select_from(Job).where(Job.status.in_(statuses))
+        ).scalar_one()
+
+    def count_generation(self, db, *statuses: str) -> int:
+        """只数**输出引擎任务**（generation lane）——并发闸 max_concurrent 的唯一分母。
+
+        引入快通道后（ADR-024），"还有几个生成槽"必须只按 output 计，否则草稿/修改会占用
+        生成额度、把真正的 PPT 生成挤到排队。
+        """
+        from sqlalchemy import func
+        return db.execute(
+            select(func.count()).select_from(Job).where(
+                Job.status.in_(statuses), Job.task_type == "output")
         ).scalar_one()
 
     def list_by_status(self, db, *statuses: str) -> list[dict]:
@@ -392,21 +408,22 @@ class JobRepo:
         return db.execute(query).scalar_one()
 
     def queue_position(self, db, job_id: str) -> int | None:
-        """排队位序：本任务前面还有多少个未认领的 queued 任务；非 queued 返回 None。
+        """排队位序：本任务前面还有多少个未认领的 queued **输出**任务；非 queued 或非输出返回 None。
 
-        口径与契约一致（openapi Job.queue_position）：**读取时现算的派生值**，
-        按 created_at FIFO，只数 claimed_by IS NULL 的（已被占位的等于轮到它了）。
+        只有输出引擎任务进生成排队（ADR-024），所以：非 output 任务恒为 None（它不在这条队里）；
+        位序也只数 output 的未认领 queued。口径与契约一致（openapi Job.queue_position）：
+        **读取时现算的派生值**，按 created_at FIFO，只数 claimed_by IS NULL 的（已被占位的等于轮到它了）。
         不入库、不构成承诺。
         """
         from sqlalchemy import func
         mine = db.execute(
-            select(Job.created_at, Job.id, Job.status).where(Job.job_id == job_id)
+            select(Job.created_at, Job.id, Job.status, Job.task_type).where(Job.job_id == job_id)
         ).one_or_none()
-        if mine is None or mine[2] != "queued":
+        if mine is None or mine[2] != "queued" or mine[3] != "output":
             return None
         return db.execute(
             select(func.count()).select_from(Job).where(
-                Job.status == "queued", Job.claimed_by.is_(None),
+                Job.status == "queued", Job.task_type == "output", Job.claimed_by.is_(None),
                 (Job.created_at < mine[0])
                 | ((Job.created_at == mine[0]) & (Job.id < mine[1])),
             )

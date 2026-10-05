@@ -56,6 +56,11 @@ def _epoch_of(iso: str | None) -> float | None:
         return None
 
 
+#: 快通道每拍认领上限（ADR-024）。只是安全阀：防"一拍里 fork 出一堆子进程"，不是并发闸。
+#: 全局防灌水交给提交期 per-identity 未结束粗闸兜底，所以这里给足量。
+FAST_LANE_MAX_PER_SWEEP = 8
+
+
 class Scheduler:
     """认领 + 轮询 + 收尸 + 终态收割。一条线程，一个进程内单例。"""
 
@@ -66,6 +71,7 @@ class Scheduler:
         interval: float | None = None,
         max_concurrent: int | None = None,
         timeout_seconds: int | None = None,
+        fast_lane_max: int | None = None,
         engine_factory=None,
         session_factory=None,
     ) -> None:
@@ -80,6 +86,9 @@ class Scheduler:
         self._interval = interval
         self._max_concurrent = max_concurrent
         self._timeout = timeout_seconds
+        # 快通道每拍认领上限（ADR-024）：只是防"一拍里 fork 太多"的安全阀，不是并发闸；
+        # 真正防灌水的是提交期的 per-identity 未结束粗闸。给足量，别把快通道又做成了新瓶颈。
+        self.fast_lane_max = fast_lane_max if fast_lane_max is not None else FAST_LANE_MAX_PER_SWEEP
         #: 认领者标识：host:pid。写进 claimed_by，于是"谁占的位"在 DB 里看得见，
         #: 多副本或同机多进程时也能判定该不该按陈旧处理。
         self.claimant = f"{socket.gethostname()}:{os.getpid()}"
@@ -242,11 +251,20 @@ class Scheduler:
 
     # ── ③ 认领新的 ──
     def _claim_queued(self, db, stats: dict) -> None:
-        slots = self.max_concurrent - self.repo.count_by_status(db, "running")
+        # 生成闸：max_concurrent 只约束**输出引擎任务**（ADR-024）。running 只数 output，
+        # 否则草稿/修改会占用生成额度、把真正的 PPT 生成挤到排队。
+        slots = self.max_concurrent - self.repo.count_generation(db, "running")
         for _ in range(max(0, slots)):
-            row = self.repo.claim_next_queued(db, self.claimant)
+            row = self.repo.claim_next_queued(db, self.claimant, generation_lane=True)
             if row is None:
-                return
+                break
+            self._start(db, row, stats)
+        # 快通道：草稿/修改任务不等生成槽，每拍直接认领并起跑（上限只是安全阀）；
+        # 提交期的 per-identity 未结束粗闸才是防灌水的闸（ADR-024 决策 2）。
+        for _ in range(self.fast_lane_max):
+            row = self.repo.claim_next_queued(db, self.claimant, generation_lane=False)
+            if row is None:
+                break
             self._start(db, row, stats)
 
     def _start(self, db, row: dict, stats: dict) -> None:

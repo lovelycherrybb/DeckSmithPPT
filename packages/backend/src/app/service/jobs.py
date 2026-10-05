@@ -296,8 +296,9 @@ class JobService:
             job.queue_position = self.repo.queue_position(db, job.job_id)
             running = capacity = None
             if job.queue_position == 0:
-                # 只有队首才需要"有没有空位"这个事实；排在后面时用不上，别白查两次
-                running = self.repo.count_by_status(db, "running")
+                # 只有队首才需要"有没有空位"这个事实；排在后面时用不上，别白查两次。
+                # 生成闸只数 output（ADR-024），这里的 running 口径必须与 _claim_queued 一致。
+                running = self.repo.count_generation(db, "running")
                 capacity = runtime_settings.max_concurrent_jobs()
             job.status_detail = _queued_status_detail(
                 job.queue_position,

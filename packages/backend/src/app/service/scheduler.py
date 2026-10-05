@@ -284,16 +284,27 @@ class Scheduler:
             stats["rejected"] += 1
             return
         try:
-            JobService.engine_submit(
-                engine,
-                content=row.get("content"),
-                title=row.get("title"),
-                pages=row.get("pages"),
-                engine_params=row.get("engine_params") or {},
-                sources=row.get("sources") or [],   # 搬家带来的硬前置：不入库就还原不出入参
-                job_id=job_id,
-                engine_type=row.get("task_type"),
-            )
+            if row.get("task_type") == "revise":
+                # 逐页修改：靠 revise_meta 还原 engine.revise 入参（同 sources 之于 submit）
+                meta = row.get("revise_meta") or {}
+                engine.revise(
+                    job_id,
+                    source_task_id=meta.get("source_task_id"),
+                    pages=meta.get("pages") or None,
+                    instruction=meta.get("instruction"),
+                    engine_params=row.get("engine_params") or {},
+                )
+            else:
+                JobService.engine_submit(
+                    engine,
+                    content=row.get("content"),
+                    title=row.get("title"),
+                    pages=row.get("pages"),
+                    engine_params=row.get("engine_params") or {},
+                    sources=row.get("sources") or [],   # 搬家带来的硬前置：不入库就还原不出入参
+                    job_id=job_id,
+                    engine_type=row.get("task_type"),
+                )
         except Exception as exc:  # noqa: BLE001
             # 与搬走之前的行为一致：引擎抛异常就判失败，不退回队列（重试只会再失败一次）
             self.repo.cas_status(
@@ -360,9 +371,13 @@ class Scheduler:
 
         fresh = self.repo.get(db, job_id) or {**row, **fields}
         try:
-            if status == "completed" and fresh.get("task_type") == "output" and result_path:
+            task_type = fresh.get("task_type")
+            if status == "completed" and task_type == "output" and result_path:
                 self.service.persist_presentation(fresh, result_path)
-            elif status == "completed" and fresh.get("task_type") == "draft":
+            elif status == "completed" and task_type == "revise" and result_path:
+                # 修改成功 → 在版本树上落一个子演示文件（ADR-023）
+                self.service.persist_sub_presentation(fresh, result_path)
+            elif status == "completed" and task_type == "draft":
                 self.service.persist_draft_entity(fresh)
         except Exception:  # noqa: BLE001
             # 任务终态已经落库了，实体登记的失败要看得见，但不能把任务改判

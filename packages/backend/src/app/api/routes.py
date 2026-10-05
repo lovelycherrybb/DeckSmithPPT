@@ -15,7 +15,7 @@ from ..core.db import SessionLocal, JOBS_ROOT
 from ..core.config import get_app_version
 from ..core.auth import Identity, get_identity, require_admin
 from ..core import ownership
-from ..repository.jobs import ProjectRepo, JobRepo, DraftRepo, DraftVersionRepo, PresentationRepo
+from ..repository.jobs import ProjectRepo, JobRepo, DraftRepo, DraftVersionRepo, PresentationRepo, SubPresentationRepo
 from ..repository.users import UserRepo
 from ..service.jobs import JobService, sanitize_filename
 from ..engines.factory import get_engine
@@ -23,7 +23,7 @@ from ..engines.registry import list_engines
 from ..core.schemas import (
     DeckRequest, JobOut, EngineInfo, UploadResponse,
     ProjectOut, ProjectDetailOut, DraftOut, DraftDetailOut, DraftVersionOut, ModifyDraftRequest, SaveDraftVersionRequest,
-    PresentationOut, SecurityCheckRequest, SecurityCheckResult,
+    PresentationOut, SubPresentationOut, ReviseRequest, SecurityCheckRequest, SecurityCheckResult,
     SuggestTitleRequest, SuggestTitleResult, JobPages, VersionOut, ClaimProjectRequest,
 )
 
@@ -33,6 +33,7 @@ project_repo = ProjectRepo()
 draft_repo = DraftRepo()
 draft_version_repo = DraftVersionRepo()
 presentation_repo = PresentationRepo()
+sub_repo = SubPresentationRepo()
 # 引擎工厂注入 service：按请求的 engine 名创建实例（引擎可插拔）
 service = JobService(repo, get_engine)
 
@@ -76,6 +77,14 @@ def _guard_presentation(db, presentation_id, identity):
         raise HTTPException(status_code=404, detail="演示文件不存在")
     _guard_project(db, pres.get("project_id"), identity)
     return pres
+
+
+def _guard_sub_presentation(db, sub_presentation_id, identity):
+    sub = sub_repo.get(db, sub_presentation_id)
+    if sub is None:
+        raise HTTPException(status_code=404, detail="子演示文件不存在")
+    _guard_project(db, sub.get("project_id"), identity)
+    return sub
 
 
 # ===== 版本 =====
@@ -308,6 +317,47 @@ def api_download_presentation(presentation_id: str, db: Session = Depends(get_db
     return FileResponse(
         file_path,
         filename=presentation.get("file_name", f"{presentation_id}.{file_format}"),
+        media_type=media_type,
+    )
+
+
+@router.post("/api/sub-presentations", response_model=JobOut, status_code=202)
+def api_submit_revision(body: ReviseRequest, db: Session = Depends(get_db),
+                        identity: Identity = Depends(get_identity)):
+    """发起一次逐页修改并保存为新版本（子演示文件）。返回走快通道的修改任务（task_type=revise）。
+
+    源定位、归属、引擎 svg_edit 门控、pages/instruction 至少其一、per-identity 粗闸——
+    全在 service.submit_revision 里，路由不写业务。非归属起点 → 404（不泄露存在性）。
+    """
+    return service.submit_revision(db, body, identity)
+
+
+@router.get("/api/presentations/{presentation_id}/sub-presentations",
+            response_model=list[SubPresentationOut])
+def api_list_sub_presentations(presentation_id: str, db: Session = Depends(get_db),
+                               identity: Identity = Depends(get_identity)):
+    """列出某根演示文件下的全部子演示文件（扁平列表，前端按 parent_sub_presentation_id 拼缩进树）。
+
+    非归属 → 404。各版本逐页预览复用 /api/jobs/{task_id}/pages。
+    """
+    _guard_presentation(db, presentation_id, identity)
+    return sub_repo.list_by_presentation(db, presentation_id)
+
+
+@router.get("/api/sub-presentations/{sub_presentation_id}/download")
+def api_download_sub_presentation(sub_presentation_id: str, db: Session = Depends(get_db),
+                                  identity: Identity = Depends(get_identity)):
+    """下载指定子演示文件版本（下载选择器选哪版下哪版）。非归属 → 404。"""
+    sub = _guard_sub_presentation(db, sub_presentation_id, identity)
+    file_path = sub.get("file_path")
+    if not file_path or not Path(file_path).exists():
+        raise HTTPException(status_code=404, detail="文件不存在")
+    file_format = sub.get("file_format", "pptx")
+    media_type = ("application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                  if file_format == "pptx" else "text/html")
+    return FileResponse(
+        file_path,
+        filename=sub.get("file_name", f"{sub_presentation_id}.{file_format}"),
         media_type=media_type,
     )
 

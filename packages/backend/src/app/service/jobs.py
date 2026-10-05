@@ -23,8 +23,12 @@ from sqlalchemy.orm import Session
 
 from ..core.db import SessionLocal, JOBS_ROOT
 from ..core import ownership, runtime_settings
-from ..repository.jobs import ProjectRepo, JobRepo, DraftRepo, DraftVersionRepo, PresentationRepo
-from ..core.schemas import DeckRequest, JobOut, ProgressInfo, PageItem, JobPages
+from ..repository.jobs import (
+    ProjectRepo, JobRepo, DraftRepo, DraftVersionRepo, PresentationRepo, SubPresentationRepo,
+)
+from ..core.schemas import (
+    DeckRequest, JobOut, ProgressInfo, PageItem, JobPages, ReviseRequest,
+)
 from ..engines.registry import implements_hook
 
 # ── 状态集合（ADR-018 消费侧口径）──────────────────────────────────
@@ -103,6 +107,7 @@ class JobService:
         self.draft_repo = DraftRepo()
         self.draft_version_repo = DraftVersionRepo()
         self.presentation_repo = PresentationRepo()
+        self.sub_repo = SubPresentationRepo()
         self._engine_factory = engine_factory  # 按引擎名创建实例（引擎可插拔）
 
     # ── 引擎选择：按请求里的 engine 名拿实例，而非全局单例 ──
@@ -284,6 +289,92 @@ class JobService:
 
         out = JobOut(**row)
         return self._with_queue_detail(db, out)
+
+    # ── 发起逐页修改：校验源版本与引擎能力，落一个 revise 任务（走快通道）──
+    def submit_revision(self, db: Session, req: ReviseRequest, identity=None) -> JobOut:
+        """受理一次逐页修改（ADR-023）：只做校验 + 入库，不 fork。
+
+        与 submit 一样落 status=queued，由调度循环认领——但 task_type=revise 走**快通道**、
+        不占生成并发闸（ADR-024）。改稿与重导出在认领时调 engine.revise 完成。
+        """
+        pages = [p.model_dump() for p in req.pages]
+        instruction = (req.instruction or "").strip()
+        if not pages and not instruction:
+            raise HTTPException(status_code=400, detail="pages 与 instruction 至少给一个")
+
+        # 定位修改起点（根演示文件 或 某个子文件）；二者必居其一
+        if req.presentation_id:
+            source = self.presentation_repo.get(db, req.presentation_id)
+            is_root = True
+        elif req.sub_presentation_id:
+            source = self.sub_repo.get(db, req.sub_presentation_id)
+            is_root = False
+        else:
+            raise HTTPException(status_code=400, detail="presentation_id 与 sub_presentation_id 必须二选一")
+        if source is None:
+            raise HTTPException(status_code=404, detail="修改起点不存在")
+
+        project_id = source["project_id"]
+        # 归属校验：非归属人（非管理员）按不泄露存在性拒绝（与 _ensure_project 同口径）
+        project = self.project_repo.get(db, project_id)
+        if project is None or not ownership.can_access(project, identity):
+            raise HTTPException(status_code=404, detail="修改起点不存在")
+
+        source_task_id = source["task_id"]
+        root_pres_id = source["presentation_id"]
+        parent_sub_id = None if is_root else source["sub_presentation_id"]
+
+        # 引擎：请求显式指定优先，否则沿用"改自那个版本"当初的产出引擎
+        engine_name = req.engine
+        if not engine_name:
+            src_job = self.repo.get(db, source_task_id)
+            engine_name = src_job.get("engine") if src_job else None
+        if not engine_name:
+            raise HTTPException(status_code=400, detail="无法确定用于修改的引擎，请显式指定 engine")
+        try:
+            engine = self._get_engine(engine_name)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        # 只有能逐页改（实现 revise → 点亮 svg_edit）的引擎才受理；不看引擎名，看钩子
+        if not implements_hook(engine, "revise"):
+            raise HTTPException(status_code=403, detail="该产物不支持逐页修改（引擎无 svg_edit 能力）")
+
+        # per-identity 粗闸（与 submit 同一口径，防灌水；identity None 不门控）
+        if identity is not None:
+            limit = runtime_settings.max_unfinished_per_identity()
+            user = getattr(identity, "user", None)
+            unfinished = self.repo.count_unfinished_for_identity(
+                db, user_id=getattr(user, "user_id", None),
+                visitor_id=getattr(identity, "visitor_id", None))
+            if unfinished >= limit:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"你已有 {unfinished} 个任务未结束，达到上限 {limit}；"
+                           "请等待其中一个完成或先撤销")
+
+        job_id = uuid.uuid4().hex
+        now = _now()
+        row = self.repo.create(
+            db,
+            job_id=job_id,
+            project_id=project_id,
+            task_type="revise",
+            status="queued",
+            status_detail="排队中",
+            engine=engine_name,
+            agent=req.agent,
+            engine_params={},
+            revise_meta={
+                "source_task_id": source_task_id,
+                "root_presentation_id": root_pres_id,
+                "parent_sub_presentation_id": parent_sub_id,
+                "pages": pages,
+                "instruction": instruction or None,
+            },
+            created_at=now,
+            updated_at=now,
+        )
+        return self._with_queue_detail(db, JobOut(**row))
 
     def _with_queue_detail(self, db: Session, job: JobOut) -> JobOut:
         """queued 行出参时补两件套：位序 + 把位序写进状态明细。
@@ -703,6 +794,41 @@ class JobService:
             self.presentation_repo.create(
                 db,
                 presentation_id=presentation_id,
+                project_id=job_row.get("project_id"),
+                task_id=job_row["job_id"],
+                file_name=file_name,
+                file_format=file_format,
+                file_path=result_path,
+                created_at=now,
+            )
+        finally:
+            db.close()
+
+    # ── 子演示文件落库：revise 任务 completed 后写 SubPresentation（终态收割时调用）──
+    def persist_sub_presentation(self, job_row: dict, result_path: str) -> None:
+        """把一次成功的逐页修改登记为子演示文件（挂在版本树上）。
+
+        来源信息（根演示文件、父子文件）取自任务行的 revise_meta；命名沿用"项目名称_
+        保存时刻时间戳"（与演示文件同规则）。缺 revise_meta 或缺根标识时不落（异常由
+        调用方在终态副作用 try/except 里兜住，不把已成功的任务改判）。
+        """
+        meta = job_row.get("revise_meta") or {}
+        root_pres_id = meta.get("root_presentation_id")
+        if not root_pres_id:
+            return
+        db = SessionLocal()
+        try:
+            now = _now()
+            project = self.project_repo.get(db, job_row.get("project_id"))
+            project_name = ((project or {}).get("project_name") or "Untitled").replace("/", "_")
+            suffix = Path(result_path).suffix.lower()
+            file_format = "html" if suffix in (".html", ".htm") else "pptx"
+            file_name = f"{project_name}_{_version_stamp()}.{file_format}"
+            self.sub_repo.create(
+                db,
+                sub_presentation_id=uuid.uuid4().hex,
+                presentation_id=root_pres_id,
+                parent_sub_presentation_id=meta.get("parent_sub_presentation_id"),
                 project_id=job_row.get("project_id"),
                 task_id=job_row["job_id"],
                 file_name=file_name,

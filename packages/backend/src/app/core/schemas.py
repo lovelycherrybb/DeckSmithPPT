@@ -425,6 +425,42 @@ class PresentationOut(BaseModel):
     created_at: str
 
 
+# ── 子演示文件 / 逐页修改相关（对齐 openapi，ADR-023）──
+
+class SubPresentationOut(BaseModel):
+    """子演示文件响应（对齐 openapi.yaml 的 SubPresentation）。"""
+    sub_presentation_id: str
+    presentation_id: str
+    parent_sub_presentation_id: str | None = None  # null=改自根演示文件
+    project_id: str
+    task_id: str
+    file_name: str
+    file_format: str = "pptx"
+    file_path: str
+    created_at: str
+
+
+class PageEdit(BaseModel):
+    """单页修改内容（对齐 openapi.yaml 的 PageEdit）。"""
+    index: int
+    content: str
+    name: str | None = None
+
+
+class ReviseRequest(BaseModel):
+    """发起逐页修改请求（对齐 openapi.yaml 的 ReviseRequest）。
+
+    源版本二选一（presentation_id 或 sub_presentation_id）；改稿输入 pages 与 instruction
+    至少给一个——这些跨字段约束在路由/service 里校验（pydantic 单模型不便表达）。
+    """
+    presentation_id: str | None = None
+    sub_presentation_id: str | None = None
+    engine: str | None = None  # 省略则沿用"改自那个版本"当初的产出引擎
+    pages: list[PageEdit] = Field(default_factory=list)
+    instruction: str | None = None
+    agent: str = "claude"
+
+
 # ── 安全检查相关 ──
 
 class SecurityCheckRequest(BaseModel):

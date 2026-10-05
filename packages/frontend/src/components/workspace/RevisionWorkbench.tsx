@@ -16,6 +16,7 @@ import {
   Alert, Button, Drawer, Empty, Input, Segmented, Space, Spin, Tag, Tooltip, message,
 } from 'antd';
 import { Download, MessageSquare, Save } from 'lucide-react';
+import SvgCanvasEditor from './SvgCanvasEditor';
 import {
   getJob,
   getJobPages,
@@ -53,7 +54,7 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
   const [selected, setSelected] = useState<Node | null>(null);
   const [pages, setPages] = useState<{ index: number; name: string; url: string }[]>([]);
   const [pageIdx, setPageIdx] = useState(0);
-  const [tab, setTab] = useState<'预览' | '编辑源码'>('预览');
+  const [tab, setTab] = useState<'预览' | '编辑源码' | '拖拽编辑'>('预览');
   const [svgText, setSvgText] = useState('');
   const [loadingPages, setLoadingPages] = useState(false);
   const [loadingSvg, setLoadingSvg] = useState(false);
@@ -128,9 +129,9 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
 
   const currentPage = pages[pageIdx] || null;
 
-  // 进入"编辑源码"或换页 → 拉该页 SVG 文本（预览 URL 直接返回 SVG 源码）
+  // 进入"编辑源码/拖拽编辑"或换页 → 拉该页 SVG 文本（预览 URL 直接返回 SVG 源码）
   useEffect(() => {
-    if (tab !== '编辑源码' || !currentPage) { return; }
+    if ((tab !== '编辑源码' && tab !== '拖拽编辑') || !currentPage) { return; }
     let alive = true;
     setLoadingSvg(true);
     fetch(currentPage.url)
@@ -194,17 +195,18 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
     ).then(() => setInstruction(''));
   };
 
-  const saveSource = () => {
+  const saveContent = (content: string) => {
     if (!currentPage) { message.warning('没有选中页'); return; }
     const src = sourceRef.current!;
-    const body = {
+    runRevision({
       ...(src.kind === 'root'
         ? { presentation_id: presentation!.presentation_id }
         : { sub_presentation_id: src.key }),
-      pages: [{ index: currentPage.index, name: currentPage.name, content: svgText }],
-    };
-    runRevision(body);
+      pages: [{ index: currentPage.index, name: currentPage.name, content }],
+    });
   };
+
+  const saveSource = () => saveContent(svgText);
 
   if (!presentation) return null;
 
@@ -254,7 +256,7 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
         {/* 中：大幅单页查看 / 源码编辑 */}
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px', borderBottom: '1px solid var(--border)' }}>
-            <Segmented value={tab} onChange={(v) => setTab(v as '预览' | '编辑源码')} options={['预览', '编辑源码']} />
+            <Segmented value={tab} onChange={(v) => setTab(v as '预览' | '编辑源码' | '拖拽编辑')} options={['预览', '拖拽编辑', '编辑源码']} />
             <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
               <Button size="small" disabled={!currentPage || pageIdx <= 0} onClick={() => setPageIdx((i) => Math.max(0, i - 1))}>上一页</Button>
               <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
@@ -274,6 +276,12 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
                 src={currentPage.url}
                 style={{ width: '100%', height: '100%', minHeight: 480, border: '1px solid var(--border)', borderRadius: 8, background: '#fff' }}
               />
+            ) : tab === '拖拽编辑' ? (
+              loadingSvg ? (
+                <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div>
+              ) : (
+                <SvgCanvasEditor svgText={svgText} onSave={saveContent} busy={busy} />
+              )
             ) : (
               <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
                 <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>

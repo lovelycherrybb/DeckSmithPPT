@@ -510,6 +510,109 @@ class PptMasterEngine(PptEngine):
         except Exception as exc:  # noqa: BLE001
             self._write_job(job_id, status="failed", error=f"草稿提取失败：{exc}", updated_at=_now())
 
+    # ── 逐页修改（协议可选钩子 revise，点亮 svg_edit；ADR-023）──
+    def revise(
+        self,
+        job_id: Any,
+        *,
+        source_task_id: Any,
+        pages: list[dict] | None = None,
+        instruction: str | None = None,
+        engine_params: dict | None = None,
+    ) -> JobId:
+        """对"改自哪个版本"（source_task_id）的逐页稿做修改并在背后重新导出成品。
+
+        与 submit 一样起后台 claude、立即返回 job_id，调度器照常走 status()/result() 收割。
+        产物隔离是硬约束——先把源项目整份复制进本任务 job_dir 当工作副本，改动只落副本，
+        绝不回写源版本。⚠ 真跑才产出成品，其正确性须一次授权的真实运行验收（ADR-023 步骤3b）。
+        """
+        job_id = str(job_id)
+        job_dir = self._job_dir(job_id)
+        job_dir.mkdir(parents=True, exist_ok=True)
+
+        src_svg = self.resolve_svg_output_dir(source_task_id)
+        if src_svg is None:
+            raise RuntimeError(f"找不到修改起点 {str(source_task_id)[:8]} 的逐页设计稿(svg_output)")
+        src_project = src_svg.parent
+
+        dest_project = job_dir / "projects" / f"revise_{job_id[:8]}" / src_project.name
+        dest_project.parent.mkdir(parents=True, exist_ok=True)
+        if dest_project.exists():
+            shutil.rmtree(dest_project)
+        shutil.copytree(src_project, dest_project)
+        work_svg = dest_project / "svg_output"
+
+        page_files = sorted(
+            (c for c in work_svg.glob("*.svg") if _RE_PAGE_SVG.match(c.name)),
+            key=lambda c: int(c.name.split("_", 1)[0]),
+        )
+        for p in (pages or []):
+            target: Path | None = None
+            if p.get("name"):
+                target = work_svg / p["name"]
+            else:
+                idx = p.get("index")
+                if isinstance(idx, int) and 1 <= idx <= len(page_files):
+                    target = page_files[idx - 1]
+            if target is not None and p.get("content") is not None:
+                target.write_text(p["content"], encoding="utf-8")
+
+        prompt = self._build_revise_prompt(dest_project, work_svg, instruction, pages)
+        prompt += self._runtime_anchor(job_dir)
+        (job_dir / "prompt.md").write_text(prompt, encoding="utf-8")
+
+        runtime_notice = self.prepare_runtime(job_dir)
+        run_log = open(job_dir / "run.log", "w", encoding="utf-8")
+        if runtime_notice:
+            run_log.write(f"[warn] {runtime_notice}\n")
+            run_log.flush()
+        proc = subprocess.Popen(
+            [
+                self.claude_bin, "-p", "--dangerously-skip-permissions",
+                "--output-format", "stream-json", "--include-partial-messages", "--verbose",
+                prompt,
+            ],
+            cwd=str(job_dir),
+            start_new_session=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        threading.Thread(
+            target=self._pump_run_stream, args=(job_id, proc, run_log),
+            daemon=True, name=f"runlog-{job_id[:8]}",
+        ).start()
+        self._write_job(
+            job_id, status="running", engine_params=engine_params or {},
+            created_at=_now(), updated_at=_now(), pid=proc.pid,
+            started_at=time.time(), result_path=None, error=None,
+        )
+        return JobId(job_id)
+
+    @staticmethod
+    def _build_revise_prompt(
+        project_dir: Path, work_svg: Path, instruction: str | None, pages: list[dict] | None
+    ) -> str:
+        n = len(pages or [])
+        lines = [
+            "这是对一副**已存在的 PPT 项目**做逐页修改并重新导出，不是从零生成。",
+            f"- 项目工作目录：{project_dir}",
+            f"- 逐页设计稿（在此改）：{work_svg}",
+            "",
+            "要求：",
+            "1) 只在上述工作副本上修改这些逐页 SVG，不得改动技能仓库或任何其它项目的文件。",
+        ]
+        if instruction and instruction.strip():
+            lines.append(f"2) 按以下自然语言指令修改相关页面：\n{instruction.strip()}")
+        elif n:
+            lines.append(f"2) 我已把 {n} 页改好的逐页稿写入工作副本对应文件，核对后继续。")
+        lines += [
+            "3) 改完后按 ppt-master 技能流程执行 finalize_svg → svg_to_pptx，"
+            "把成品 PPTX 导出到该项目的 exports/ 目录。",
+            "4) 无人值守：中途不要停下来向我确认，一路做到导出成品为止。",
+        ]
+        return "\n".join(lines)
+
     def _pump_run_stream(self, job_id: Any, proc: subprocess.Popen, log_file) -> None:
         """把 claude stream-json 事件蒸馏成人类可读日志，即时写入 run.log。
 
@@ -777,6 +880,7 @@ class PptMasterDraftEngine(PptMasterEngine):
 
     get_pages = None  # type: ignore[assignment]
     get_preview_root = None  # type: ignore[assignment]
+    revise = None  # type: ignore[assignment]  # 草稿引擎不产出可逐页改的成品，退出 svg_edit 能力位
     # 也退出「终止」钩子：草稿路径是在线程里跑确定性的 source_to_md，job.json 里没有
     # 可杀的 pid，继承父类 cancel 会对 pid=None 返回 True、构成契约禁止的"静默假撤销"。
     # 排队中的草稿任务仍能正常撤销——那是编排层直接从队列摘掉，不调本钩子（ADR-019 决策 5）。

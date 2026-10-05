@@ -38,6 +38,9 @@ class ClaudeDraftEngine(PptMasterEngine):
     # （registry.implements_hook / /pages 路由）按「未实现」对待，界面维持原下载形态。
     get_pages = None  # type: ignore[assignment]
     get_preview_root = None  # type: ignore[assignment]
+    # 同理退出「逐页修改」钩子：草稿引擎只产 draft.md，没有可逐页编辑的成品，
+    # 继承父类 revise 会让 /api/engines 误标 svg_edit（能力与实态不符）。置 None → 不亮。
+    revise = None  # type: ignore[assignment]
     # 同样显式退出「终止」钩子：本引擎用阻塞式 subprocess.run 在**线程**里跑 claude，
     # job.json 里没有可杀的 pid。继承父类 cancel 会对 pid=None 返回 True，等于契约里
     # 明令禁止的"静默假撤销"（额度照烧）。置 None → 能力位不亮 → 运行中撤回归 409。

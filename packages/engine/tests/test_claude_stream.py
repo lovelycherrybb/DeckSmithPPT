@@ -45,3 +45,26 @@ def test_markers_命中判定():
     assert looks_like_api_error("got ECONNRESET") is True
     assert looks_like_api_error("一切正常") is False
     assert looks_like_api_error(None) is False
+
+
+def test_ppt_master_家族实现_revise_派生_svg_edit():
+    """步骤3b：ppt_master 与 ppt_master_v6 实现 revise 钩子 → svg_edit 能力位自动派生
+    （前端据此才显示「修改」）。guizang 未实现 → 不该有 svg_edit。三处同步的"派生"端。"""
+    import sys
+    from pathlib import Path
+
+    backend_src = Path(__file__).resolve().parents[2] / "backend" / "src"
+    if str(backend_src) not in sys.path:
+        sys.path.insert(0, str(backend_src))
+    from app.engines.registry import _derive_capabilities, implements_hook, REVISE_HOOK
+    from app.engines.registry import engine_class
+
+    for name in ("ppt_master", "ppt_master_v6"):
+        assert implements_hook(engine_class(name), REVISE_HOOK) is True, name
+        assert "svg_edit" in _derive_capabilities(name), name
+    # 草稿类引擎（ppt_master_draft / claude_draft 均继承输出引擎）必须显式退出 revise，
+    # 否则会被误标 svg_edit（实测 /api/engines 曾泄漏给 claude_draft）。
+    for name in ("guizang_ppt", "ppt_master_draft", "claude_draft"):
+        assert "svg_edit" not in _derive_capabilities(name), name
+        assert implements_hook(engine_class(name), REVISE_HOOK) is False, name
+

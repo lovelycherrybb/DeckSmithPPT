@@ -1,4 +1,4 @@
-"""SQLAlchemy 数据模型：项目表、任务表、草稿表、草稿版本表、演示文件表。
+"""SQLAlchemy 数据模型：项目表、任务表、草稿表、草稿版本表、演示文件表、子演示文件表。
 
 一行 = 一个实体。列 = 实体的属性。
 SQLite 不支持原生 JSON 列，用 Text 存 JSON 字符串；时间存 ISO 字符串便于序列化。
@@ -43,6 +43,8 @@ class Job(Base):
     任务类型：
     - 草稿引擎任务（task_type=draft）：调用草稿生成引擎，将用户文件转化为 Markdown 草稿
     - 输出引擎任务（task_type=output）：调用输出引擎，将草稿内容生成最终展示文件
+    - 修改任务（task_type=revise）：对已有版本逐页改后重导出，产出子演示文件（ADR-023）；
+      走独立快通道、不进生成排队闸（ADR-024）
     
     状态（与 contracts 的 JobStatus 一致，见 ADR-018 分层枚举）：
     - queued：已入库、等待调度认领，引擎子进程尚未 fork 成功
@@ -158,6 +160,33 @@ class Presentation(Base):
 
     # 关系
     project: Mapped["Project"] = relationship("Project", back_populates="presentations")
+
+
+class SubPresentation(Base):
+    """子演示文件表：演示文件逐页修改后另存的新版本（可分叉的版本树）。
+
+    - presentation_id：归属的根演示文件（多对一，版本树的根）
+    - parent_sub_presentation_id：改自哪个版本——NULL=直接改自根演示文件，
+      非空=改自另一个子演示文件（同一父可有多个子 → 分叉）
+    - task_id：产生它的那次修改任务（revise）；逐页预览/再编辑靠它定位自己的 job 目录
+    - project_id：冗余一份，供按项目级联删除与隔离推导（经"子→演示文件→项目"，仍不单独存归属主体）
+
+    新表：由 `Base.metadata.create_all` 直接建，无需 _MIGRATIONS 条目、不升 SCHEMA_VERSION（ADR-023）。
+    """
+    __tablename__ = "sub_presentations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    sub_presentation_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    presentation_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("presentations.presentation_id"), index=True)
+    parent_sub_presentation_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("sub_presentations.sub_presentation_id"), nullable=True, index=True)
+    project_id: Mapped[str] = mapped_column(String(64), ForeignKey("projects.project_id"), index=True)
+    task_id: Mapped[str] = mapped_column(String(64))  # 产生此子文件的修改任务（revise）标识
+    file_name: Mapped[str] = mapped_column(String(255))  # 项目名称_保存时刻时间戳
+    file_format: Mapped[str] = mapped_column(String(16))  # pptx/html，与根一致
+    file_path: Mapped[str] = mapped_column(String(512))  # 该修改任务 job 目录下的成品路径
+    created_at: Mapped[str] = mapped_column(String(32))
 
 
 class User(Base):

@@ -13,7 +13,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from sqlalchemy import delete, select, update
 
-from ..models import Project, Job, Draft, DraftVersion, Presentation
+from ..models import Project, Job, Draft, DraftVersion, Presentation, SubPresentation
 from ..core.db import SessionLocal
 
 
@@ -152,6 +152,8 @@ class ProjectRepo:
             db.execute(delete(DraftVersion).where(DraftVersion.draft_id.in_(draft_ids)))
         db.execute(delete(Draft).where(Draft.project_id == project_id))
         db.execute(delete(Job).where(Job.project_id == project_id))
+        # 先删子演示文件再删根演示文件（子表 FK 指向 presentations，反过来留孤儿）
+        db.execute(delete(SubPresentation).where(SubPresentation.project_id == project_id))
         db.execute(delete(Presentation).where(Presentation.project_id == project_id))
         db.delete(obj)
         db.commit()
@@ -517,3 +519,44 @@ class PresentationRepo:
         query = select(Presentation).where(Presentation.project_id == project_id).order_by(Presentation.created_at.desc())
         rows = db.execute(query).scalars().all()
         return [self._row_to_dict(obj) for obj in rows]
+
+
+class SubPresentationRepo:
+    """子演示文件表 CRUD（演示文件逐页修改后另存的版本树）。"""
+
+    @staticmethod
+    def _row_to_dict(obj: SubPresentation) -> dict:
+        return {
+            "sub_presentation_id": obj.sub_presentation_id,
+            "presentation_id": obj.presentation_id,
+            "parent_sub_presentation_id": obj.parent_sub_presentation_id,  # NULL=改自根演示文件
+            "project_id": obj.project_id,
+            "task_id": obj.task_id,
+            "file_name": obj.file_name,  # 与 contracts 对齐
+            "file_format": obj.file_format,
+            "file_path": obj.file_path,
+            "created_at": obj.created_at,
+        }
+
+    def create(self, db, **fields) -> dict:
+        obj = SubPresentation(**fields)
+        db.add(obj)
+        db.commit()
+        db.refresh(obj)
+        return self._row_to_dict(obj)
+
+    def get(self, db, sub_presentation_id: str) -> dict | None:
+        obj = db.execute(select(SubPresentation).where(
+            SubPresentation.sub_presentation_id == sub_presentation_id)).scalar_one_or_none()
+        return self._row_to_dict(obj) if obj else None
+
+    def list_by_presentation(self, db, presentation_id: str) -> list[dict]:
+        """某根演示文件下的全部子文件（扁平，前端按 parent_sub_presentation_id 拼缩进树）。"""
+        query = select(SubPresentation).where(
+            SubPresentation.presentation_id == presentation_id).order_by(SubPresentation.created_at)
+        rows = db.execute(query).scalars().all()
+        return [self._row_to_dict(obj) for obj in rows]
+
+    def count_by_presentation(self, db, presentation_id: str) -> int:
+        return len(db.execute(select(SubPresentation.sub_presentation_id).where(
+            SubPresentation.presentation_id == presentation_id)).scalars().all())

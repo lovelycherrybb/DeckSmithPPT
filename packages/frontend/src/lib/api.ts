@@ -235,7 +235,7 @@ export async function uploadFile(file: File): Promise<UploadResponse> {
 }
 
 // ── Agent 文本能力（统一接口：丢任务给 AI、拿文本回来） ──
-export type AgentKind = 'modify_draft' | 'suggest_title';
+export type AgentKind = 'modify_draft' | 'suggest_title' | 'revise_pages';
 
 export function executeAgent(req: {
   kind: AgentKind;
@@ -243,6 +243,8 @@ export function executeAgent(req: {
   version?: string;
   prompt?: string;
   files?: Array<{ filename: string; path?: string }>;
+  pages?: Array<{ index: number; name?: string; content: string }>;
+  instruction?: string;
 }): Promise<{ text: string; kind: string }> {
   return requestJson('/api/agent/execute', {
     method: 'POST',
@@ -279,6 +281,21 @@ export function modifyDraft(
   }) as DraftVersion);
 }
 
+/** 对话式改稿：把选中页 + 指令交给 Agent，回传改好的逐页内容（只回传、不落库/不出版本）。
+ *  前端把结果并入本地草稿；定版仍走 submitRevision（整体另存）。 */
+export async function revisePages(
+  pages: Array<{ index: number; name?: string; content: string }>,
+  instruction: string,
+  onThinking?: (accumulated: string) => void
+): Promise<Array<{ index: number; name?: string; content: string }>> {
+  const text = await executeAgentStream(
+    { kind: 'revise_pages', pages, instruction },
+    undefined,
+    onThinking
+  );
+  return JSON.parse(text);
+}
+
 /** Agent 文本处理·流式：创建异步会话 + EventSource 消费增量。
  *  onDelta 收到"累计到目前为止"的文本；resolve 为清洗后的最终文本。 */
 export async function executeAgentStream(
@@ -288,6 +305,8 @@ export async function executeAgentStream(
     version?: string;
     prompt?: string;
     files?: Array<{ filename: string; path?: string }>;
+    pages?: Array<{ index: number; name?: string; content: string }>;
+    instruction?: string;
   },
   onDelta?: (accumulated: string) => void,
   onThinking?: (accumulated: string) => void

@@ -311,13 +311,22 @@ class AgentExecuteFile(BaseModel):
     path: str | None = None
 
 
+class AgentExecutePage(BaseModel):
+    """Agent 执行请求里的单页（revise_pages 用）。"""
+    index: int
+    content: str
+    name: str | None = None
+
+
 class AgentExecuteRequest(BaseModel):
     """Agent 文本处理统一请求（对齐 openapi.yaml 的 AgentExecuteRequest）。"""
-    kind: str  # 白名单：modify_draft / suggest_title（路由层校验）
+    kind: str  # 白名单：modify_draft / suggest_title / revise_pages（路由层校验）
     draft_id: str | None = None
     version: str | None = None
     prompt: str | None = None
     files: list[AgentExecuteFile] = Field(default_factory=list)
+    pages: list[AgentExecutePage] = Field(default_factory=list)  # revise_pages：待改页基线
+    instruction: str | None = None  # revise_pages：本轮改稿指令
 
 
 class AgentExecuteResult(BaseModel):

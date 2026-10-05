@@ -96,9 +96,28 @@ def _handle_suggest_title(req: AgentExecuteRequest, db: Session) -> tuple[str, s
     return "为这份演示文件拟一个标题", context, checks
 
 
+def _handle_revise_pages(req: AgentExecuteRequest, db: Session) -> tuple[str, str, list[tuple[str, str]]]:
+    """对话式改稿：给定若干页 SVG + 指令，返回改好的页（只回传、不落库/不出版本）。
+
+    context 存 pages 的 JSON（异步分支据此重建 prompt）；安全检查覆盖指令与每页内容。
+    """
+    import json as _json
+    pages = [p.model_dump() for p in req.pages]
+    instruction = (req.instruction or "").strip()
+    if not pages:
+        raise HTTPException(status_code=400, detail="revise_pages 需要 pages")
+    if not instruction:
+        raise HTTPException(status_code=400, detail="revise_pages 需要 instruction")
+    checks: list[tuple[str, str]] = [(instruction, "改稿指令")] + [
+        (p.get("content") or "", f"第 {p.get('index')} 页内容") for p in pages
+    ]
+    return instruction, _json.dumps(pages, ensure_ascii=False), checks
+
+
 _KINDS = {
     "modify_draft": _handle_modify_draft,
     "suggest_title": _handle_suggest_title,
+    "revise_pages": _handle_revise_pages,
 }
 
 
@@ -126,8 +145,10 @@ def api_agent_execute(req: AgentExecuteRequest, db: Session = Depends(_get_db)):
             raise HTTPException(status_code=400, detail=f"{label}安全检查不通过：{reason}")
 
     # Agent 调用：按 kind 选模板
+    import json as _json
     from ..agents.draft_modifier import modify_draft_with_claude
     from ..agents.title_suggester import suggest_title_with_claude
+    from ..agents.page_revise import revise_pages_with_claude
     try:
         if req.kind == "modify_draft":
             text, _ = modify_draft_with_claude(context, instruction)
@@ -135,6 +156,8 @@ def api_agent_execute(req: AgentExecuteRequest, db: Session = Depends(_get_db)):
             filenames = [f.filename for f in (req.files or [])]
             contents = [_read_uploaded_text(f.path) if f.path else "" for f in (req.files or [])]
             text = suggest_title_with_claude(filenames, contents)
+        elif req.kind == "revise_pages":
+            text = revise_pages_with_claude(_json.loads(context), instruction)
         else:
             raise HTTPException(status_code=400, detail=f"任务类型未实现：{req.kind}")
     except (RuntimeError, ValueError) as exc:
@@ -185,6 +208,7 @@ async def api_agent_execute_async(req: AgentExecuteRequest, db: Session = Depend
             from ..agents.claude_stream import stream_claude_text
             from ..agents.draft_modifier import _build_prompt as modify_prompt, clean_markdown
             from ..agents.title_suggester import _build_prompt as title_prompt, clean_title
+            from ..agents.page_revise import _build_prompt as revise_prompt, clean_pages
 
             if req.kind == "modify_draft":
                 prompt = modify_prompt(context, instruction)
@@ -192,6 +216,9 @@ async def api_agent_execute_async(req: AgentExecuteRequest, db: Session = Depend
                 filenames = [f.filename for f in (req.files or [])]
                 contents = [_read_uploaded_text(f.path) if f.path else "" for f in (req.files or [])]
                 prompt = title_prompt(filenames, contents)
+            elif req.kind == "revise_pages":
+                import json as _json
+                prompt = revise_prompt(_json.loads(context), instruction)
             else:
                 raise RuntimeError(f"任务类型未实现：{req.kind}")
 
@@ -213,7 +240,12 @@ async def api_agent_execute_async(req: AgentExecuteRequest, db: Session = Depend
             if payload is None:
                 payload = "".join(acc)
 
-            cleaned = clean_title(payload) if req.kind == "suggest_title" else clean_markdown(payload)
+            if req.kind == "suggest_title":
+                cleaned = clean_title(payload)
+            elif req.kind == "revise_pages":
+                cleaned = clean_pages(payload)
+            else:
+                cleaned = clean_markdown(payload)
             session_manager.set_result(session.session_id, cleaned)
             session_manager.update_session_status(session.session_id, "completed")
         except Exception as e:

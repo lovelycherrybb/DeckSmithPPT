@@ -5,18 +5,13 @@
  */
 'use client';
 
-import { useEffect, useState } from 'react';
-import { Button, Card, Drawer, Empty, Space, Spin, Tag, Tooltip } from 'antd';
+import { useState } from 'react';
+import { Button, Card, Drawer, Empty, Spin, Tooltip } from 'antd';
 import { Download, Eye, Pencil, Presentation as PresentationIcon, RefreshCw } from 'lucide-react';
-import {
-  presentationDownloadUrl,
-  listSubPresentations,
-  subPresentationDownloadUrl,
-  type Presentation,
-  type SubPresentation,
-} from '@/lib/api';
+import { presentationDownloadUrl, type Presentation } from '@/lib/api';
 import { useJobPages } from '@/hooks/useJobPages';
 import PagePreviewGrid from '@/components/features/job/PagePreviewGrid';
+import RevisionWorkbench from './RevisionWorkbench';
 import { formatDate } from '@/lib/formatDate';
 
 interface Props {
@@ -52,129 +47,6 @@ function PagesDrawer({ task, onClose }: { task: Presentation | null; onClose: ()
         <PagePreviewGrid data={data} />
       ) : (
         <Empty description="暂无可预览内容：该引擎不支持逐页预览，或产物/任务信息不可用" />
-      )}
-    </Drawer>
-  );
-}
-
-/**
- * 修改抽屉（5b 只读版本树）：列出「原始版本 + 各子版本」并各自可下载。
- * 数据来自 GET /api/presentations/{id}/sub-presentations（扁平带 parent），
- * 前端按 parent_sub_presentation_id 算深度、缩进体现可分叉的版本树。
- * 逐页编辑器（拖拽/对话改、保存）为 5c，接入本抽屉。
- */
-function RevisionDrawer({ task, onClose }: { task: Presentation | null; onClose: () => void }) {
-  const [subs, setSubs] = useState<SubPresentation[]>([]);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (!task) {
-      setSubs([]);
-      return;
-    }
-    let alive = true;
-    setLoading(true);
-    listSubPresentations(task.presentation_id)
-      .then((rows) => {
-        if (alive) setSubs(rows);
-      })
-      .catch(() => {
-        if (alive) setSubs([]);
-      })
-      .finally(() => {
-        if (alive) setLoading(false);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [task]);
-
-  // 按 parent 指针算缩进深度（父缺失/成环兜底为浅层，不炸）
-  const byId = new Map(subs.map((s) => [s.sub_presentation_id, s]));
-  const depthOf = (s: SubPresentation): number => {
-    let d = 0;
-    let cur = s.parent_sub_presentation_id;
-    const seen = new Set<string>([s.sub_presentation_id]);
-    while (cur && byId.has(cur) && !seen.has(cur)) {
-      seen.add(cur);
-      d += 1;
-      cur = byId.get(cur)!.parent_sub_presentation_id;
-    }
-    return d;
-  };
-
-  const rows = [...subs].sort((a, b) => a.created_at.localeCompare(b.created_at));
-
-  return (
-    <Drawer
-      title={task ? `修改 · ${task.file_name}` : '修改'}
-      width={'52%'}
-      open={!!task}
-      onClose={onClose}
-    >
-      {task && (
-        <Space direction="vertical" style={{ width: '100%' }} size={10}>
-          {/* 原始版本（根） */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div>
-              <Tag color="blue">原始版本</Tag>
-              <Tooltip title={task.file_name}>
-                <span style={{ fontWeight: 500 }}>{task.file_name}</span>
-              </Tooltip>
-              <span style={{ color: 'var(--text-muted)', marginLeft: 8, fontSize: 12 }}>
-                生成于 {formatDate(task.created_at)}
-              </span>
-            </div>
-            <Button
-              size="small"
-              icon={<Download size={13} />}
-              href={presentationDownloadUrl(task.presentation_id)}
-              target="_blank"
-            >
-              下载
-            </Button>
-          </div>
-
-          {loading ? (
-            <div style={{ textAlign: 'center', padding: 20 }}>
-              <Spin size="small" />
-            </div>
-          ) : rows.length === 0 ? (
-            <Empty
-              image={Empty.PRESENTED_IMAGE_SIMPLE}
-              description="还没有修改版本。逐页编辑器接入后，这里会列出生成的子版本。"
-            />
-          ) : (
-            rows.map((s) => (
-              <div
-                key={s.sub_presentation_id}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  paddingLeft: depthOf(s) * 22,
-                }}
-              >
-                <div>
-                  <Tag color="green">子版本</Tag>
-                  <span>{s.file_name}</span>
-                  <span style={{ color: 'var(--text-muted)', marginLeft: 8, fontSize: 12 }}>
-                    保存于 {formatDate(s.created_at)}
-                    {s.parent_sub_presentation_id ? ' · 改自上一版' : ' · 改自原始版本'}
-                  </span>
-                </div>
-                <Button
-                  size="small"
-                  icon={<Download size={13} />}
-                  href={subPresentationDownloadUrl(s.sub_presentation_id)}
-                  target="_blank"
-                >
-                  下载
-                </Button>
-              </div>
-            ))
-          )}
-        </Space>
       )}
     </Drawer>
   );
@@ -290,7 +162,7 @@ export default function PresentationsPanel({
         </div>
       )}
       <PagesDrawer task={previewTask} onClose={() => setPreviewTask(null)} />
-      <RevisionDrawer task={revTask} onClose={() => setRevTask(null)} />
+      <RevisionWorkbench presentation={revTask} open={!!revTask} onClose={() => setRevTask(null)} />
     </Card>
   );
 }

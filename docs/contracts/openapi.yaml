@@ -2374,7 +2374,8 @@ components:
           enum:
           - modify_draft
           - suggest_title
-          description: 任务类型（白名单，后端注册；新增能力需同步契约）
+          - revise_pages
+          description: 任务类型（白名单，后端注册；新增能力需同步契约）。revise_pages=对话式改稿，只回传改好的逐页内容，不落库、不出版本
         draft_id:
           type: string
           description: 'modify_draft：草稿标识'
@@ -2399,6 +2400,27 @@ components:
               path:
                 type: string
                 description: 上传返回的服务器路径（后端读内容给 Agent）
+        pages:
+          type: array
+          description: 'revise_pages：被选中页的当前逐页内容，作为改稿基线'
+          items:
+            type: object
+            required:
+            - index
+            - content
+            properties:
+              index:
+                type: integer
+                description: 页序（从 1）
+              name:
+                type: string
+                description: 页文件名（可选）
+              content:
+                type: string
+                description: 该页当前逐页内容（SVG 文本）
+        instruction:
+          type: string
+          description: 'revise_pages：这一轮怎么改的指令，作用在上列 pages 上'
 
     AgentExecuteResult:
       type: object
@@ -2408,7 +2430,7 @@ components:
       properties:
         text:
           type: string
-          description: AI 返回的文本（modify_draft 为改写后的 Markdown；suggest_title 为标题）
+          description: AI 返回的文本（modify_draft=改写后的 Markdown；suggest_title=标题；revise_pages=改好的逐页内容，JSON 文本，前端并入草稿）
         kind:
           type: string
           description: 本次执行的任务类型（回显）

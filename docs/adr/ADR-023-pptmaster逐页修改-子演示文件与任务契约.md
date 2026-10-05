@@ -67,11 +67,20 @@
 4. **代价**：保存非瞬时（要等后台重导出），且需处理导出失败（失败不留半成品）；逐页设计稿随保存提交有体积上限。
 5. **已知边界**：本 ADR 只做"逐页 SVG 编辑 + 重导出"这一条上游路线；"改一份已交付的外部 PPTX"（Edit Native round-trip）是另一条生命周期，另案另立 ADR，不混进 `revise`。
 
-## 待确认（接受前）
+## 修订 A（草稿载体模型；实现复验后补记）
 
-- 枚举/能力位 token：任务用 `revise`、能力用 `svg_edit`——是否合口味（也可 `modify`/`page_edit`）。
-- `SubPresentation` 用"`presentation_id` + 可空 `parent_sub_presentation_id`"表达树，是否够；或要显式 `parent_type`+`parent_id`。
-- 端点动词 `POST /api/sub-presentations`（返回任务、异步）是否 OK。
+复验时纠正了交互模型：**不是每改一页就出一个版本**。改为"临时草稿载体"：
+
+- 点「修改」= 从选中版本复制一份**会话级临时草稿**；多页手动改、多轮对话改都攒进这份草稿，草稿**不落库**，不"另存"就丢弃、重开即全新（回到源版本）。
+- **唯一"落版本"动作 = 整体另存为新版本**：把草稿攒的**所有改页**一次性提交给 `POST /api/sub-presentations`（`pages` 为数组）→ 一次修改任务 → 出成功落**一个**子文件。
+- **对话式改稿 = Agent 文本能力新增种类 `revise_pages`**：输入=被选页当前内容 + 指令，输出=AI 改好的逐页内容，**只回传进草稿，不落库、不导出、不出版本**。定版仍走"整体另存"。
+- 契约落点补充：`openapi.yaml` 的 `AgentExecuteRequest.kind` 白名单加 `revise_pages`（+ `pages`/`instruction` 字段）；`POST /api/sub-presentations` 语义即"批量另存"。对话改稿是 agent 文本调用、**不进 `task_type`、不建 Job**，与"另存=修改任务"分列。
+
+## 已定项（原"待确认"，实施时已采纳）
+
+- 任务枚举 token `revise`、能力位 `svg_edit` —— 已采用。
+- `SubPresentation` 用 `presentation_id` + 可空 `parent_sub_presentation_id` 表达版本树 —— 已采用。
+- `POST /api/sub-presentations`（返回任务、异步）—— 已采用。
 
 ## 顺带发现（非本 ADR 范围，待单独处理）
 

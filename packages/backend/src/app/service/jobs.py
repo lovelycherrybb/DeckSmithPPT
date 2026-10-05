@@ -694,9 +694,11 @@ class JobService:
             # guizang_ppt 引擎产出 result.html，不能一律伪装成 pptx
             suffix = Path(result_path).suffix.lower()
             file_format = "html" if suffix in (".html", ".htm") else "pptx"
-            # 命名规则（docs/contracts/style-guide.md）：项目名称_所用草稿版本号
-            # 无草稿版本（直接给 content 生成）时退回生成时刻时间戳
-            file_name = f"{project_name}_{job_row.get('draft_version') or _version_stamp()}.{file_format}"
+            # 命名规则（docs/contracts/openapi.yaml Presentation.file_name + style-guide.md）：
+            # 项目名称_文件生成时间戳（UTC 年月日时分秒）。刻意用生成时刻而非草稿版本号——
+            # 同一草稿在不同时间节点重复出片时草稿版本号不变，会让文件名撞车；生成时间戳保证
+            # 每个节点生成的文件名称唯一。草稿版本仍记在任务行 job_row.draft_version 上，可追溯。
+            file_name = f"{project_name}_{_version_stamp()}.{file_format}"
             self.presentation_repo.create(
                 db,
                 presentation_id=presentation_id,

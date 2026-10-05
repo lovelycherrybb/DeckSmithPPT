@@ -509,15 +509,14 @@
         },
         "revise": {
           "optional": true,
-          "signature": "revise(job_dir: Path, *, source_svg_dir: Path, pages: list[dict] | None = None, instruction: str | None = None, engine_params: dict | None = None) -> Path | None",
-          "description": "可选钩子：对已有版本做逐页修改并在背后重导出，产出子演示文件的成品。与 submit 分列——submit 从内容生成整副 deck；revise 以一份已备好的逐页设计稿（调用方已把源版本复制进本任务 job_dir 当工作稿）为源，按 pages（改好的逐页内容）或 instruction（对话指令，由 AI 在副本上改稿）产出成品。仅实现本钩子的引擎自动派生 openapi 的 svg_edit 能力位、其产物才进修改工作台；探测方式与 prepare_runtime/get_pages 相同（沿 MRO 判真实实现，不按引擎名分支）。见 ADR-023。",
+          "signature": "revise(job_id: str, *, source_task_id: str, pages: list[dict] | None = None, instruction: str | None = None, engine_params: dict | None = None) -> str",
+          "description": "可选钩子：对已有版本做逐页修改并在背后重导出，产出子演示文件的成品。与 submit 分列——submit 从内容生成整副 deck；revise 以'改自哪个版本'（source_task_id 那次任务的逐页稿）为源，按 pages（改好的逐页内容）或 instruction（对话指令，由 AI 在副本上改稿）改稿后重导出。源版本逐页稿的定位（布局）由引擎内部按 source_task_id 解析，调用方不感知。实现本钩子的引擎自动派生 openapi 的 svg_edit 能力位、其产物才进修改工作台；探测方式与 prepare_runtime/get_pages 相同（沿 MRO 判真实实现，不按引擎名分支）。见 ADR-023。",
           "semantics": {
-            "Path": "重导出后的成品文件路径（须落在本任务 job_dir 内）",
-            "None": "无产物，调用方按失败处理",
-            "raises": "改稿或重导出失败"
+            "str": "返回 job_id（与 submit 一致，异步起进程；成品由调用方随后走 result(job_id) 取），须落在本任务 job_dir 内",
+            "raises": "改稿或重导出失败——调用方按失败处理，不产出子文件"
           },
           "idempotent": false,
-          "notes": "修改任务走独立快通道、不占生成并发闸（ADR-024）；工作稿复制自源版本、改动只落副本，绝不回写源版本 job_dir（产物隔离，见 vc_design objects/08、constraints 修改链与产物隔离）。"
+          "notes": "修改任务走独立快通道、不占生成并发闸（ADR-024）；实现须先把源版本逐页稿复制进本任务 job_dir 当工作稿，改动只落副本，绝不回写源版本 job_dir（产物隔离，见 vc_design objects/08、constraints 修改链与产物隔离）。"
         }
       },
       "properties": {

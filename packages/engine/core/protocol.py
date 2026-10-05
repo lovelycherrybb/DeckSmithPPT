@@ -186,30 +186,33 @@ class OutputEngine(Protocol):
         self,
         job_id: JobId,
         *,
-        source_svg_dir: Path,
+        source_task_id: JobId,
         pages: list[dict] | None = None,
         instruction: str | None = None,
         engine_params: dict | None = None,
     ) -> JobId:
         """【可选钩子】对已有版本的逐页设计稿做修改并在背后重导出，产出一个新版本成品。
 
-        与 `submit` 分列：submit 从 Markdown 内容**从零生成**整副 deck；revise 以一份
-        已备好的逐页设计稿为源，按 `pages`（改好的页）或 `instruction`（对话指令，由 AI 改稿）
-        改稿后重导出。实现本钩子即点亮 `EngineInfo.capabilities` 的 `svg_edit` 能力位
-        （由 `implements_hook` 沿 MRO 探测，**不按引擎名分支**，与 `get_pages`/`cancel`/
-        `prepare_runtime` 同风格）；不实现的引擎不进修改工作台。
+        与 `submit` 分列：submit 从 Markdown 内容**从零生成**整副 deck；revise 以"改自哪个
+        版本"（`source_task_id` 那次任务的逐页稿）为源，按 `pages`（改好的页）或
+        `instruction`（对话指令，由 AI 改稿）改稿后重导出。实现本钩子即点亮
+        `EngineInfo.capabilities` 的 `svg_edit` 能力位（由 `implements_hook` 沿 MRO 探测，
+        **不按引擎名分支**，与 `get_pages`/`cancel`/`prepare_runtime` 同风格）；不实现的引擎不进修改工作台。
 
-        本方法与 `submit` 一样是"启动后台任务、立即返回 job_id"的形态：真正的改稿与
-        重导出由引擎在子进程里完成，调用方随后照常走 `status(job_id)` / `result(job_id)`
-        轮询与收割（复用同一套调度器认领、取消、超时机制，见 ADR-019 / ADR-024 快通道）。
+        与 `submit` 一样是"启动后台任务、立即返回 job_id"的形态：真正的改稿与重导出由引擎在
+        子进程里完成，调用方随后照常走 `status(job_id)` / `result(job_id)` 轮询与收割
+        （复用同一套调度器认领、取消、超时机制，见 ADR-019 / ADR-024 快通道）。
 
         Args:
             job_id: 本次修改任务的 ID（调用方已建好任务行与 job_dir）。
-            source_svg_dir: 要修改的"父版本"逐页设计稿目录；实现须先把它的**每一页复制**进
-                本任务 job_dir 当工作稿，所有改动只落副本，绝不回写 source（产物隔离，ADR-023）。
+            source_task_id: "改自哪个版本"的那次任务 ID；引擎自行定位它的逐页稿目录
+                （布局是引擎私有的，调用方不必知道）。
             pages: 改好的逐页内容（直接编辑通道），每项含 index/name/content；与 instruction 至少一个。
             instruction: 对话式修改指令（由 AI 在工作副本上改稿）。
             engine_params: 重导出所需的引擎参数。
+
+        产物隔离（ADR-023）：实现须先把源版本那份逐页稿**复制**进本任务 job_dir 当工作稿，
+        所有改动只落副本，**绝不回写源版本**。
 
         Returns:
             job_id（与 submit 一致）。

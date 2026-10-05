@@ -82,6 +82,10 @@ class Job(Base):
     # 于是认领时必须能还原 sources —— 它原先只在请求线程的栈上活着，从不入库。
     # 这是搬家的**硬前置**：漏了这一列，带上传文件的草稿任务会静默丢掉素材。
     sources: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 修改任务（task_type=revise）的输入：JSON 文本，存 {source_task_id, root_presentation_id,
+    # parent_sub_presentation_id, pages, instruction}。调度器认领 revise 任务时要靠它调
+    # engine.revise（同 sources 之于 submit 的理由，ADR-019 决策 2 / ADR-023）。非 revise 任务为 NULL。
+    revise_meta: Mapped[str | None] = mapped_column(Text, nullable=True)
     draft_content: Mapped[str | None] = mapped_column(Text, nullable=True)
     draft_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     draft_id: Mapped[str | None] = mapped_column(String(64), nullable=True)  # 输出任务所用的草稿

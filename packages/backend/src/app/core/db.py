@@ -52,6 +52,8 @@ _MIGRATIONS = {
         "started_at": "ALTER TABLE jobs ADD COLUMN started_at VARCHAR(32)",
         # 素材来源（JSON 文本）：调度器认领任务时还原 engine.submit 的入参（ADR-019 决策 2）
         "sources": "ALTER TABLE jobs ADD COLUMN sources TEXT",
+        # 修改任务输入（JSON 文本）：调度器认领 revise 任务时还原 engine.revise 的入参（ADR-023）
+        "revise_meta": "ALTER TABLE jobs ADD COLUMN revise_meta TEXT",
     },
     "projects": {
         "project_name": "ALTER TABLE projects ADD COLUMN project_name VARCHAR(255)",

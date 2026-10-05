@@ -28,7 +28,7 @@ def _encode_json_columns(fields: dict) -> dict:
     None 保持 None（落库为 NULL）——token_usage 的 NULL 就是「未记录」这个语义
     （ADR-016），序列化成字符串 "null" 就读不回来了。
     """
-    for key in ("engine_params", "token_usage"):
+    for key in ("engine_params", "token_usage", "revise_meta"):
         if isinstance(fields.get(key), dict):
             fields[key] = json.dumps(fields[key], ensure_ascii=False)
     if isinstance(fields.get("sources"), (list, tuple)):
@@ -198,6 +198,8 @@ class JobRepo:
             # 调度器认领时要靠它还原 engine.submit 的 sources 入参（ADR-019 决策 2）。
             # JobOut 是 extra="ignore"，所以多出来这个键不会污染契约响应。
             "sources": json.loads(obj.sources) if obj.sources else [],
+            # 修改任务输入（revise 才有）：JSON 文本 → dict；非 revise 恒为 {}
+            "revise_meta": json.loads(obj.revise_meta) if obj.revise_meta else {},
             "draft_content": obj.draft_content,
             "draft_path": obj.draft_path,
             "draft_id": obj.draft_id,

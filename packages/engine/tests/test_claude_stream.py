@@ -68,3 +68,27 @@ def test_ppt_master_家族实现_revise_派生_svg_edit():
         assert "svg_edit" not in _derive_capabilities(name), name
         assert implements_hook(engine_class(name), REVISE_HOOK) is False, name
 
+
+def test_revise_产物发现要求单层项目目录(tmp_path):
+    """锁死 revise 复制目标深度：成品须在 <job>/projects/<proj>/exports/*.pptx（单层）。
+    _newest_export 用 projects/*/exports/*.pptx 单层 glob 发现产物；旧实现多包一层 revise_xxx
+    → 成功导出的成品"看不见"→ 误判失败（真跑实测踩过）。"""
+    import os
+    from engine.impl.ppt_master_v6.engine import PptMasterV6Engine
+    eng = PptMasterV6Engine(jobs_root=tmp_path)
+    jid = "job1"
+    good = tmp_path / jid / "projects" / "proj" / "exports"
+    good.mkdir(parents=True)
+    gf = good / "a.pptx"
+    gf.write_text("x")
+    os.utime(gf, (0, 0))
+    assert eng._newest_export(jid, 0) is not None, "单层成品应被发现"
+    for f in good.glob("*.pptx"):
+        f.unlink()
+    bad = tmp_path / jid / "projects" / "revise_x" / "proj" / "exports"
+    bad.mkdir(parents=True)
+    bf = bad / "a.pptx"
+    bf.write_text("x")
+    os.utime(bf, (0, 0))
+    assert eng._newest_export(jid, 0) is None, "双层（旧 revise 布局）不该被单层 glob 发现——正是要修的 bug"
+

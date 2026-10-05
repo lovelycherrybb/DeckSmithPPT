@@ -550,8 +550,10 @@ class PptMasterV6Engine(PptEngine):
             raise RuntimeError(f"找不到修改起点 {str(source_task_id)[:8]} 的逐页设计稿(svg_output)")
         src_project = src_svg.parent
 
-        # 复制整个源项目工作区到本任务目录，项目名带 job_id（供 _newest_export 认领、避免串页）
-        dest_project = job_dir / "projects" / f"revise_{job_id[:8]}" / src_project.name
+        # 复制整个源项目工作区到本任务目录，路径必须落在 <job_dir>/projects/<项目名>/exports/
+        # 这层——引擎自己的 _newest_export 按 `projects/*/exports/*.pptx`（单层）发现产物，
+        # 多套一层 revise_xxx 目录会让成功导出的成品"看不见"（实测踩过）。job_dir 本就按 job 隔离。
+        dest_project = job_dir / "projects" / src_project.name
         dest_project.parent.mkdir(parents=True, exist_ok=True)
         if dest_project.exists():
             shutil.rmtree(dest_project)

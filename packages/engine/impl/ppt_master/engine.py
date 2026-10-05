@@ -535,7 +535,7 @@ class PptMasterEngine(PptEngine):
             raise RuntimeError(f"找不到修改起点 {str(source_task_id)[:8]} 的逐页设计稿(svg_output)")
         src_project = src_svg.parent
 
-        dest_project = job_dir / "projects" / f"revise_{job_id[:8]}" / src_project.name
+        dest_project = job_dir / "projects" / src_project.name  # 单层：与 _newest_export 的 projects/*/exports 发现约定对齐
         dest_project.parent.mkdir(parents=True, exist_ok=True)
         if dest_project.exists():
             shutil.rmtree(dest_project)

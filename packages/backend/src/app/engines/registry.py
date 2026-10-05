@@ -74,6 +74,8 @@ PAGE_PREVIEW_HOOK = "get_pages"
 # 中断运行中任务的钩子；实现它即点亮 cancel 能力（前端据此决定"停止生成"按钮可见性，
 # ADR-019 决策 5）。能力位仍按实现类探测，不写死任何引擎名。
 CANCEL_HOOK = "cancel"
+# 逐页修改重导出的钩子；实现它即点亮 svg_edit 能力（前端据此决定"修改"入口，ADR-023）。
+REVISE_HOOK = "revise"
 
 
 def implements_hook(target: object, hook: str) -> bool:
@@ -127,6 +129,8 @@ def _derive_capabilities(name: str) -> list[str]:
         caps.append("page_preview")
     if implements_hook(engine_cls, CANCEL_HOOK):
         caps.append("cancel")
+    if implements_hook(engine_cls, REVISE_HOOK):
+        caps.append("svg_edit")
     return caps
 
 

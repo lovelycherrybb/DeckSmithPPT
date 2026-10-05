@@ -138,6 +138,40 @@ def test_逐页预览解析真实页并点亮能力位(engine_factory):
     assert "page_preview" in ENGINE_REGISTRY["guizang_ppt"]["capabilities"]
 
 
+def test_svg_edit_能力位由_revise_钩子派生():
+    """ADR-023：只有实现 revise 钩子的引擎才点亮 svg_edit（鸭子类型探测，非按引擎名）。
+
+    当前没有任何引擎实现 revise（引擎侧改稿重导出属步骤 3b，需一次真跑验证），
+    所以真实注册表里 guizang 有 page_preview 但没有 svg_edit —— 这条同时守住"不误标"。
+    """
+    import sys
+    from pathlib import Path
+
+    backend_src = Path(__file__).resolve().parents[2] / "backend" / "src"
+    sys.path.insert(0, str(backend_src))
+    from app.engines.registry import implements_hook, REVISE_HOOK, ENGINE_REGISTRY
+
+    class WithRevise:  # 真实实现了 revise
+        def revise(self, job_id, **kw):  # noqa: ANN001, D102
+            return job_id
+
+    class WithoutRevise:  # 没实现
+        pass
+
+    class ExitsRevise:  # 显式退出（草稿类引擎的形态）
+        revise = None
+
+    assert implements_hook(WithRevise, REVISE_HOOK) is True
+    assert implements_hook(WithoutRevise, REVISE_HOOK) is False
+    assert implements_hook(ExitsRevise, REVISE_HOOK) is False
+    assert implements_hook(WithRevise(), REVISE_HOOK) is True  # 实例形态同样探测
+
+    # guizang 未实现 revise → 不该被误标 svg_edit（但仍有 page_preview）
+    guiz = ENGINE_REGISTRY["guizang_ppt"]["capabilities"]
+    assert "page_preview" in guiz
+    assert "svg_edit" not in guiz
+
+
 def test_引擎不再自带模板副本():
     assert not (Path(__file__).resolve().parents[1] / "impl" / "guizang_ppt" / "templates").exists()
     # 唯一模板事实源是上游技能目录

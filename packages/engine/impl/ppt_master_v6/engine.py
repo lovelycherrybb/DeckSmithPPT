@@ -535,6 +535,7 @@ class PptMasterV6Engine(PptEngine):
         """
         try:
             assert proc.stdout is not None
+            seen_text: list[str] = []  # 累积流式/assistant 文本，用于识破网关谎报 success 的断流
             for raw in proc.stdout:
                 line = raw.strip()
                 if not line:
@@ -549,10 +550,13 @@ class PptMasterV6Engine(PptEngine):
                 if t == "stream_event":
                     delta = (d.get("event") or {}).get("delta") or {}
                     if delta.get("type") == "text_delta" and delta.get("text"):
+                        seen_text.append(delta["text"])
                         log_file.write(delta["text"])
                         log_file.flush()
                 elif t == "assistant":
                     for c in (d.get("message") or {}).get("content", []):
+                        if c.get("type") == "text" and c.get("text"):
+                            seen_text.append(c["text"])  # assistant 正文里可能藏着 "API Error: ..."
                         if c.get("type") == "tool_use":
                             hint = ""
                             inp = c.get("input") or {}
@@ -574,10 +578,21 @@ class PptMasterV6Engine(PptEngine):
                             )
                         except OSError:
                             pass
-                    if d.get("subtype") == "success":
+                    # 判定不能只看 subtype：网关断流时会谎报 success（见 claude_stream 注释），
+                    # 用累积文本兜识破；把结论固化进 job.json，供 status() 落"真因"而非笼统"未找到产物"。
+                    from engine.core.claude_stream import classify_result
+                    ok, note = classify_result(d, "".join(seen_text[-80:]))
+                    try:
+                        self._write_job(job_id, claude_result={
+                            "ok": ok, "subtype": d.get("subtype"),
+                            "is_error": bool(d.get("is_error")), "note": note,
+                        })
+                    except OSError:
+                        pass
+                    if ok:
                         log_file.write("\n✅ 引擎执行完成\n")
                     else:
-                        log_file.write(f"\n❌ {d.get('result') or d.get('subtype') or '引擎执行失败'}\n")
+                        log_file.write(f"\n❌ {note or d.get('result') or d.get('subtype') or '引擎执行失败'}\n")
                     if usage is not None:
                         log_file.write(f"📊 token 消耗 {usage['total_tokens']:,}\n")
                     log_file.flush()
@@ -607,10 +622,14 @@ class PptMasterV6Engine(PptEngine):
         if result is not None:
             self._write_job(job_id, status="completed", result_path=str(result), updated_at=_now())
             return EngineJobStatus.COMPLETED
-        self._write_job(
-            job_id, status="failed",
-            error="claude 子进程结束但未找到产物（详见 run.log）", updated_at=_now(),
-        )
+        # 无产物即失败；但若 pump 已捕获到 claude 的真实报错（断流/限流/is_error），
+        # 把它透出到失败原因，而不是笼统一句"未找到产物"（用户据此才看得懂是网络还是别的）。
+        cr = data.get("claude_result") or {}
+        if cr and not cr.get("ok", True):
+            err = f"claude 未产出产物，且返回失败：{cr.get('note') or cr.get('subtype') or '未知错误'}（详见 run.log）"
+        else:
+            err = "claude 子进程结束但未找到产物（详见 run.log）"
+        self._write_job(job_id, status="failed", error=err, updated_at=_now())
         return EngineJobStatus.FAILED
 
     def cancel(self, job_id: Any) -> bool:

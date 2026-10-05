@@ -15,6 +15,8 @@ export type Draft = components['schemas']['Draft'];
 export type DraftDetail = components['schemas']['DraftDetail'];
 export type DraftVersion = components['schemas']['DraftVersion'];
 export type Presentation = components['schemas']['Presentation'];
+export type SubPresentation = components['schemas']['SubPresentation'];
+export type ReviseRequest = components['schemas']['ReviseRequest'];
 export type UploadResponse = components['schemas']['UploadResponse'];
 export type SecurityCheckResult = components['schemas']['SecurityCheckResult'];
 export type JobStatus = components['schemas']['JobStatus'];
@@ -426,6 +428,21 @@ export function getJobPages(jobId: string): Promise<JobPages> {
 
 export function presentationDownloadUrl(presentationId: string): string {
   return `${API_BASE}/api/presentations/${presentationId}/download`;
+}
+
+// ── 子演示文件 / 逐页修改（ADR-023）──
+/** 发起一次逐页修改并保存为新版本；返回走快通道的修改任务（task_type=revise）。 */
+export function submitRevision(body: ReviseRequest): Promise<Job> {
+  return requestJson('/api/sub-presentations', { method: 'POST', body: JSON.stringify(body) });
+}
+
+/** 某根演示文件下的全部子演示文件（扁平，前端按 parent_sub_presentation_id 拼缩进树）。 */
+export function listSubPresentations(presentationId: string): Promise<SubPresentation[]> {
+  return requestJson(`/api/presentations/${presentationId}/sub-presentations`);
+}
+
+export function subPresentationDownloadUrl(subPresentationId: string): string {
+  return `${API_BASE}/api/sub-presentations/${subPresentationId}/download`;
 }
 
 // ── 项目 ──

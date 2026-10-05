@@ -44,6 +44,10 @@ export const isGenerating = (s: MaybeStatus) => s === 'running';
 export const engineCancellable = (capabilities?: string[] | null) =>
   !!capabilities && capabilities.includes('cancel');
 
+/** 该引擎的产物能否逐页修改（能力位派生，不按引擎名硬判）——决定是否显示「修改」入口 */
+export const engineEditable = (capabilities?: string[] | null) =>
+  !!capabilities && capabilities.includes('svg_edit');
+
 /**
  * 排队位置的中文表述（兜底用）。
  * 后端给的是"读取时现算的派生值，仅供参考"（契约 Job.queue_position），

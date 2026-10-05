@@ -16,7 +16,8 @@ const { Text } = Typography;
 
 interface Props {
   svgText: string;
-  onSave: (content: string) => void;
+  onChange?: (content: string) => void;   // 每次改动实时回传（并入草稿）
+  onSave?: (content: string) => void;      // 兼容：点"应用"按钮时也回传
   busy?: boolean;
 }
 
@@ -31,7 +32,7 @@ function parseTranslate(t: string | null): { x: number; y: number; rest: string 
   return m ? { x: parseFloat(m[1]), y: parseFloat(m[2]), rest } : { x: 0, y: 0, rest };
 }
 
-export default function SvgCanvasEditor({ svgText, onSave, busy }: Props) {
+export default function SvgCanvasEditor({ svgText, onChange, onSave, busy }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const selRef = useRef<Element | null>(null);
@@ -53,6 +54,11 @@ export default function SvgCanvasEditor({ svgText, onSave, busy }: Props) {
     svgRef.current = host.querySelector('svg');
     selRef.current = null; setSelTag(null);
   }, [svgText]);
+
+  const emit = () => {
+    const svg = svgRef.current;
+    if (svg) onChange?.(svg.outerHTML);
+  };
 
   const clearSel = useCallback(() => {
     selRef.current?.removeAttribute('data-rv-sel');
@@ -87,6 +93,7 @@ export default function SvgCanvasEditor({ svgText, onSave, busy }: Props) {
       document.removeEventListener('pointermove', move);
       document.removeEventListener('pointerup', up);
       rerender();
+      emit();
     };
     document.addEventListener('pointermove', move);
     document.addEventListener('pointerup', up);
@@ -96,20 +103,23 @@ export default function SvgCanvasEditor({ svgText, onSave, busy }: Props) {
   const selT = sel ? parseTranslate(sel.getAttribute('transform')) : null;
   const isText = !!sel && (sel.tagName === 'text' || sel.tagName === 'tspan');
 
-  const setAttr = (name: string, value: string) => { if (sel) { sel.setAttribute(name, value); rerender(); } };
+  const setAttr = (name: string, value: string) => { if (sel) { sel.setAttribute(name, value); rerender(); emit(); } };
   const setTranslate = (axis: 'x' | 'y', v: number) => {
     if (!sel || !selT) return;
     const nx = axis === 'x' ? v : selT.x;
     const ny = axis === 'y' ? v : selT.y;
     sel.setAttribute('transform', `translate(${nx} ${ny}) ${selT.rest}`.trim());
-    rerender();
+    rerender(); emit();
   };
-  const setText = (v: string) => { if (sel) { sel.textContent = v; rerender(); } };
-  const del = () => { sel?.remove(); clearSel(); };
+  const setText = (v: string) => { if (sel) { sel.textContent = v; rerender(); emit(); } };
+  const del = () => { sel?.remove(); clearSel(); emit(); };
 
-  const exportSvg = () => {
+  const apply = () => {
     if (!svgRef.current) { message.error('编辑器未就绪'); return; }
-    onSave(svgRef.current.outerHTML);
+    const html = svgRef.current.outerHTML;
+    onChange?.(html);
+    onSave?.(html);
+    message.success('已应用到草稿');
   };
 
   return (
@@ -156,8 +166,8 @@ export default function SvgCanvasEditor({ svgText, onSave, busy }: Props) {
         ) : (
           <Text type="secondary" style={{ fontSize: 12 }}>点击画布里的元素可选中，拖动可移动；未选中时无操作。</Text>
         )}
-        <Button type="primary" size="small" icon={<Save size={13} />} loading={busy} onClick={exportSvg} style={{ marginLeft: 'auto' }}>
-          应用为本页并保存新版本
+        <Button type="primary" size="small" icon={<Save size={13} />} loading={busy} onClick={apply}>
+          应用到草稿
         </Button>
       </Space>
     </div>

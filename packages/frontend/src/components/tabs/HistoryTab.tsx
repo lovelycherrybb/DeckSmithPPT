@@ -39,7 +39,7 @@ import { usePollingJobs } from '@/hooks/usePollingJobs';
 import DraftsPanel from '@/components/workspace/DraftsPanel';
 import GenerationJobsPanel from '@/components/workspace/GenerationJobsPanel';
 import PresentationsPanel from '@/components/workspace/PresentationsPanel';
-import { collectPreviewableTaskIds } from '@/components/features/job/PagePreviewGrid';
+import { collectPreviewableTaskIds, collectEditableTaskIds } from '@/components/features/job/PagePreviewGrid';
 import { formatDate } from '@/lib/formatDate';
 import { useAuth } from '@/components/AuthProvider';
 
@@ -118,6 +118,11 @@ export default function HistoryTab({ onOpenInWorkspace }: Props) {
   // 逐页预览入口集合：由引擎 capabilities（钩子实现派生）决定，非引擎名硬判
   const previewableTaskIds = useMemo(
     () => collectPreviewableTaskIds(jobs, outputEngines),
+    [jobs, outputEngines]
+  );
+  // 「修改」入口集合：由 svg_edit 能力位派生（同一手法，非引擎名硬判）
+  const editableTaskIds = useMemo(
+    () => collectEditableTaskIds(jobs, outputEngines),
     [jobs, outputEngines]
   );
 
@@ -301,6 +306,7 @@ export default function HistoryTab({ onOpenInWorkspace }: Props) {
                       presentations={presentations}
                       loading={viewLoading}
                       previewableTaskIds={previewableTaskIds}
+                      editableTaskIds={editableTaskIds}
                       onRefresh={() => loadViewData(viewProjectId)}
                     />
                   ),

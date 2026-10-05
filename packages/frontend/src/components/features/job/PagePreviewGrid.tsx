@@ -13,6 +13,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Image, Spin, Tooltip, Typography } from 'antd';
 import type { EngineInfo, JobPages, PageItem } from '@/lib/api';
+import { engineEditable } from '@/lib/jobStatus';
 import { isGenerating } from '@/lib/jobStatus';
 
 const { Text } = Typography;
@@ -225,6 +226,24 @@ export function collectPreviewableTaskIds(
   const ids = new Set<string>();
   for (const j of jobs) {
     if (j.engine && previewEngines.has(j.engine)) ids.add(j.job_id);
+  }
+  return ids;
+}
+
+/**
+ * 计算哪些任务的产物支持逐页修改：job 的 engine 声明了 svg_edit 能力（钩子实现派生，非引擎名硬判）。
+ * 与 collectPreviewableTaskIds 同一手法；修改入口挂在演示文件的产出 task_id 上。
+ */
+export function collectEditableTaskIds(
+  jobs: Array<{ job_id: string; engine?: string | null; task_type?: string | null }>,
+  engines: EngineInfo[]
+): Set<string> {
+  const editableEngines = new Set(
+    engines.filter((e) => engineEditable(e.capabilities)).map((e) => e.name)
+  );
+  const ids = new Set<string>();
+  for (const j of jobs) {
+    if (j.engine && editableEngines.has(j.engine)) ids.add(j.job_id);
   }
   return ids;
 }

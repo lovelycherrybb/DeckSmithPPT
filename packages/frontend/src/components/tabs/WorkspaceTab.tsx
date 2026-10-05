@@ -36,7 +36,7 @@ import GenerationJobsPanel from '@/components/workspace/GenerationJobsPanel';
 import PresentationsPanel from '@/components/workspace/PresentationsPanel';
 import RunningTasksDock from '@/components/workspace/RunningTasksDock';
 import { useAuth } from '@/components/AuthProvider';
-import { collectPreviewableTaskIds } from '@/components/features/job/PagePreviewGrid';
+import { collectPreviewableTaskIds, collectEditableTaskIds } from '@/components/features/job/PagePreviewGrid';
 
 interface Props {
   /** 从历史项目「操作」跳入时携带的项目 ID */
@@ -242,6 +242,11 @@ export default function WorkspaceTab({ initialProjectId = null }: Props) {
     () => collectPreviewableTaskIds(jobs, outputEngines),
     [jobs, outputEngines]
   );
+  // 「修改」入口集合：由 svg_edit 能力位派生（与逐页预览同一手法，非引擎名硬判）
+  const editableTaskIds = useMemo(
+    () => collectEditableTaskIds(jobs, outputEngines),
+    [jobs, outputEngines]
+  );
   const currentProject = projects.find((p) => p.project_id === currentProjectId);
 
   const subtabs = [
@@ -313,6 +318,7 @@ export default function WorkspaceTab({ initialProjectId = null }: Props) {
           presentations={presentations}
           loading={presentationsLoading}
           previewableTaskIds={previewableTaskIds}
+          editableTaskIds={editableTaskIds}
           onRefresh={refreshPresentations}
         />
       )}

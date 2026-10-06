@@ -172,7 +172,7 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
 
         {/* 左：版本列表（扁平、最新在上） */}
         <div style={{ width: 260, borderRight: '1px solid var(--border)', overflowY: 'auto', padding: 12 }}>
-          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>版本（最新在上）</div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>版本</div>
           {versionList.map((n) => (
             <div key={n.key} onClick={() => !busy && setSelectedKey(n.key)}
               style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 6, cursor: busy ? 'default' : 'pointer',

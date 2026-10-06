@@ -37,8 +37,9 @@ function sanitize(svgText: string): string {
   const root = doc.querySelector('svg');
   if (!root) return '';
   root.querySelectorAll('script').forEach((s) => s.remove());
-  root.removeAttribute('width'); root.removeAttribute('height');
-  root.style.width = '100%'; root.style.height = 'auto'; root.style.display = 'block';
+  // 只剥脚本，**保留原始 width/height 属性**：导出需要有限 px 值。显示缩放交给外层
+  // `.rv-fit > svg` 的 CSS，不改元素本身——否则序列化回草稿会把宽度写成 100%，
+  // finalize_svg 会报 "inline geometry width requires a finite px literal; got '100%'"。
   return root.outerHTML;
 }
 
@@ -123,8 +124,8 @@ export default function MultiPageSvgEditor({ pages, draft, onEdit }: Props) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      <style>{`.rv-multi svg [data-rv-sel]{outline:2px solid #ff3b30;outline-offset:1px;cursor:move}`}</style>
-      <div ref={containerRef} onPointerDown={onPointerDown}
+      <style>{`.rv-multi [data-rv-sel]{outline:2px solid #ff3b30;outline-offset:1px;cursor:move} .rv-fit > svg{max-width:100%;height:auto;display:block}`}</style>
+      <div ref={containerRef} className="rv-multi" onPointerDown={onPointerDown}
         style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 16, background: 'var(--bg-subtle, #f6f7f9)' }}>
         {loading ? <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div> : pages.map((p) => (
           <div key={p.index} data-page-index={p.index} data-page-name={p.name}
@@ -132,7 +133,7 @@ export default function MultiPageSvgEditor({ pages, draft, onEdit }: Props) {
             <div style={{ padding: '4px 10px', fontSize: 12, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)' }}>
               第 {pages.findIndex((x) => x.index === p.index) + 1} 页 · {p.name}{draft[p.index] ? ' ·（已改）' : ''}
             </div>
-            <div dangerouslySetInnerHTML={{ __html: html[p.index] || '' }} />
+            <div className="rv-fit" dangerouslySetInnerHTML={{ __html: html[p.index] || '' }} />
           </div>
         ))}
       </div>

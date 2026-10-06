@@ -76,12 +76,21 @@
 - **对话式改稿 = Agent 文本能力新增种类 `revise_pages`**：输入=被选页当前内容 + 指令，输出=AI 改好的逐页内容，**只回传进草稿，不落库、不导出、不出版本**。定版仍走"整体另存"。
 - 契约落点补充：`openapi.yaml` 的 `AgentExecuteRequest.kind` 白名单加 `revise_pages`（+ `pages`/`instruction` 字段）；`POST /api/sub-presentations` 语义即"批量另存"。对话改稿是 agent 文本调用、**不进 `task_type`、不建 Job**，与"另存=修改任务"分列。
 
+## 修订 B（另存提速：pages-only 走确定性重导出，2026-10-06 免费真跑验证）
+
+复验发现 pages-only 另存走 claude 整副技能流水线 ≈6 分钟 / 40 万 token，与"只改几页"严重不匹配。改为：
+
+- 有 `pages`、无 `instruction` 的另存 → 引擎直接跑确定性脚本 `finalize_svg → svg_quality_checker --quick-generate → svg_to_pptx --quick-generate`（用 `sys.executable`，带上游依赖），**不调 claude、0 token**；实测 12 秒出成品。
+- 只有 `instruction`（AI 改整副）才回退 claude 路径。
+- 免费真跑暴露的三个坑（已固化进 `_deterministic_export`）：① 复制目标须单层 `projects/<proj>/exports`；② quick-generate deck 无 `spec_lock.md`，导出须带 `--quick-generate`；③ `svg_to_pptx` 拒绝陈旧质量报告，改页后须先跑 `svg_quality_checker`。
+- 对话改稿仍走 `revise_pages`（AI 只回传 SVG），与"确定性重导出"正交。
+
 ## 已定项（原"待确认"，实施时已采纳）
 
 - 任务枚举 token `revise`、能力位 `svg_edit` —— 已采用。
 - `SubPresentation` 用 `presentation_id` + 可空 `parent_sub_presentation_id` 表达版本树 —— 已采用。
 - `POST /api/sub-presentations`（返回任务、异步）—— 已采用。
 
-## 顺带发现（非本 ADR 范围，待单独处理）
+## 顺带发现（已处理）
 
-`engine.schema.json` 的 `DeckContent.engine` 枚举缺 `ppt_master_v6`，而 `openapi.yaml` 的 `DeckRequest.engine` 有——一处既有漂移，研究记录开放问题 5 也提过文档口径不齐。建议另起一笔对齐，勿混进本改造。
+`engine.schema.json` 的 `DeckContent.engine` 曾缺 `ppt_master_v6`（openapi 有）——已在契约那笔一并补齐。

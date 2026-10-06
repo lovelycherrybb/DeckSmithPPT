@@ -92,3 +92,46 @@ def test_revise_产物发现要求单层项目目录(tmp_path):
     os.utime(bf, (0, 0))
     assert eng._newest_export(jid, 0) is None, "双层（旧 revise 布局）不该被单层 glob 发现——正是要修的 bug"
 
+
+def test_deterministic_export_不调claude_写completed(tmp_path, monkeypatch):
+    """pages-only 另存走确定性重导出：subprocess 跑 finalize+svg_to_pptx，成功写 completed+result_path。"""
+    import types
+    from engine.impl.ppt_master_v6 import engine as v6mod
+    from engine.impl.ppt_master_v6.engine import PptMasterV6Engine
+
+    eng = PptMasterV6Engine(jobs_root=tmp_path)
+    jid = "r1"
+    proj = tmp_path / jid / "projects" / "projA"
+    (proj / "exports").mkdir(parents=True)
+    (proj / "svg_output").mkdir()
+    exp = proj / "exports" / "deck.pptx"
+
+    calls = []
+
+    def fake_run(cmd, *a, **k):
+        calls.append(cmd[1])            # 记录被调脚本名
+        exp.write_text("pptx")          # 模拟导出脚本产出（mtime 新于 started）
+        return types.SimpleNamespace(returncode=0, stdout="ok", stderr="")
+
+    monkeypatch.setattr(v6mod.subprocess, "run", fake_run)
+    eng._write_job(jid, status="running")
+    eng._deterministic_export(jid, proj)
+    data = eng._read_job(jid)
+    assert any("finalize_svg.py" in c for c in calls) and any("svg_to_pptx.py" in c for c in calls)
+    assert data["status"] == "completed" and data["result_path"].endswith("deck.pptx")
+
+
+def test_deterministic_export_脚本失败写failed(tmp_path, monkeypatch):
+    import types
+    from engine.impl.ppt_master_v6 import engine as v6mod
+    from engine.impl.ppt_master_v6.engine import PptMasterV6Engine
+
+    eng = PptMasterV6Engine(jobs_root=tmp_path)
+    jid = "r2"
+    proj = tmp_path / jid / "projects" / "p"; (proj / "exports").mkdir(parents=True)
+    monkeypatch.setattr(v6mod.subprocess, "run",
+                        lambda *a, **k: types.SimpleNamespace(returncode=1, stdout="", stderr="boom"))
+    eng._write_job(jid, status="running")
+    eng._deterministic_export(jid, proj)
+    assert eng._read_job(jid)["status"] == "failed"
+

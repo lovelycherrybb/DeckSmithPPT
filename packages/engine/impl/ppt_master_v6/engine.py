@@ -576,6 +576,12 @@ class PptMasterV6Engine(PptEngine):
             if target is not None and p.get("content") is not None:
                 target.write_text(p["content"], encoding="utf-8")
 
+        # 手动改页（有 pages、无 instruction）→ 确定性重导出，不调 claude（秒级、0 token）。
+        # 见 ADR-023：把"AI 改稿"与"重导出"拆开，纯手动改页无需整副技能流水线。
+        if pages and not (instruction and instruction.strip()):
+            self._deterministic_export(job_id, dest_project)
+            return JobId(job_id)
+
         prompt = self._build_revise_prompt(dest_project, work_svg, instruction, pages)
         prompt += self._runtime_anchor(job_dir)
         (job_dir / "prompt.md").write_text(prompt, encoding="utf-8")
@@ -607,6 +613,57 @@ class PptMasterV6Engine(PptEngine):
             started_at=time.time(), result_path=None, error=None,
         )
         return JobId(job_id)
+
+    def _deterministic_export(self, job_id: str, dest_project: Path) -> None:
+        """手动改页的确定性重导出：finalize_svg → svg_to_pptx，不调 claude（秒级、0 token）。
+
+        产物落 dest_project/exports/；成功写 job.json completed+result_path，失败写 failed。
+        用 sys.executable（引擎 venv，带 skia-pathops 等上游依赖），不用 PATH 上的 python3。
+        """
+        scripts = _PPT_MASTER_DIR / "skills" / "ppt-master" / "scripts"
+        finalize = scripts / "finalize_svg.py"
+        quality = scripts / "svg_quality_checker.py"
+        export = scripts / "svg_to_pptx.py"
+        started = time.time()
+        self._write_job(job_id, status="running", pid=None, started_at=started,
+                        result_path=None, error=None, updated_at=_now())
+
+        def _run(script: Path, *extra: str) -> tuple[int, str]:
+            try:
+                p = subprocess.run([sys.executable, str(script), str(dest_project), *extra],
+                                   capture_output=True, text=True, timeout=300)
+                return p.returncode, (p.stdout or "") + "\n" + (p.stderr or "")
+            except Exception as exc:  # noqa: BLE001
+                return 1, f"{type(exc).__name__}: {exc}"
+
+        with open(self._job_dir(job_id) / "run.log", "w", encoding="utf-8") as lf:
+            rc, out = _run(finalize)
+            lf.write(f"=== finalize_svg ===\n{out}\n"); lf.flush()
+            if rc != 0:
+                self._write_job(job_id, status="failed",
+                                error=f"确定性重导出失败（finalize_svg）：{out[-300:]}", updated_at=_now())
+                return
+            # 刷新质量报告：svg_to_pptx 会拒绝陈旧报告（"found stale"），须先对改后的
+            # svg_output 跑 quality_checker（advisory，不据其 rc 终止；真正把关在导出那步）。
+            rc_q, out_q = _run(quality, "--quick-generate", "--json")
+            lf.write(f"=== svg_quality_checker ===\n{out_q}\n"); lf.flush()
+            if rc_q != 0:
+                # 质量检查器非零退出：可能确有阻塞问题，导出那步会再判；这里不提前失败。
+                pass
+            # quick-generate 路线的 deck 没有 spec_lock.md，导出须带 --quick-generate（与技能自身导出一致），
+            # 否则 svg_to_pptx 报 "spec_lock.md is required for release SVG export"。
+            rc, out = _run(export, "--quick-generate")
+            lf.write(f"=== svg_to_pptx ===\n{out}\n"); lf.flush()
+            if rc != 0:
+                self._write_job(job_id, status="failed",
+                                error=f"确定性重导出失败（svg_to_pptx）：{out[-300:]}", updated_at=_now())
+                return
+        result = self._newest_export(job_id, started)
+        if result is None:
+            self._write_job(job_id, status="failed",
+                            error="确定性重导出完成但未找到成品 pptx（详见 run.log）", updated_at=_now())
+            return
+        self._write_job(job_id, status="completed", result_path=str(result), updated_at=_now())
 
     @staticmethod
     def _build_revise_prompt(

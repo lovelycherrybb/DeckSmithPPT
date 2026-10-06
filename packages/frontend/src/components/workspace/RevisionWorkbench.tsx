@@ -1,14 +1,15 @@
 /**
  * 逐页修改工作台（ADR-023 草稿模型）。
- * 左=版本树(antd Tree)；中=整列可滚动预览(滚动/点击自动定位当前页，编辑作用于当前页)；
- * 右=对话改稿。改动全部先进本地草稿，只有"整体另存"一次性提交、后台重导出出一个子文件。
- * 另存用全局遮罩显示进度，成功后版本树刷新并选中新版本。
+ * 左=版本列表（扁平、最新在上，带"改自"提示，避免深层缩进看不清）；
+ * 中=整列可滚动预览(滚动/点击自动定位当前页，编辑作用于当前页)；右=对话改稿。
+ * 改动全部先进本地草稿，只有"整体另存"一次性提交、后台重导出出一个子文件。
+ * 另存用全局遮罩显示进度，成功后版本列表刷新并置顶选中新版本。
  */
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert, Badge, Button, Drawer, Empty, Input, Segmented, Space, Spin, Tag, Tree, Typography, message,
+  Alert, Badge, Button, Drawer, Empty, Input, Segmented, Space, Spin, Tag, Typography, message,
 } from 'antd';
 import { Download, Layers, MessageSquare } from 'lucide-react';
 import SvgCanvasEditor from './SvgCanvasEditor';
@@ -22,11 +23,12 @@ const { TextArea } = Input;
 const { Text } = Typography;
 
 interface Props { presentation: Presentation | null; open: boolean; onClose: () => void; }
-interface Node { key: string; kind: 'root' | 'sub'; label: string; taskId: string; parentKey: string | null; }
+interface Node { key: string; kind: 'root' | 'sub'; label: string; short: string; taskId: string; parentKey: string | null; createdAt: string; }
 type Draft = Record<number, { name?: string; content: string }>;
-interface TreeDatum { key: string; title: React.ReactNode; children?: TreeDatum[]; node: Node; }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+// 从"项目名_20261005082849.pptx"里取时间戳当短标签，取不到就退回全名
+const shortOf = (name: string) => (name.match(/_(\d{14})/) || [])[1]?.replace(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$/, '$2-$3 $4:$5') || name;
 
 export default function RevisionWorkbench({ presentation, open, onClose }: Props) {
   const [nodes, setNodes] = useState<Node[]>([]);
@@ -52,27 +54,17 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
   const editedHere = currentPage ? draft[currentPage.index] : undefined;
   const editValue = editedHere?.content ?? baseSvg;
 
-  const treeData = useMemo<TreeDatum[]>(() => {
-    const kids = new Map<string | null, Node[]>();
-    for (const n of nodes) { const a = kids.get(n.parentKey) || []; a.push(n); kids.set(n.parentKey, a); }
-    const build = (n: Node): TreeDatum => ({
-      key: n.key, node: n,
-      title: (
-        <Space size={4}>
-          <Tag color={n.kind === 'root' ? 'blue' : 'green'} style={{ marginInlineEnd: 0 }}>{n.kind === 'root' ? '原始' : '子'}</Tag>
-          <span>{n.label}</span>
-          <a href={n.kind === 'root' ? presentationDownloadUrl(n.key) : subPresentationDownloadUrl(n.key)}
-             target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} title="下载此版本"><Download size={12} /></a>
-        </Space>
-      ),
-      children: (kids.get(n.key) || []).map(build),
-    });
-    return (kids.get(null) || []).map(build);
+  const shortByKey = useMemo(() => new Map(nodes.map((n) => [n.key, n.short])), [nodes]);
+  // 扁平列表：原始置顶，其余按时间倒序（最新在上）——不再嵌套，深链也看得清
+  const versionList = useMemo(() => {
+    const root = nodes.find((n) => n.kind === 'root');
+    const subs = nodes.filter((n) => n.kind === 'sub').sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return root ? [root, ...subs] : subs;
   }, [nodes]);
 
   const rebuild = useCallback((root: Presentation, list: SubPresentation[]) => {
-    const ns: Node[] = [{ key: root.presentation_id, kind: 'root', label: root.file_name, taskId: root.task_id, parentKey: null }];
-    for (const s of list) ns.push({ key: s.sub_presentation_id, kind: 'sub', label: s.file_name, taskId: s.task_id, parentKey: s.parent_sub_presentation_id ?? root.presentation_id });
+    const ns: Node[] = [{ key: root.presentation_id, kind: 'root', label: root.file_name, short: '原始', taskId: root.task_id, parentKey: null, createdAt: root.created_at }];
+    for (const s of list) ns.push({ key: s.sub_presentation_id, kind: 'sub', label: s.file_name, short: shortOf(s.file_name), taskId: s.task_id, parentKey: s.parent_sub_presentation_id ?? root.presentation_id, createdAt: s.created_at });
     setNodes(ns);
     return ns;
   }, []);
@@ -150,7 +142,7 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
         const rows = await listSubPresentations(presentation!.presentation_id);
         const ns = rebuild(presentation!, rows);
         const fresh = ns.find((n) => n.taskId === job.job_id);
-        setSelectedKey(fresh ? fresh.key : ns[ns.length - 1].key);
+        setSelectedKey(fresh ? fresh.key : ns[ns.length - 1].key); // 新版本在列表最上方并选中
         message.success('新版本已生成');
       } else { setStatus({ text: `另存失败：${st.error || st.status}`, error: true }); message.error('另存未成功'); }
     } catch (e) { setStatus({ text: `提交失败：${(e as Error).message}`, error: true }); message.error('提交失败'); }
@@ -167,19 +159,33 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
           <div style={{ position: 'absolute', inset: 0, zIndex: 20, background: 'rgba(255,255,255,.72)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
             <Spin size="large" />
             <div>{status?.text || '正在重导出…'}</div>
-            <Text type="secondary" style={{ fontSize: 12 }}>完成后版本树会自动刷新并跳到新版本，请稍候</Text>
+            <Text type="secondary" style={{ fontSize: 12 }}>完成后版本列表会刷新并跳到新版本，请稍候</Text>
           </div>
         )}
 
-        <div style={{ width: 280, borderRight: '1px solid var(--border)', overflowY: 'auto', padding: 12 }}>
-          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>版本树</div>
-          {treeData.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="无版本" /> : (
-            <Tree treeData={treeData} showLine blockNode defaultExpandAll
-              selectedKeys={selectedKey ? [selectedKey] : []}
-              onSelect={(keys) => { if (keys[0]) setSelectedKey(String(keys[0])); }} />
-          )}
+        {/* 左：版本列表（扁平、最新在上） */}
+        <div style={{ width: 260, borderRight: '1px solid var(--border)', overflowY: 'auto', padding: 12 }}>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>版本（最新在上）</div>
+          {versionList.map((n) => (
+            <div key={n.key} onClick={() => !busy && setSelectedKey(n.key)}
+              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 6, cursor: busy ? 'default' : 'pointer',
+                background: selectedKey === n.key ? 'rgba(59,130,246,.12)' : 'transparent', marginBottom: 2 }}>
+              <Tag color={n.kind === 'root' ? 'blue' : 'green'} style={{ marginInlineEnd: 0, flexShrink: 0 }}>{n.kind === 'root' ? '原始' : '子'}</Tag>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {n.short}{draftCount > 0 && selectedKey === n.key ? '' : ''}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                  {n.kind === 'root' ? '生成' : `改自 ${shortByKey.get(n.parentKey) ?? '原始'}`}
+                </div>
+              </div>
+              <a href={n.kind === 'root' ? presentationDownloadUrl(n.key) : subPresentationDownloadUrl(n.key)}
+                 target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} title="下载此版本"><Download size={14} style={{ flexShrink: 0 }} /></a>
+            </div>
+          ))}
         </div>
 
+        {/* 中：整列滚动预览 / 编辑当前页 */}
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px', borderBottom: '1px solid var(--border)' }}>
             <Segmented value={tab} onChange={(v) => setTab(v as typeof tab)} options={['预览', '拖拽编辑', '编辑源码']} />
@@ -227,6 +233,7 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
           </div>
         </div>
 
+        {/* 右：对话改稿 */}
         <div style={{ width: 320, borderLeft: '1px solid var(--border)', padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><MessageSquare size={15} /> <b>对话式改稿</b></div>
           <Text type="secondary" style={{ fontSize: 12 }}>对<b>当前页（第 {pageIdx + 1} 页）</b>说怎么改，AI 只回传进草稿、不出版本。</Text>

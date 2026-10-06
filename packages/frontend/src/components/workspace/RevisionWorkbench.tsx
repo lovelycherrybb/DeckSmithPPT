@@ -12,7 +12,7 @@ import {
   Alert, Badge, Button, Drawer, Empty, Input, Segmented, Space, Spin, Tag, Typography, message,
 } from 'antd';
 import { Download, Layers, MessageSquare } from 'lucide-react';
-import SvgCanvasEditor from './SvgCanvasEditor';
+import MultiPageSvgEditor from './MultiPageSvgEditor';
 import {
   getJob, getJobPages, listSubPresentations, presentationDownloadUrl,
   subPresentationDownloadUrl, submitRevision, revisePages,
@@ -231,13 +231,7 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
                   ))}
                 </div>
               ) : tab === '拖拽编辑' ? (
-                <div style={{ height: '100%' }}>
-                  {loadingSvg && !editedHere ? <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div> : (
-                    <SvgCanvasEditor key={currentPage ? `${selectedKey}-${currentPage.index}` : 'none'}
-                      svgText={editValue} busy={busy}
-                      onChange={(c) => currentPage && applyEdit(currentPage.index, currentPage.name, c)} />
-                  )}
-                </div>
+                <MultiPageSvgEditor pages={pages} draft={draft} onEdit={applyEdit} />
               ) : (
                 <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
                   <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>编辑当前页（第 {pageIdx + 1} 页）源码——改动先进草稿</div>

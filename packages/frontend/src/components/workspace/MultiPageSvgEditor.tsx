@@ -86,7 +86,7 @@ export default function MultiPageSvgEditor({ pages, draft, onEdit }: Props) {
   };
   const clearSel = () => { selRef.current?.removeAttribute('data-rv-sel'); selRef.current = null; setSel(null); };
 
-  const onPointerDown = (e: React.PointerEvent) => {
+  const onPointerDown = (e: PointerEvent) => {
     let el = e.target as Element | null;
     while (el && !GRAPHICS.has(el.tagName) && !el.hasAttribute?.('data-page-index')) el = el.parentElement;
     if (!el || el.hasAttribute?.('data-page-index')) { clearSel(); return; }
@@ -110,6 +110,16 @@ export default function MultiPageSvgEditor({ pages, draft, onEdit }: Props) {
     document.addEventListener('pointermove', move); document.addEventListener('pointerup', up);
   };
 
+  // 用原生 pointerdown 监听容器：React 合成事件对 dangerouslySetInnerHTML 注入的 SVG
+  // 子节点捕获不可靠（表现为"拖不动"），原生监听对注入 DOM 稳定生效。
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    el.addEventListener('pointerdown', onPointerDown);
+    return () => el.removeEventListener('pointerdown', onPointerDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [html]);
+
   const selEl = selRef.current;
   const selT = selEl ? parseTranslate(selEl.getAttribute('transform')) : null;
   const isText = !!selEl && (selEl.tagName === 'text' || selEl.tagName === 'tspan');
@@ -125,7 +135,7 @@ export default function MultiPageSvgEditor({ pages, draft, onEdit }: Props) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       <style>{`.rv-multi [data-rv-sel]{outline:2px solid #ff3b30;outline-offset:1px;cursor:move} .rv-fit > svg{max-width:100%;height:auto;display:block}`}</style>
-      <div ref={containerRef} className="rv-multi" onPointerDown={onPointerDown}
+      <div ref={containerRef} className="rv-multi"
         style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 16, background: 'var(--bg-subtle, #f6f7f9)' }}>
         {loading ? <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div> : pages.map((p) => (
           <div key={p.index} data-page-index={p.index} data-page-name={p.name}

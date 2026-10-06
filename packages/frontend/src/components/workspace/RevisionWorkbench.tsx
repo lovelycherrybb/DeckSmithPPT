@@ -27,8 +27,15 @@ interface Node { key: string; kind: 'root' | 'sub'; label: string; short: string
 type Draft = Record<number, { name?: string; content: string }>;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-// 从"项目名_20261005082849.pptx"里取时间戳当短标签，取不到就退回全名
-const shortOf = (name: string) => (name.match(/_(\d{14})/) || [])[1]?.replace(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$/, '$2-$3 $4:$5') || name;
+// 版本短标签：用 created_at（UTC ISO）按浏览器本地时区显示 MM-DD HH:MM。
+// 不能再从文件名里的 UTC 时间戳截——那是 UTC，中国用户看着差 8 小时。
+const localHM = (iso: string) => {
+  try {
+    return new Date(iso).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
+  } catch {
+    return iso;
+  }
+};
 
 export default function RevisionWorkbench({ presentation, open, onClose }: Props) {
   const [nodes, setNodes] = useState<Node[]>([]);
@@ -70,8 +77,8 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
   }, [nodes]);
 
   const rebuild = useCallback((root: Presentation, list: SubPresentation[]) => {
-    const ns: Node[] = [{ key: root.presentation_id, kind: 'root', label: root.file_name, short: '原始', taskId: root.task_id, parentKey: null, createdAt: root.created_at }];
-    for (const s of list) ns.push({ key: s.sub_presentation_id, kind: 'sub', label: s.file_name, short: shortOf(s.file_name), taskId: s.task_id, parentKey: s.parent_sub_presentation_id ?? root.presentation_id, createdAt: s.created_at });
+    const ns: Node[] = [{ key: root.presentation_id, kind: 'root', label: root.file_name, short: localHM(root.created_at), taskId: root.task_id, parentKey: null, createdAt: root.created_at }];
+    for (const s of list) ns.push({ key: s.sub_presentation_id, kind: 'sub', label: s.file_name, short: localHM(s.created_at), taskId: s.task_id, parentKey: s.parent_sub_presentation_id ?? root.presentation_id, createdAt: s.created_at });
     setNodes(ns);
     return ns;
   }, []);

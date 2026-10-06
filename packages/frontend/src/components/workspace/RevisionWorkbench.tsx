@@ -54,7 +54,14 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
   const editedHere = currentPage ? draft[currentPage.index] : undefined;
   const editValue = editedHere?.content ?? baseSvg;
 
-  const shortByKey = useMemo(() => new Map(nodes.map((n) => [n.key, n.short])), [nodes]);
+  // 给每个版本一个短序号：原始=起点，子版本按创建先后 #1/#2…（血缘用序号点，比长文件名清楚）
+  const ordinalByKey = useMemo(() => {
+    const ordered = [...nodes].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const m = new Map<string, string>();
+    let i = 0;
+    for (const n of ordered) { if (n.kind === 'root') m.set(n.key, '起点'); else { i += 1; m.set(n.key, `#${i}`); } }
+    return m;
+  }, [nodes]);
   // 扁平列表：原始置顶，其余按时间倒序（最新在上）——不再嵌套，深链也看得清
   const versionList = useMemo(() => {
     const root = nodes.find((n) => n.kind === 'root');
@@ -170,14 +177,17 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
             <div key={n.key} onClick={() => !busy && setSelectedKey(n.key)}
               style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 6, cursor: busy ? 'default' : 'pointer',
                 background: selectedKey === n.key ? 'rgba(59,130,246,.12)' : 'transparent', marginBottom: 2 }}>
-              <Tag color={n.kind === 'root' ? 'blue' : 'green'} style={{ marginInlineEnd: 0, flexShrink: 0 }}>{n.kind === 'root' ? '原始' : '子'}</Tag>
+              <Tag color={n.kind === 'root' ? 'blue' : 'green'} style={{ marginInlineEnd: 0, flexShrink: 0 }}>
+                {ordinalByKey.get(n.key) ?? (n.kind === 'root' ? '起点' : '子')}
+              </Tag>
               <div style={{ minWidth: 0, flex: 1 }}>
-                <div style={{ fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {n.short}{draftCount > 0 && selectedKey === n.key ? '' : ''}
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                  {n.kind === 'root' ? '生成' : `改自 ${shortByKey.get(n.parentKey) ?? '原始'}`}
-                </div>
+                <div style={{ fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.short}</div>
+                {n.kind === 'root' ? (
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>最初生成的版本</div>
+                ) : (
+                  <a onClick={(e) => { e.stopPropagation(); if (n.parentKey) setSelectedKey(n.parentKey); }}
+                     style={{ fontSize: 11, color: '#1677ff' }}>← 来自 {ordinalByKey.get(n.parentKey ?? '') ?? '起点'}</a>
+                )}
               </div>
               <a href={n.kind === 'root' ? presentationDownloadUrl(n.key) : subPresentationDownloadUrl(n.key)}
                  target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} title="下载此版本"><Download size={14} style={{ flexShrink: 0 }} /></a>

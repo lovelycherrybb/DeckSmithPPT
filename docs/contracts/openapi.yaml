@@ -588,6 +588,7 @@ paths:
                 $ref: '#/components/schemas/Error'
 
   /api/agent/sessions/{session_id}:
+    get:
       summary: 查询 Agent 会话状态（代理接口）
       description: '代理查询异步 Agent 任务的会话状态和最新输出片段。
 
@@ -619,6 +620,7 @@ paths:
                 $ref: '#/components/schemas/Error'
 
   /api/agent/sessions/{session_id}/stream:
+    get:
       summary: 获取 Agent 会话流式输出（代理接口）
       description: '代理实时获取 Agent 的输出，支持流式显示。
 
@@ -2584,8 +2586,12 @@ components:
         authenticated:
           type: boolean
         user:
-          $ref: '#/components/schemas/User'
-          description: 已登录时为对象；未登录时缺省（不存在）
+          description: '已登录时为对象；未登录时为 null。字段**恒在**，三态不靠"缺省"表达
+            —— 后端 response_model 是 UserOut | None，序列化出来就是 null。
+            写成 $ref + nullable 在 3.0 语义下会被忽略（$ref 的兄弟键无效），故用 oneOf。'
+          oneOf:
+          - $ref: '#/components/schemas/User'
+          - type: 'null'
         visitor_id:
           type: string
           nullable: true

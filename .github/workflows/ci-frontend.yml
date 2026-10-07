@@ -1,15 +1,75 @@
 name: CI Frontend
 
+# 前端早就选型完了（ADR-003，2026-08-27：Next.js 15 + React 19 + TypeScript + Ant Design），
+# 所以这条流水线再没有"等技术栈定了再补"的借口。此前它的全部内容是
+# `echo "技术栈未定，选型后补充前端 CI"` —— 一句永远成功的打印，见 ADR-026。
+#
+# 触发面按"这条流水线真正依赖什么"来列，不按目录名想当然：
+# 类型是从 docs/contracts 生成的，所以契约改了必须重跑；生成脚本本身改了也必须重跑
+# （同一款事故见 ci-backend.yml 顶部注释：入口脚本变了却不触发，绿灯就与真实状态脱钩）。
 on:
   push:
-    paths: ["packages/frontend/**", ".github/workflows/ci-frontend.yml"]
+    paths:
+      - "packages/frontend/**"
+      - "packages/shared/**"
+      - "docs/contracts/**"
+      - "scripts/generate-types.sh"
+      - "scripts/gen-engine-types.py"
+      - ".github/workflows/ci-frontend.yml"
   pull_request:
-    paths: ["packages/frontend/**"]
+    paths:
+      - "packages/frontend/**"
+      - "packages/shared/**"
+      - "docs/contracts/**"
+      - "scripts/generate-types.sh"
+      - "scripts/gen-engine-types.py"
 
 jobs:
-  test:
+  build:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - name: 占位
-        run: echo "技术栈未定，选型后补充前端 CI（见 docs/adr/）"
+
+      - uses: actions/setup-node@v4
+        with:
+          # 与交付镜像同一大版本（node:20-slim，ADR-012 决策 8 的"单一环境"口径）。
+          # 本机 node 已是 25，用 25 跑绿而镜像用 20 等于没验 —— 与 ci-backend 钉
+          # Python 3.11 是同一条理由。
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: packages/frontend/package-lock.json
+
+      - name: 按锁文件装依赖（npm ci，不接受 npm install 的静默漂移）
+        run: npm ci
+        working-directory: packages/frontend
+
+      - name: 从契约生成类型（AGENTS 规则 1：禁止手写 packages/shared 里的类型）
+        # 这一步同时是"契约先行"能不能成立的验证：干净环境里没有本地残留的
+        # packages/shared/types，缺了它 next build 会在 tsc 阶段直接
+        # Cannot find module 'shared-types/api'（这条坑写在 packages/frontend/Dockerfile 顶部）。
+        run: bash scripts/generate-types.sh
+
+      - name: 断言生成物真的产出了（生成器空转也必须红）
+        run: |
+          set -euo pipefail
+          test -s packages/shared/types/api.d.ts    || { echo "api.d.ts 是空的"; exit 1; }
+          test -s packages/shared/types/engine.d.ts || { echo "engine.d.ts 是空的"; exit 1; }
+          # 契约里真实存在的接口必须出现在生成物里，否则说明生成的是另一份东西
+          grep -q '"/api/jobs"' packages/shared/types/api.d.ts || {
+            echo "生成的类型里没有 /api/jobs，契约没被读进来"; exit 1; }
+
+      - name: 类型检查
+        run: npx tsc --noEmit
+        working-directory: packages/frontend
+
+      - name: 真实构建（standalone，与 web 镜像同一产物路径）
+        # next.config.mjs 没设 ignoreBuildErrors，所以 build 自身也会把类型与
+        # 路由合法性再过一遍；tsc --noEmit 放在前面只为报错更直白。
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+          # rewrites() 是构建期烘焙的（见 Dockerfile 注释 3），这里按 compose 的 service 名传
+          BACKEND_HOST: app
+          BACKEND_PORT: "8080"
+        run: npm run build
+        working-directory: packages/frontend

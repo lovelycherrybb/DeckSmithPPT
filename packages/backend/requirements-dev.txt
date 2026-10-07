@@ -11,3 +11,4 @@
 
 pytest==9.1.1
 httpx==0.28.1    # starlette TestClient 的运行前提（tests 里 from fastapi.testclient import TestClient）
+jsonschema==4.26.0   # tests/contract/api_contract_test.py 用它按契约校验真实响应（ADR-026）

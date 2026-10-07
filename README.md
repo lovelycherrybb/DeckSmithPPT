@@ -116,11 +116,14 @@ bash scripts/upgrade.sh 0.3.0 dist --check            # 只验镜像已备好，
 ```bash
 bash scripts/test.sh [all|unit|contract|e2e]   # 分层：包内单测 → 根契约测试 → e2e
 bash scripts/generate-types.sh                 # 契约变更后重新生成 packages/shared 类型
-bash scripts/check-drift.sh                    # 漂移检查（当前为 TODO 桩，尚未实现）
+bash scripts/check-drift.sh                    # 漂移检查：openapi.yaml ↔ 后端真实路由，双向比对
 ```
 
 单测在各包内 `packages/*/tests/`，根 `tests/` 只放 e2e 与 contract。缺 pytest 或缺解释器时脚本
-直接报错并给出安装命令，不静默跳过；e2e 无用例时如实标注跳过，不计为通过。
+直接报错并给出安装命令，不静默跳过；某一层没有用例时如实标注跳过，不计为通过。
+
+> 测试解释器需要 `httpx`（`tests/conftest.py` 用 starlette TestClient）与 `jsonschema`
+> （按契约校验真实响应），已列入 `packages/backend/requirements-dev.txt`。
 
 ## 当前状态
 
@@ -134,13 +137,20 @@ bash scripts/check-drift.sh                    # 漂移检查（当前为 TODO �
 - [x] 前端重设计与功能实现（ADR-005~010）
 - [x] 引擎实现：ppt_master（原生 PPTX）与 guizang_ppt（网页 PPT），含运行时数据归位（ADR-011/012）
 - [x] 容器化交付、离线导入、升级期数据安全（ADR-012/013）
-- [x] CI（backend / contract / frontend / e2e 四条流水线）与发版 `v0.1.0` → `v0.2.3`
+- [x] CI 四条流水线：后端单测、契约（漂移 + 对齐 + 契约测试）、前端（类型检查 + standalone 构建）、e2e 最小闭环（ADR-026）
+- [x] 发版 `v0.1.0` → `v0.2.3`
 
 尚未完成：
 
-- [ ] e2e 用例（`tests/e2e/` 目前为空，CI 为占位）
-- [ ] 前端自动化测试（`packages/frontend/tests/` 为空，`npm test` 仍是 TODO）
-- [ ] 契约漂移检查实现（`scripts/check-drift.sh` 为 TODO 桩）
+- [ ] e2e 覆盖面：目前只有"提交 → 调度 → 出片 → 下载"这一条最小闭环（草稿、输出、归属隔离），
+      撤销/超时/逐页修改/多身份并发尚未端到端覆盖
+- [ ] 前端自动化测试（`packages/frontend/tests/` 仍为空，`npm test` 仍是 TODO；
+      CI Frontend 跑的是类型检查与构建，不含组件测试）
+- [ ] 契约改用纯 3.1 语法（现存 18 处 3.0 的 `nullable: true`，已由 `api_contract_test.py`
+      登记上限、只准减少；过渡期由测试侧归一化，见 ADR-026）
+- [ ] 单元测试存在闪断：`packages/engine/tests/test_draft_async.py` 与
+      `packages/backend/tests/test_guizang_engine.py` 各有一条在 5 连跑中约 1 次失败，
+      表现为后台线程与轮询 deadlines 的竞态。**未修**，见 ADR-026 后果第 4 条
 
 ## 架构决策
 

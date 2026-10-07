@@ -1,15 +1,49 @@
 name: CI E2E
 
+# 端到端层此前是 `echo "全栈选型后补充 e2e 测试"`，而 `tests/e2e/` 里只有一个
+# `.gitkeep`。也就是说"一次提交能不能真的跑出一份 PPT"这件事，从来没有被任何
+# 一层机器验证过（单测强制 stub 且不碰调度器，契约层只看形状）。见 ADR-026。
+#
+# 现在跑的是 tests/e2e/test_generation_closed_loop.py：提交 → 排队 → 调度线程认领
+# → stub 引擎出片 → 落终态 → 演示文件登记 → 下载接口取回 .pptx。
+# 全程 DECKSMITH_FORCE_STUB=1，不起 claude 子进程，所以无网、不烧额度也能跑完。
 on:
   push:
-    paths: ["packages/**", "**.py", "**.ts", "**.tsx"]
+    paths:
+      - "packages/**"
+      - "tests/**"
+      - "docs/contracts/**"
+      - "lib/ppt-master/**"
+      - "scripts/test.sh"
+      - ".github/workflows/ci-e2e.yml"
   pull_request:
-    paths: ["packages/**"]
+    paths:
+      - "packages/**"
+      - "tests/**"
+      - "docs/contracts/**"
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - name: 占位
-        run: echo "全栈选型后补充 e2e 测试"
+        with:
+          # 依赖清单是递归的（backend → engine → lib/ppt-master），不拉子模块 pip 直接报错
+          submodules: recursive
+
+      - uses: actions/setup-python@v5
+        with:
+          # 与交付镜像一致（node:20-slim 里 apt 装的 python3.11）。理由同 ci-backend.yml：
+          # 用更新的解释器跑绿而镜像跑 3.11 等于没验。
+          python-version: "3.11"
+
+      - name: 安装依赖（走单一入口 requirements.txt）
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r packages/backend/requirements.txt
+          # httpx 是 starlette TestClient 的运行前提；jsonschema 供契约层校验响应形状
+          pip install pytest httpx jsonschema
+
+      - name: 跑端到端层（与本地同一入口）
+        run: bash scripts/test.sh e2e

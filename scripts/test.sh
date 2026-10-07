@@ -60,12 +60,13 @@ do_unit() {
 do_contract() { run_layer "contract（契约测试）" tests/contract; }
 
 do_e2e() {
-  # tests/e2e 目前只有一个 .gitkeep。没用例就明说未实现，既不算通过也不算失败，
-  # 更不许为了让汇总好看而假装跑过一层。
+  # 没用例就明说未实现，既不算通过也不算失败，更不许为了让汇总好看而假装跑过一层。
+  # （ADR-026 起 tests/e2e 已有真闭环用例，这条兜底仍然留着：将来用例被误删或
+  #  改名到不匹配 test_*.py，它会把"这一层其实没在跑"重新说出来。）
   if find tests/e2e -name 'test_*.py' 2>/dev/null | grep -q .; then
     run_layer "e2e（端到端）" tests/e2e
   else
-    echo "==> e2e：未实现（tests/e2e 无用例），本层跳过，不计为通过"
+    echo "==> e2e：tests/e2e 无 test_*.py 用例，本层跳过，不计为通过"
     SKIPPED="e2e"
   fi
 }

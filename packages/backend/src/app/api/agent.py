@@ -108,6 +108,14 @@ def _handle_revise_pages(req: AgentExecuteRequest, db: Session) -> tuple[str, st
         raise HTTPException(status_code=400, detail="revise_pages 需要 pages")
     if not instruction:
         raise HTTPException(status_code=400, detail="revise_pages 需要 instruction")
+    for p in pages:
+        # 空页拦在门外：前端取不到源码时不该把空页丢给 AI（它会原样回传空页，
+        # 一旦并入草稿就把整页清空）。曾发生：预览页签下 baseSvg 未加载即发指令。
+        if not (p.get("content") or "").strip():
+            raise HTTPException(
+                status_code=400,
+                detail=f"第 {p.get('index')} 页内容为空（页面源码未加载），已拦截",
+            )
     checks: list[tuple[str, str]] = [(instruction, "改稿指令")] + [
         (p.get("content") or "", f"第 {p.get('index')} 页内容") for p in pages
     ]
@@ -208,7 +216,31 @@ async def api_agent_execute_async(req: AgentExecuteRequest, db: Session = Depend
             from ..agents.claude_stream import stream_claude_text
             from ..agents.draft_modifier import _build_prompt as modify_prompt, clean_markdown
             from ..agents.title_suggester import _build_prompt as title_prompt, clean_title
-            from ..agents.page_revise import _build_prompt as revise_prompt, clean_pages
+
+            if req.kind == "revise_pages":
+                # 改稿返回的是整页 JSON（不是给用户逐字看的正文），流式无意义；且 stream-json 对
+                # 这种大 JSON 输出偶发 result 为空 → 直接走同步 --output-format text 那条稳的路子。
+                # 但同步调用全程无增量可吐，SSE 静默超过 60s 会被前端看门狗误杀（api.ts
+                # executeAgentStream 的「AI 长时间无响应」）——期间每 20s 发一个 ping 事件续命；
+                # 前端对未知事件类型只刷新计时器不做处理，界面不受影响。
+                import json as _json
+                import threading as _threading
+                from ..agents.page_revise import revise_pages_with_claude
+
+                ping_stop = _threading.Event()
+
+                def _ping():
+                    while not ping_stop.wait(20):
+                        session_manager.append_output(session.session_id, "", "ping")
+
+                _threading.Thread(target=_ping, daemon=True).start()
+                try:
+                    cleaned = revise_pages_with_claude(_json.loads(context), instruction)
+                finally:
+                    ping_stop.set()
+                session_manager.set_result(session.session_id, cleaned)
+                session_manager.update_session_status(session.session_id, "completed")
+                return
 
             if req.kind == "modify_draft":
                 prompt = modify_prompt(context, instruction)
@@ -216,9 +248,6 @@ async def api_agent_execute_async(req: AgentExecuteRequest, db: Session = Depend
                 filenames = [f.filename for f in (req.files or [])]
                 contents = [_read_uploaded_text(f.path) if f.path else "" for f in (req.files or [])]
                 prompt = title_prompt(filenames, contents)
-            elif req.kind == "revise_pages":
-                import json as _json
-                prompt = revise_prompt(_json.loads(context), instruction)
             else:
                 raise RuntimeError(f"任务类型未实现：{req.kind}")
 

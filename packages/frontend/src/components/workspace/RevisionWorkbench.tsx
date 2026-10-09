@@ -105,12 +105,15 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
   }, [selected]);
 
   useEffect(() => {
-    if (tab === '预览' || !currentPage) return;
+    // 当前页的源码不依赖页签：对话式改稿在「预览」页签也能发指令，
+    // 必须提前把 baseSvg 拉好（曾因只在编辑页签才拉，导致预览页签发指令
+    // 时 content 为空串、AI 收到空页并原样回传空页）。
+    if (!currentPage) return;
     let alive = true; setLoadingSvg(true);
     fetch(currentPage.url).then((r) => r.text()).then((t) => { if (alive) setBaseSvg(t); })
       .catch(() => { if (alive) setBaseSvg(''); }).finally(() => { if (alive) setLoadingSvg(false); });
     return () => { alive = false; };
-  }, [tab, currentPage]);
+  }, [currentPage]);
 
   const onScroll = () => {
     const box = boxRef.current; if (!box) return;
@@ -128,10 +131,12 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
     const text = instruction.trim();
     if (!text) { message.warning('先写一句要怎么改'); return; }
     if (!currentPage) { message.warning('没有选中页'); return; }
+    if (!editValue.trim()) { message.warning('当前页源码还没加载好，稍等一两秒再发'); return; }
     setChatBusy(true); setStatus({ text: 'AI 正在改当前页…' });
     try {
       const out = await revisePages([{ index: currentPage.index, name: currentPage.name, content: editValue }], text);
-      for (const p of out) if (typeof p.index === 'number' && typeof p.content === 'string') applyEdit(p.index, p.name, p.content);
+      // 只并入有实质内容的页：防 AI 异常回传空内容把草稿页清空
+      for (const p of out) if (typeof p.index === 'number' && typeof p.content === 'string' && p.content.trim()) applyEdit(p.index, p.name, p.content);
       setStatus({ text: 'AI 改好并并入草稿，可继续改别页或另存。' });
       setInstruction('');
     } catch (e) { setStatus({ text: `改稿失败：${(e as Error).message}`, error: true }); }

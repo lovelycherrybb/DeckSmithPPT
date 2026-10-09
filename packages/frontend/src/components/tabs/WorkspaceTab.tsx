@@ -221,16 +221,13 @@ export default function WorkspaceTab({ initialProjectId = null }: Props) {
   const projectOutputJobs = currentProjectId
     ? jobs.filter((j) => j.task_type === 'output' && j.project_id === currentProjectId)
     : [];
-  // 草稿任务同口径：DraftsPanel 的「未落库草稿任务」（failed/running）直接吃 jobs，
-  // 不在这里按项目切就会把其他项目的失败任务显示出来（未关联项目时 drafts 为空、它们却漏出来）
-  const projectDraftJobs = currentProjectId
-    ? jobs.filter((j) => j.project_id === currentProjectId)
-    : [];
-  // 「草稿任务」角标 = 已落库草稿数 + 未落库草稿任务数（失败/生成中）。
+  // 草稿任务的项目归属由 DraftsPanel 内部按 projectId 现切，这里不再自己过滤一遍
+  // （从前是各调用方各自过滤，历史项目视图漏了那一步，就把别的项目的失败草稿任务串了进来）
+  // 「草稿任务」角标 = 已落库草稿数 + 未落库草稿任务数（失败/生成中），与面板同一函数同一口径。
   // 注意面板正文是按「版本」平铺的，一个草稿多版本时行数会多于草稿数，
   // 角标口径取"条目数"而非"版本行数"（版本数要逐个草稿拉详情，不为角标付这个代价）
   const draftBadgeCount =
-    drafts.length + selectUnfinishedDraftJobs(projectDraftJobs, drafts).length;
+    drafts.length + selectUnfinishedDraftJobs(jobs, drafts, currentProjectId).length;
   const outputJobsCount = projectOutputJobs.length;
   // 生成任务标题展示用：job_id → 演示文件名（任务完成后落库 Presentation 提供）
   const fileNameByTaskId = useMemo(
@@ -301,8 +298,9 @@ export default function WorkspaceTab({ initialProjectId = null }: Props) {
       )}
       {activeKey === 'drafts' && (
         <DraftsPanel
+          projectId={currentProjectId}
           drafts={drafts}
-          jobs={projectDraftJobs}
+          jobs={jobs}
           projects={projects}
           loading={draftsLoading}
           outputEngines={outputEngines}

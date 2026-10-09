@@ -1,9 +1,13 @@
 /**
- * 子菜单②：草稿任务——所有草稿版本平铺展示。
+ * 子菜单②：草稿任务——当前项目的所有草稿版本平铺展示。
  * 每个版本一行：主标题「2026年9月9日 第N版」（N=当天第几个版本，最早为 1）；
  * 副信息：任务 ID、版本号；操作：查看 / 编辑 / 生成演示文件。
  * 未落库的草稿任务（草稿实体只在 completed 时写入，失败则永远不会落库）
  * 以置顶行展示：running=「生成中」，failed/timeout=错误态+重试。
+ *
+ * 项目归属由本面板自己保证：两个数据源（drafts / jobs）都按 projectId 现切，
+ * 调用方传全量轮询结果也不会串到别的项目（历史项目视图曾因此把某个项目的两条
+ * 失败草稿任务显示在所有项目里，见 selectUnfinishedDraftJobs 的注释）。
  */
 'use client';
 
@@ -69,6 +73,12 @@ import { tokenUsagePartRows, tokenUsageSummary, tokenUsageTotal } from '@/lib/to
 
 
 interface Props {
+  /**
+   * 当前项目 ID。面板内所有数据一律按它现切：`null`（未关联项目）时两块都为空。
+   * 之所以由面板来切而不是让调用方先切好——那是个没说出口的约定，
+   * 漏一次就把别的项目的任务显示到本项目里（历史项目视图正是这么漏的）。
+   */
+  projectId: string | null;
   drafts: Draft[];
   jobs: JobWithProgress[];
   projects: Project[];
@@ -96,12 +106,19 @@ interface FlatVersionRow {
 // failed/timeout 若被过滤掉就会「凭空消失」，必须保留展示供用户重试。
 // 提取成导出函数是为了让工作台的「草稿任务」badge 与面板列表数同一件事——
 // 面板平铺了它们而角标只数已落库草稿，就会出现「角标 0、点进去两条」的落差。
+//
+// projectId 是这个函数原本缺的那半个条件：只按 task_type 与状态筛，喂进来的 jobs
+// 又是跨项目的全量轮询结果，就会把 A 项目的失败草稿任务显示在 B 项目里（且因为
+// 失败任务永不清理，它们长期挂在所有项目上）。项目归属必须和状态判据同层生效。
 export function selectUnfinishedDraftJobs(
   jobs: JobWithProgress[],
-  drafts: Draft[]
+  drafts: Draft[],
+  projectId: string | null
 ): JobWithProgress[] {
+  if (!projectId) return [];
   return jobs.filter(
     (j) =>
+      j.project_id === projectId &&
       j.task_type === 'draft' &&
       // 未落库且"还没有正常结束"的草稿任务都要看得见：排队中、生成中、
       // 失败/超时/已取消（后三者供重试）。
@@ -119,6 +136,7 @@ function versionDay(v: string): string | null {
 }
 
 export default function DraftsPanel({
+  projectId,
   drafts,
   jobs,
   projects,
@@ -170,16 +188,22 @@ export default function DraftsPanel({
   );
   const jobByTaskId = useMemo(() => new Map(jobs.map((j) => [j.job_id, j])), [jobs]);
 
-  // 未落库的草稿任务：过滤条件与工作台 badge 共用 selectUnfinishedDraftJobs
+  // 已落库草稿同样按项目切（调用方走的是项目内接口，这里只是让"归属"只有一处口径）
+  const projectDrafts = useMemo(
+    () => (projectId ? drafts.filter((d) => d.project_id === projectId) : []),
+    [drafts, projectId]
+  );
+
+  // 未落库的草稿任务：过滤条件（含项目归属）与工作台 badge 共用 selectUnfinishedDraftJobs
   const unfinishedJobs = useMemo(
-    () => selectUnfinishedDraftJobs(jobs, drafts),
-    [jobs, drafts]
+    () => selectUnfinishedDraftJobs(jobs, projectDrafts, projectId),
+    [jobs, projectDrafts, projectId]
   );
 
   // 版本详情缓存：平铺需要每个草稿的版本列表
   const [detailCache, setDetailCache] = useState<Record<string, DraftDetail | undefined>>({});
   useEffect(() => {
-    const missing = drafts.filter((d) => detailCache[d.draft_id] === undefined);
+    const missing = projectDrafts.filter((d) => detailCache[d.draft_id] === undefined);
     if (missing.length === 0) return;
     let cancelled = false;
     (async () => {
@@ -198,7 +222,7 @@ export default function DraftsPanel({
     return () => {
       cancelled = true;
     };
-  }, [drafts]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [projectDrafts]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 平铺行：草稿的每个版本一行；第N版按「项目内全局顺延」——
   // 合并项目下所有草稿的版本按时间排序统一编号（新草稿接在已有版本之后，不会重复出现第1版）

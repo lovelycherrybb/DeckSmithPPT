@@ -268,6 +268,10 @@ export default function HistoryTab({ onOpenInWorkspace }: Props) {
                   label: '草稿任务',
                   children: (
                     <DraftsPanel
+                      // 轮询任务是跨项目的全量，项目归属交给面板按 projectId 现切
+                      // （这里从前直接传 jobs，于是每个项目的只读草稿页都会
+                      // 串进同一个项目的失败草稿任务）
+                      projectId={viewProjectId}
                       drafts={drafts}
                       jobs={jobs}
                       projects={projects}

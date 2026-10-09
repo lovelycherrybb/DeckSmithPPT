@@ -15,7 +15,7 @@ import { ArrowDown, ArrowUp, Download, Layers, MessageSquare, Plus, RotateCcw, T
 import MultiPageSvgEditor from './MultiPageSvgEditor';
 import {
   getJob, getJobPages, listSubPresentations, presentationDownloadUrl,
-  subPresentationDownloadUrl, submitRevision, revisePages,
+  subPresentationDownloadUrl, submitRevision, revisePages, cancelAgentSession,
   type Presentation, type SubPresentation, type ReviseRequest,
 } from '@/lib/api';
 
@@ -58,6 +58,7 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
   const [loadingSvg, setLoadingSvg] = useState(false);
   const [instruction, setInstruction] = useState('');
   const [chatBusy, setChatBusy] = useState(false);
+  const [reviseSession, setReviseSession] = useState<string | null>(null);
   const [commitBusy, setCommitBusy] = useState(false);
   const [status, setStatus] = useState<{ text: string; error?: boolean } | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
@@ -186,17 +187,47 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
     if (!text) { message.warning('先写一句要怎么改'); return; }
     if (!currentPage) { message.warning('没有选中页'); return; }
     if (!editValue.trim()) { message.warning('当前页源码还没加载好，稍等一两秒再发'); return; }
-    setChatBusy(true); setStatus({ text: 'AI 正在改当前页…' });
+    setChatBusy(true);
+    // 真流式进度：计时器 + AI 输出分片（字符数/补丁数）都汇到这一行状态文案上；
+    // 会话 id 存下来供"取消"（后端杀进程组，SSE 会收到 error=已取消 收尾）
+    const t0 = Date.now();
+    const prog = { chars: 0, patches: 0 };
+    const show = () => setStatus({
+      text: `AI 改稿中 · 已 ${Math.round((Date.now() - t0) / 1000)}s`
+        + (prog.chars ? ` · 已生成 ${prog.chars} 字符` : '')
+        + (prog.patches ? ` · 第 ${prog.patches} 处修改` : ''),
+    });
+    show();
+    const tick = window.setInterval(show, 1000);
+    setReviseSession(null);
     try {
-      const out = await revisePages([{ index: pageIdx + 1, name: currentPage.name, content: editValue }], text);
+      const out = await revisePages(
+        [{ index: pageIdx + 1, name: currentPage.name, content: editValue }], text,
+        (acc) => { prog.chars = acc.length; prog.patches = (acc.match(/"search"/g) || []).length; show(); },
+        (sid) => setReviseSession(sid)
+      );
       // 只并入有实质内容的项：防 AI 异常回传空内容把草稿页清空
       const got = out.find((p) => p.index === pageIdx + 1 && typeof p.content === 'string' && p.content.trim())
         || out.find((p) => typeof p.content === 'string' && p.content.trim());
       if (got && typeof got.content === 'string') applyContent(pageIdx, got.content);
       setStatus({ text: 'AI 改好并并入草稿，可继续改别页或另存。' });
       setInstruction('');
-    } catch (e) { setStatus({ text: `改稿失败：${(e as Error).message}`, error: true }); }
-    finally { setChatBusy(false); }
+    } catch (e) {
+      const msg = (e as Error).message;
+      setStatus(msg.includes('已取消')
+        ? { text: '改稿已取消，草稿未改动。' }
+        : { text: `改稿失败：${msg}`, error: true });
+    } finally {
+      window.clearInterval(tick);
+      setReviseSession(null);
+      setChatBusy(false);
+    }
+  };
+
+  const cancelRevise = async () => {
+    if (!reviseSession) { message.warning('会话还没建好，马上就能取消'); return; }
+    try { await cancelAgentSession(reviseSession); }
+    catch (e) { setStatus({ text: `取消失败：${(e as Error).message}`, error: true }); }
   };
 
   const commitDraft = useCallback(async () => {
@@ -350,6 +381,10 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
           <TextArea value={instruction} onChange={(e) => setInstruction(e.target.value)}
             placeholder="例如：标题改深蓝并居中；右下角加页码…" autoSize={{ minRows: 4, maxRows: 10 }} disabled={commitBusy} />
           <Button type="primary" loading={chatBusy} disabled={!instruction.trim() || !currentPage || commitBusy} onClick={sendInstruction} block>让 AI 改当前页</Button>
+          {chatBusy && (
+            <Button danger size="small" block onClick={cancelRevise}
+              disabled={!reviseSession}>取消本次改稿{reviseSession ? '' : '（会话建立中…）'}</Button>
+          )}
           {status && !commitBusy && <Alert type={status.error ? 'error' : 'info'} showIcon message={<span style={{ fontSize: 12 }}>{status.text}</span>} />}
         </div>
       </div>

@@ -233,11 +233,24 @@ async def api_agent_execute_async(req: AgentExecuteRequest, db: Session = Depend
                     while not ping_stop.wait(20):
                         session_manager.append_output(session.session_id, "", "ping")
 
+                def _on_chunk(text: str):
+                    # 真流式进度：stdout 分片实时进缓冲 → SSE 的 progress 事件，
+                    # 前端据此显示"已生成 N 字符 · 第 M 处修改"（ADR-028 后续体验项）
+                    session_manager.append_output(session.session_id, text, "progress")
+
                 _threading.Thread(target=_ping, daemon=True).start()
                 try:
-                    cleaned = revise_pages_with_claude(_json.loads(context), instruction)
+                    cleaned = revise_pages_with_claude(
+                        _json.loads(context), instruction,
+                        on_chunk=_on_chunk,
+                        # Popen 一创建就登记进会话：取消必须连 claude 冷启动那几秒也杀得到
+                        on_proc=lambda p: session_manager.attach_proc(session.session_id, p),
+                    )
                 finally:
                     ping_stop.set()
+                s = session_manager.get_session(session.session_id)
+                if s is None or s.cancelled:
+                    return  # 已取消：端点置过 failed/已取消，别用 completed 覆盖
                 session_manager.set_result(session.session_id, cleaned)
                 session_manager.update_session_status(session.session_id, "completed")
                 return
@@ -277,6 +290,9 @@ async def api_agent_execute_async(req: AgentExecuteRequest, db: Session = Depend
             session_manager.set_result(session.session_id, cleaned)
             session_manager.update_session_status(session.session_id, "completed")
         except Exception as e:
+            s = session_manager.get_session(session.session_id)
+            if s is not None and s.cancelled:
+                return  # 取消杀进程导致的非 0 退出码：原因已是"已取消"，别覆盖成报错
             session_manager.update_session_status(session.session_id, "failed", str(e))
 
     def _watchdog():
@@ -310,6 +326,16 @@ async def api_get_agent_session(session_id: str):
         completed_at=session.completed_at,
         error=session.error,
     )
+
+
+@router.post("/api/agent/sessions/{session_id}/cancel")
+async def api_cancel_agent_session(session_id: str):
+    """取消在跑的 Agent 会话：杀进程组 + 置 failed/已取消（幂等，对已结束会话是空操作）。"""
+    from ..agents.session_manager import session_manager
+
+    if not session_manager.request_cancel(session_id):
+        raise HTTPException(status_code=404, detail="会话不存在")
+    return {"ok": True}
 
 
 @router.get("/api/agent/sessions/{session_id}/stream")

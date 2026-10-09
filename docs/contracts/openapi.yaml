@@ -630,7 +630,12 @@ paths:
 
         事件类型：
         - text：文本输出片段
+        - thinking：模型思考增量（流式路才有）
+        - progress：改稿子进程 stdout 分片（revise_pages 补丁协议，ADR-028 后续体验项；
+          前端据此显示"已生成 N 字符 · 第 M 处修改"，对未知类型只做心跳续命）
         - status：状态更新（如"正在分析内容..."）
+        - result：清洗后的最终结果（JSON 文本，前端并入草稿）
+        - ping：长同步调用期间的心跳续命（防前端 60s 看门狗误杀，data 为空）
         - error：错误信息
         - done：完成信号
 
@@ -656,6 +661,39 @@ paths:
                   - status 事件：{"type": "status", "data": "状态描述"}
                   - error 事件：{"type": "error", "data": "错误信息"}
                   - done 事件：{"type": "done", "data": "完成"}
+        '404':
+          description: 会话不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/agent/sessions/{session_id}/cancel:
+    post:
+      summary: 取消在跑的 Agent 会话
+      description: '杀掉会话的 Agent 子进程（按进程组，claude 的 fork 子树一并清理）并把会话
+        置为 failed/已取消。幂等：对已结束（completed/failed）的会话是空操作、同样返回 ok；
+        会话不存在返回 404。取消后 SSE 流会收到 error 事件（data=已取消），前端据此收尾。'
+      operationId: cancelAgentSession
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          description: 会话ID（来自 execute-async 接口）
+      responses:
+        '200':
+          description: 已取消（或对已结束会话的空操作）
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - ok
+                properties:
+                  ok:
+                    type: boolean
         '404':
           description: 会话不存在
           content:

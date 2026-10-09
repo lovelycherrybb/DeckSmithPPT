@@ -32,6 +32,8 @@ class AgentSession:
     error: str | None = None
     result: str | None = None  # 清洗后的最终文本
     task: asyncio.Task | None = None
+    proc: Any = None  # 在跑的子进程（Popen），供 cancel 按进程组击杀
+    cancelled: bool = False  # 用户已请求取消：worker 收尾时别再覆盖状态/错误
 
 
 class SessionManager:
@@ -70,6 +72,35 @@ class SessionManager:
         session = self._sessions.get(session_id)
         if session:
             session.result = result
+
+    def attach_proc(self, session_id: str, proc) -> None:
+        """登记在跑的子进程句柄，供取消端点按进程组击杀。"""
+        session = self._sessions.get(session_id)
+        if session:
+            session.proc = proc
+
+    def request_cancel(self, session_id: str) -> bool:
+        """用户取消在跑会话：置 cancelled + 杀进程组 + failed/已取消。幂等。
+
+        会话不存在返回 False；已结束返回 True（空操作）。cancelled 标记让 worker
+        收尾时不再用"子进程退出码非 0"覆盖掉"已取消"这个真实原因。
+        """
+        session = self._sessions.get(session_id)
+        if session is None:
+            return False
+        if session.status != "running":
+            return True
+        session.cancelled = True
+        proc = session.proc
+        if proc is not None:
+            try:
+                # 按进程组杀：claude 自己还 fork 子树，只 terminate 直系会留孤儿继续写产物
+                from engine.core.proc import terminate_tree
+                terminate_tree(getattr(proc, "pid", None))
+            except Exception:  # noqa: BLE001 - 杀不掉也要把状态置了，别把取消本身弄失败
+                pass
+        self.update_session_status(session_id, "failed", "已取消")
+        return True
 
     def append_output(self, session_id: str, output: str, type_: str = "text"):
         """追加事件到会话缓冲区（type_: text / thinking）。"""

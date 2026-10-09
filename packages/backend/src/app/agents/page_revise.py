@@ -15,9 +15,14 @@
 """
 from __future__ import annotations
 
+import codecs
 import json
+import select
 import subprocess
+import threading
+import time
 from pathlib import Path
+from typing import Callable
 
 _REPO_ROOT = Path(__file__).resolve().parents[5]
 _LOG_DIR = _REPO_ROOT / "outputs" / "agent-logs"
@@ -133,13 +138,51 @@ def clean_pages(raw: str, src_pages: list[dict]) -> str:
     return json.dumps(apply_page_patches(src_pages, data), ensure_ascii=False)
 
 
+def _stream_stdout(proc: subprocess.Popen, deadline: float, timeout: float,
+                   on_chunk: Callable[[str], None] | None) -> str:
+    """边跑边收 stdout：read1 有多少读多少（不等行界），每片回调 on_chunk。
+
+    超时/EOF 都从这走：超时抛 TimeoutExpired（带已收到的部分输出，供留现场日志）。
+    """
+    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+    chunks: list[str] = []
+    fd = proc.stdout
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise subprocess.TimeoutExpired(proc.args, timeout,
+                                            output="".join(chunks).encode("utf-8", "replace"))
+        if select.select([fd], [], [], min(1.0, remaining))[0]:
+            part = fd.read1(512)
+            if not part:  # EOF
+                break
+            text = decoder.decode(part)
+            if text:
+                chunks.append(text)
+                if on_chunk:
+                    on_chunk(text)
+    tail = decoder.decode(b"", final=True)
+    if tail:
+        chunks.append(tail)
+        if on_chunk:
+            on_chunk(tail)
+    return "".join(chunks)
+
+
 def revise_pages_with_claude(
     pages: list[dict],
     instruction: str,
     claude_bin: str = "claude",
     timeout: int = _DEFAULT_TIMEOUT,
+    on_chunk: Callable[[str], None] | None = None,
+    on_proc: Callable[[subprocess.Popen], None] | None = None,
 ) -> str:
     """调 Claude 改稿（补丁协议），返回改好的逐页内容（JSON 数组字符串）。不落库、不导出。
+
+    流式：stdout 分片实时喂 on_chunk（异步路用它推 progress 事件，让前端看得见进度）；
+    on_proc 在 Popen 创建后**立刻**回调（异步路马上登记进会话）——取消必须连 claude
+    冷启动那几秒的窗口都覆盖得到，晚登记一秒就杀不掉。start_new_session=True 是取消
+    的前置：claude 自己还 fork 子树，killpg 才杀得干净（见 engine/core/proc.py）。
 
     Raises: ValueError 入参为空；RuntimeError 子进程失败/超时/补丁非法。
     """
@@ -150,31 +193,49 @@ def revise_pages_with_claude(
 
     prompt = _build_prompt(pages, instruction)
     _LOG_DIR.mkdir(parents=True, exist_ok=True)
+    cmd = [claude_bin, "-p", "--output-format", "text", prompt]
     try:
-        proc = subprocess.run(
-            [claude_bin, "-p", "--output-format", "text", prompt],
-            capture_output=True, text=True, timeout=timeout,
+        proc = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True,
         )
     except FileNotFoundError as exc:
         raise RuntimeError(f"未找到 claude CLI（{claude_bin}）") from exc
+    if on_proc is not None:
+        on_proc(proc)
+
+    stderr_parts: list[str] = []
+
+    def _drain_stderr():
+        # 独立线程排空 stderr，防管道写满把 claude 阻塞住
+        assert proc.stderr is not None
+        for raw in iter(proc.stderr.readline, b""):
+            stderr_parts.append(raw.decode("utf-8", errors="replace"))
+
+    threading.Thread(target=_drain_stderr, daemon=True).start()
+
+    stdout_text = ""
+    try:
+        stdout_text = _stream_stdout(proc, time.monotonic() + timeout, timeout, on_chunk)
+        rc = proc.wait(timeout=15)
     except subprocess.TimeoutExpired as exc:
-        # 超时也要留现场：subprocess.run 已把部分 stdout/stderr 挂在异常上，
-        # 不写日志就只能干看着"超时"两个字猜 AI 卡在哪（真实踩过 300s 重排版超时）
-        partial = exc.stdout or ""
+        # 超时也要留现场：部分输出挂在异常上，不写日志就只能干看着"超时"猜 AI 卡在哪
+        partial = exc.stdout or stdout_text or ""
         if isinstance(partial, bytes):
-            partial = partial.decode("utf-8", errors="ignore")
+            partial = partial.decode("utf-8", errors="replace")
         _LOG_DIR.joinpath("last-revise-pages.log").write_text(
             f"=== prompt ===\n{prompt}\n\n=== stdout（超时截断）===\n{partial}\n\n"
-            f"=== stderr ===\n{exc.stderr or ''}\n",
+            f"=== stderr ===\n{''.join(stderr_parts)}\n",
             encoding="utf-8",
         )
+        proc.kill()
         raise RuntimeError(f"改稿超时（>{timeout}s，详见 last-revise-pages.log）") from exc
 
+    stderr_text = "".join(stderr_parts)
     _LOG_DIR.joinpath("last-revise-pages.log").write_text(
-        f"=== prompt ===\n{prompt}\n\n=== stdout ===\n{proc.stdout}\n\n=== stderr ===\n{proc.stderr}\n",
+        f"=== prompt ===\n{prompt}\n\n=== stdout ===\n{stdout_text}\n\n=== stderr ===\n{stderr_text}\n",
         encoding="utf-8",
     )
-    if proc.returncode != 0:
-        detail = (proc.stderr or proc.stdout or "").strip()[:300]
-        raise RuntimeError(f"Claude 调用失败（exit={proc.returncode}）：{detail}")
-    return clean_pages(proc.stdout, pages)
+    if rc != 0:
+        detail = (stderr_text or stdout_text).strip()[:300]
+        raise RuntimeError(f"Claude 调用失败（exit={rc}）：{detail}")
+    return clean_pages(stdout_text, pages)

@@ -82,3 +82,21 @@ def test_agent_session_stream_not_found():
     """测试不存在的会话流式输出。"""
     response = client.get("/api/agent/sessions/nonexistent/stream")
     assert response.status_code == 404
+
+
+def test_取消会话_置已取消且幂等_不存在404():
+    """取消端点：running 会话 → cancelled + failed/已取消；重复取消幂等；无此会话 404。"""
+    from app.agents.session_manager import session_manager
+
+    s = session_manager.create_session("claude", "revise_pages")
+    r = client.post(f"/api/agent/sessions/{s.session_id}/cancel")
+    assert r.status_code == 200 and r.json() == {"ok": True}
+    got = session_manager.get_session(s.session_id)
+    assert got.cancelled is True
+    assert got.status == "failed" and got.error == "已取消"
+
+    # 幂等：对已取消会话再取消仍是 200、状态不变
+    assert client.post(f"/api/agent/sessions/{s.session_id}/cancel").status_code == 200
+    assert session_manager.get_session(s.session_id).status == "failed"
+
+    assert client.post("/api/agent/sessions/nonexistent/cancel").status_code == 404

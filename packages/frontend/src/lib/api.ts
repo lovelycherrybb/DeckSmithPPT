@@ -282,18 +282,28 @@ export function modifyDraft(
 }
 
 /** 对话式改稿：把选中页 + 指令交给 Agent，回传改好的逐页内容（只回传、不落库/不出版本）。
- *  前端把结果并入本地草稿；定版仍走 submitRevision（整体另存）。 */
+ *  前端把结果并入本地草稿；定版仍走 submitRevision（整体另存）。
+ *  onProgress 收 AI 输出的累计文本（补丁协议下即"已生成多少、第几处"）；
+ *  onSession 把会话 id 透出去，供"取消"按钮 POST /cancel。 */
 export async function revisePages(
   pages: Array<{ index: number; name?: string; content: string }>,
   instruction: string,
-  onThinking?: (accumulated: string) => void
+  onProgress?: (accumulated: string) => void,
+  onSession?: (sessionId: string) => void
 ): Promise<Array<{ index: number; name?: string; content: string }>> {
   const text = await executeAgentStream(
     { kind: 'revise_pages', pages, instruction },
     undefined,
-    onThinking
+    undefined,
+    onProgress,
+    onSession
   );
   return JSON.parse(text);
+}
+
+/** 取消在跑的 Agent 会话（杀进程组，幂等）。 */
+export function cancelAgentSession(sessionId: string): Promise<{ ok: boolean }> {
+  return requestJson(`/api/agent/sessions/${sessionId}/cancel`, { method: 'POST' });
 }
 
 /** Agent 文本处理·流式：创建异步会话 + EventSource 消费增量。
@@ -309,17 +319,21 @@ export async function executeAgentStream(
     instruction?: string;
   },
   onDelta?: (accumulated: string) => void,
-  onThinking?: (accumulated: string) => void
+  onThinking?: (accumulated: string) => void,
+  onProgress?: (accumulated: string) => void,
+  onSession?: (sessionId: string) => void
 ): Promise<string> {
   const session = await requestJson<{ session_id: string }>('/api/agent/execute-async', {
     method: 'POST',
     body: JSON.stringify(req),
   });
+  onSession?.(session.session_id);
 
   return new Promise<string>((resolve, reject) => {
     const es = new EventSource(`/api/agent/sessions/${session.session_id}/stream`);
     let acc = '';
     let thinkAcc = '';
+    let progAcc = '';
     let settled = false;
     // 看门狗：60 秒无任何事件 → 判定挂起，明确报错（而不是永久转圈）
     let lastEventAt = Date.now();
@@ -348,6 +362,10 @@ export async function executeAgentStream(
         } else if (ev.type === 'thinking') {
           thinkAcc += ev.data;
           onThinking?.(thinkAcc);
+        } else if (ev.type === 'progress') {
+          // 改稿子进程 stdout 分片：累计文本交出去算进度（字符数/补丁数）
+          progAcc += ev.data;
+          onProgress?.(progAcc);
         } else if (ev.type === 'result') {
           finish(() => resolve(ev.data));
         } else if (ev.type === 'done') {

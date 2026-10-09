@@ -96,6 +96,32 @@ def test_空输入直接抛错_不碰claude():
         revise_pages_with_claude([{"index": 1, "content": "x"}], "   ")
 
 
+def test_流式分片回调与proc登记(tmp_path):
+    """假 claude 分片打印补丁 JSON：on_chunk 要收到多片、on_proc 要拿到 Popen、结果正确应用。"""
+    script = tmp_path / "fake_claude.py"
+    script.write_text(
+        f"#!{sys.executable}\n"
+        "import sys, json, time\n"
+        "out = json.dumps([{'index': 1, 'patches': [{'search': 'fill=\"#111\">hi',"
+        " 'replace': 'fill=\"#f00\">hi'}]}])\n"
+        "for i in range(0, len(out), 20):\n"
+        "    sys.stdout.write(out[i:i+20]); sys.stdout.flush(); time.sleep(0.02)\n",
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+    src = [{"index": 1, "name": "01.svg", "content": '<svg><text fill="#111">hi</text></svg>'}]
+    pieces: list[str] = []
+    procs: list = []
+    result = revise_pages_with_claude(
+        src, "标题改红", claude_bin=str(script),
+        on_chunk=lambda t: pieces.append(t), on_proc=procs.append,
+    )
+    assert len(pieces) >= 2, "stdout 应分片到达（真流式进度的前提）"
+    assert procs and hasattr(procs[0], "pid")
+    out = json.loads(result)
+    assert 'fill="#f00">hi' in out[0]["content"] and out[0]["name"] == "01.svg"
+
+
 def test_prompt_含指令页名与补丁协议():
     p = _build_prompt([{"index": 1, "name": "a.svg", "content": "<svg/>"}], "把标题改红")
     assert "把标题改红" in p and "a.svg" in p and "patches" in p and "逐字" in p

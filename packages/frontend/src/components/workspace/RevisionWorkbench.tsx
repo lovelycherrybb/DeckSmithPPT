@@ -9,9 +9,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert, Badge, Button, Drawer, Empty, Input, Popconfirm, Segmented, Space, Spin, Tag, Typography, message,
+  Alert, Button, Drawer, Empty, Input, Popconfirm, Segmented, Space, Spin, Tag, Tooltip, Typography, message,
 } from 'antd';
-import { Download, Layers, MessageSquare, Plus, RotateCcw, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Download, Layers, MessageSquare, Plus, RotateCcw, Trash2 } from 'lucide-react';
 import MultiPageSvgEditor from './MultiPageSvgEditor';
 import {
   getJob, getJobPages, listSubPresentations, presentationDownloadUrl,
@@ -66,10 +66,12 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
   const busy = chatBusy || commitBusy;
   const selected = useMemo(() => nodes.find((n) => n.key === selectedKey) || null, [nodes, selectedKey]);
   const currentPage = deck[pageIdx] || null;
-  // 草稿改动数 = 内容被改/新增的页 + 被删除的源页（ADR-027 有序清单口径）
+  // 草稿改动数 = 内容被改/新增的页 + 被删除的源页 + 调序（相对源顺序有错位记 1 处，ADR-027）
   const changedCount = deck.filter((it) => it.content !== null || it.ref === null).length;
   const deletedCount = Math.max(0, pages.length - deck.filter((it) => it.ref !== null).length);
-  const draftCount = changedCount + deletedCount;
+  const refsInOrder = deck.filter((it) => it.ref !== null).map((it) => it.ref as number);
+  const reordered = refsInOrder.join(',') !== refsInOrder.slice().sort((a, b) => a - b).join(',');
+  const draftCount = changedCount + deletedCount + (reordered ? 1 : 0);
   const editValue = currentPage?.content ?? baseSvg;
 
   // 给每个版本一个短序号：原始=起点，子版本按创建先后 #1/#2…（血缘用序号点，比长文件名清楚）
@@ -160,6 +162,20 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
     setDeck((arr) => arr.filter((_, i) => i !== pos));
     setPageIdx(Math.max(0, Math.min(pos, deck.length - 2)));
   };
+  /** 当前页在整稿清单里上移/下移一格（delta=±1）；调序就是改数组顺序，另存时由引擎物化。 */
+  const movePage = (delta: number) => {
+    const to = pageIdx + delta;
+    if (busy || !currentPage || to < 0 || to >= deck.length) return;
+    setDeck((arr) => {
+      const next = [...arr];
+      const [item] = next.splice(pageIdx, 1);
+      next.splice(to, 0, item);
+      return next;
+    });
+    setPageIdx(to);
+    // 等重渲染把 ref 重排到新位置再滚动（50ms 足够，避免滚到旧元素）
+    setTimeout(() => itemRefs.current[to]?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
+  };
   const resetDeck = () => {
     setDeck(pages.map((p) => ({ key: `src-${p.index}`, ref: p.index, name: p.name, content: null, url: p.url })));
     setPageIdx(0); setStatus(null);
@@ -185,8 +201,7 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
 
   const commitDraft = useCallback(async () => {
     if (!selected) return;
-    const touched = deck.some((it) => it.content !== null || it.ref === null) || deck.length !== pages.length;
-    if (!touched) { message.warning('草稿还没有改动'); return; }
+    if (draftCount === 0) { message.warning('草稿还没有改动'); return; }
     setCommitBusy(true);
     setStatus({ text: `提交整稿清单（${deck.length} 页），后台确定性重导出中…（无 AI，秒级到一两分钟）` });
     try {
@@ -214,7 +229,7 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
       } else { setStatus({ text: `另存失败：${st.error || st.status}`, error: true }); message.error('另存未成功'); }
     } catch (e) { setStatus({ text: `提交失败：${(e as Error).message}`, error: true }); message.error('提交失败'); }
     finally { setCommitBusy(false); }
-  }, [selected, deck, pages, presentation, rebuild]);
+  }, [selected, deck, pages, draftCount, presentation, rebuild]);
 
   if (!presentation) return null;
 
@@ -260,21 +275,32 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px', borderBottom: '1px solid var(--border)' }}>
             <Segmented value={tab} onChange={(v) => setTab(v as typeof tab)} options={['预览', '拖拽编辑', '编辑源码']} />
             <Text type="secondary" style={{ fontSize: 13 }}>{deck.length ? `当前 第 ${pageIdx + 1} / ${deck.length} 页 · ${currentPage?.name}` : '0 页'}</Text>
-            <Space style={{ marginLeft: 'auto' }}>
-              <Button icon={<Plus size={14} />} disabled={busy || !pages.length}
-                onClick={insertPageAfter} title="在当前页后插入一张空白页">新增页</Button>
+            <Space size={6} style={{ marginLeft: 'auto' }}>
+              {draftCount > 0 && (
+                <Text style={{ fontSize: 12, color: '#fa8c16', whiteSpace: 'nowrap' }}>{draftCount} 处改动</Text>
+              )}
+              <Tooltip title="在当前页后插入空白页">
+                <Button icon={<Plus size={14} />} disabled={busy || !pages.length} onClick={insertPageAfter} />
+              </Tooltip>
+              <Tooltip title="当前页上移">
+                <Button icon={<ArrowUp size={14} />} disabled={busy || pageIdx === 0} onClick={() => movePage(-1)} />
+              </Tooltip>
+              <Tooltip title="当前页下移">
+                <Button icon={<ArrowDown size={14} />} disabled={busy || pageIdx >= deck.length - 1} onClick={() => movePage(1)} />
+              </Tooltip>
               <Popconfirm title={`删除第 ${pageIdx + 1} 页？`} description="从整稿中移除此页，整体另存后生效"
                 onConfirm={removePage} disabled={busy || deck.length <= 1}>
-                <Button icon={<Trash2 size={14} />} danger disabled={busy || deck.length <= 1}>删除页</Button>
+                <Tooltip title="删除当前页">
+                  <Button icon={<Trash2 size={14} />} danger disabled={busy || deck.length <= 1} />
+                </Tooltip>
               </Popconfirm>
               {draftCount > 0 && (
-                <>
-                  <Badge count={draftCount} showZero color="#fa8c16"><span style={{ paddingRight: 10, fontSize: 12 }}>草稿改动</span></Badge>
-                  <Popconfirm title="重置整稿草稿？" description="丢弃全部本地改动（含增删页），回到源版本"
-                    onConfirm={resetDeck}>
-                    <Button size="small" icon={<RotateCcw size={12} />} disabled={busy}>重置</Button>
-                  </Popconfirm>
-                </>
+                <Popconfirm title="重置整稿草稿？" description="丢弃全部本地改动（含增删与调序），回到源版本"
+                  onConfirm={resetDeck}>
+                  <Tooltip title="重置草稿">
+                    <Button icon={<RotateCcw size={14} />} disabled={busy} />
+                  </Tooltip>
+                </Popconfirm>
               )}
               <Button type="primary" icon={<Layers size={14} />} disabled={draftCount === 0 || commitBusy} onClick={commitDraft}>整体另存为新版本</Button>
             </Space>

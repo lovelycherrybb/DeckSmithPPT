@@ -189,13 +189,15 @@ class OutputEngine(Protocol):
         source_task_id: JobId,
         pages: list[dict] | None = None,
         instruction: str | None = None,
+        deck: list[dict] | None = None,
         engine_params: dict | None = None,
     ) -> JobId:
         """【可选钩子】对已有版本的逐页设计稿做修改并在背后重导出，产出一个新版本成品。
 
         与 `submit` 分列：submit 从 Markdown 内容**从零生成**整副 deck；revise 以"改自哪个
-        版本"（`source_task_id` 那次任务的逐页稿）为源，按 `pages`（改好的页）或
-        `instruction`（对话指令，由 AI 改稿）改稿后重导出。实现本钩子即点亮
+        版本"（`source_task_id` 那次任务的逐页稿）为源，按 `pages`（改好的页）、
+        `deck`（有序整页清单，增删页，ADR-027）或 `instruction`（对话指令，由 AI 改稿）
+        改稿后重导出。实现本钩子即点亮
         `EngineInfo.capabilities` 的 `svg_edit` 能力位（由 `implements_hook` 沿 MRO 探测，
         **不按引擎名分支**，与 `get_pages`/`cancel`/`prepare_runtime` 同风格）；不实现的引擎不进修改工作台。
 
@@ -209,6 +211,8 @@ class OutputEngine(Protocol):
                 （布局是引擎私有的，调用方不必知道）。
             pages: 改好的逐页内容（直接编辑通道），每项含 index/name/content；与 instruction 至少一个。
             instruction: 对话式修改指令（由 AI 在工作副本上改稿）。
+            deck: 有序整页清单（整稿通道，ADR-027），每项含 ref/name/content；数组顺序即新页序，
+                未引用源页删除、无 ref 项为新增页。与 pages 同给时以 deck 为准。
             engine_params: 重导出所需的引擎参数。
 
         产物隔离（ADR-023）：实现须先把源版本那份逐页稿**复制**进本任务 job_dir 当工作稿，

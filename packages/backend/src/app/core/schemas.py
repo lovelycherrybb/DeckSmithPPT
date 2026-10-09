@@ -459,15 +459,27 @@ class PageEdit(BaseModel):
 class ReviseRequest(BaseModel):
     """发起逐页修改请求（对齐 openapi.yaml 的 ReviseRequest）。
 
-    源版本二选一（presentation_id 或 sub_presentation_id）；改稿输入 pages 与 instruction
-    至少给一个——这些跨字段约束在路由/service 里校验（pydantic 单模型不便表达）。
+    源版本二选一（presentation_id 或 sub_presentation_id）；改稿输入 pages、deck 与
+    instruction 至少给一个——这些跨字段约束在路由/service 里校验（pydantic 单模型不便表达）。
     """
     presentation_id: str | None = None
     sub_presentation_id: str | None = None
     engine: str | None = None  # 省略则沿用"改自那个版本"当初的产出引擎
     pages: list[PageEdit] = Field(default_factory=list)
+    deck: list[DeckPageSpec] = Field(default_factory=list)  # 有序整页清单（ADR-027，页增删）
     instruction: str | None = None
     agent: str = "claude"
+
+
+class DeckPageSpec(BaseModel):
+    """整稿有序页清单中的一项（对齐 openapi.yaml 的 DeckPageSpec，ADR-027）。
+
+    ref 引用源页（带 content 即就地替换）；不带 ref 即新增页（必须带 content 整页 SVG）；
+    数组顺序即新页序，未被引用的源页删除。content 必填性是跨字段约束，在引擎侧校验。
+    """
+    ref: int | None = None
+    name: str | None = None
+    content: str | None = None
 
 
 # ── 安全检查相关 ──

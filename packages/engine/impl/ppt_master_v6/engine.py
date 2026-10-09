@@ -532,6 +532,7 @@ class PptMasterV6Engine(PptEngine):
         source_task_id: Any,
         pages: list[dict] | None = None,
         instruction: str | None = None,
+        deck: list[dict] | None = None,
         engine_params: dict | None = None,
     ) -> JobId:
         """对"改自哪个版本"（source_task_id）的逐页稿做修改并在背后重新导出成品。
@@ -539,6 +540,7 @@ class PptMasterV6Engine(PptEngine):
         与 submit 一样是"起后台 claude、立即返回 job_id"的形态：调度器随后照常走
         status()/result() 收割。产物隔离是硬约束——先把源项目**整份复制**进本任务
         job_dir 当工作副本，所有改动只落副本，**绝不回写源版本**。
+        deck（ADR-027）给出时按有序清单物化页文件（重排/增删页），与 pages 同给以 deck 为准。
         ⚠ 真跑才会产出成品，其正确性须一次授权的真实运行验收（见 ADR-023 步骤3b）。
         """
         job_id = str(job_id)
@@ -560,25 +562,30 @@ class PptMasterV6Engine(PptEngine):
         shutil.copytree(src_project, dest_project)
         work_svg = dest_project / "svg_output"
 
-        # 手动编辑通道：按页覆盖工作副本（只动副本）
-        page_files = sorted(
-            (c for c in work_svg.glob("*.svg") if _RE_PAGE_SVG.match(c.name)),
-            key=lambda c: int(c.name.split("_", 1)[0]),
-        )
-        for p in (pages or []):
-            target: Path | None = None
-            if p.get("name"):
-                target = work_svg / p["name"]
-            else:
-                idx = p.get("index")
-                if isinstance(idx, int) and 1 <= idx <= len(page_files):
-                    target = page_files[idx - 1]
-            if target is not None and p.get("content") is not None:
-                target.write_text(p["content"], encoding="utf-8")
+        # 整稿有序物化（ADR-027）：deck 给出时按清单重排/增删页并重编号；契约约定与
+        # pages 同给时以 deck 为准，此时 pages 通道让位。
+        if deck:
+            self._materialize_deck(job_id, work_svg, deck)
+        else:
+            # 手动编辑通道：按页覆盖工作副本（只动副本）
+            page_files = sorted(
+                (c for c in work_svg.glob("*.svg") if _RE_PAGE_SVG.match(c.name)),
+                key=lambda c: int(c.name.split("_", 1)[0]),
+            )
+            for p in (pages or []):
+                target: Path | None = None
+                if p.get("name"):
+                    target = work_svg / p["name"]
+                else:
+                    idx = p.get("index")
+                    if isinstance(idx, int) and 1 <= idx <= len(page_files):
+                        target = page_files[idx - 1]
+                if target is not None and p.get("content") is not None:
+                    target.write_text(p["content"], encoding="utf-8")
 
-        # 手动改页（有 pages、无 instruction）→ 确定性重导出，不调 claude（秒级、0 token）。
+        # 手动改页/整稿物化（无 instruction）→ 确定性重导出，不调 claude（秒级、0 token）。
         # 见 ADR-023：把"AI 改稿"与"重导出"拆开，纯手动改页无需整副技能流水线。
-        if pages and not (instruction and instruction.strip()):
+        if (pages or deck) and not (instruction and instruction.strip()):
             self._deterministic_export(job_id, dest_project)
             return JobId(job_id)
 
@@ -613,6 +620,73 @@ class PptMasterV6Engine(PptEngine):
             started_at=time.time(), result_path=None, error=None,
         )
         return JobId(job_id)
+
+    @staticmethod
+    def _deck_pages(work_svg: Path) -> list[Path]:
+        """svg_output 里的页文件，按数字前缀升序（与 get_pages 同口径）。"""
+        return sorted(
+            (c for c in work_svg.glob("*.svg") if _RE_PAGE_SVG.match(c.name)),
+            key=lambda c: int(c.name.split("_", 1)[0]),
+        )
+
+    def _materialize_deck(self, job_id: str, work_svg: Path, deck: list[dict]) -> None:
+        """按有序页清单物化 svg_output（ADR-027）：重排、增删页、统一重编号。
+
+        项语义：{"ref": n} 引用源页原样保留；{"ref": n, "content": svg} 就地替换源页；
+        {"name": "toc", "content": svg} 新增页。数组顺序即新页序，未被引用的源页删除。
+        校验全部通过才动文件（先落暂存目录再一次性替换），非法清单抛 RuntimeError
+        让任务失败并带原因；工作副本是任务私有的，删改其中文件不触及源版本。
+        """
+        src_pages = self._deck_pages(work_svg)
+        total = len(src_pages)
+        if not isinstance(deck, list) or not deck:
+            raise RuntimeError("deck 必须是非空数组（至少保留一页）")
+        used: set[int] = set()
+        plan: list[tuple[str, str]] = []  # (文件名语义段, 整页内容)
+        for i, item in enumerate(deck, start=1):
+            if not isinstance(item, dict):
+                raise RuntimeError(f"deck 第 {i} 项不是对象")
+            ref = item.get("ref")
+            content = item.get("content")
+            if ref is not None:
+                if not isinstance(ref, int) or isinstance(ref, bool) or not 1 <= ref <= total:
+                    raise RuntimeError(f"deck 第 {i} 项 ref={ref} 越界（源版本共 {total} 页）")
+                if ref in used:
+                    raise RuntimeError(f"deck 第 {i} 项重复引用了源第 {ref} 页")
+                used.add(ref)
+                src = src_pages[ref - 1]
+                stem = src.stem.split("_", 1)[1] if "_" in src.stem else "page"
+                text = src.read_text(encoding="utf-8") if content is None else str(content)
+            else:
+                text = content if isinstance(content, str) else ""
+                if not text.strip():
+                    # 空页教训（revise_pages）：新增页没有内容就直接拦，别让空白骨架进成品
+                    raise RuntimeError(f"deck 第 {i} 项是新增页但 content 为空")
+                raw = str(item.get("name") or "page").strip()[:40]
+                stem = re.sub(r"[^0-9A-Za-z_-]+", "-", raw).strip("-") or "page"
+            plan.append((stem, text))
+
+        # 重编号 + 防重名（引用页语义段彼此唯一，撞名只会来自新增页）
+        seen: dict[str, int] = {}
+        staged: list[tuple[str, str]] = []
+        for pos, (stem, text) in enumerate(plan, start=1):
+            k = seen.get(stem, 0) + 1
+            seen[stem] = k
+            staged.append((f"{pos:02d}_{stem if k == 1 else f'{stem}-{k}'}.svg", text))
+
+        staging = work_svg.parent / f"{work_svg.name}_deck_staging"
+        if staging.exists():
+            shutil.rmtree(staging)
+        staging.mkdir(parents=True)
+        try:
+            for name, text in staged:
+                (staging / name).write_text(text, encoding="utf-8")
+            for old in self._deck_pages(work_svg):
+                old.unlink()
+            for name, _ in staged:
+                (staging / name).replace(work_svg / name)
+        finally:
+            shutil.rmtree(staging, ignore_errors=True)
 
     def _deterministic_export(self, job_id: str, dest_project: Path) -> None:
         """手动改页的确定性重导出：finalize_svg → svg_to_pptx，不调 claude（秒级、0 token）。

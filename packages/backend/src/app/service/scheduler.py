@@ -291,6 +291,7 @@ class Scheduler:
                     job_id,
                     source_task_id=meta.get("source_task_id"),
                     pages=meta.get("pages") or None,
+                    deck=meta.get("deck"),
                     instruction=meta.get("instruction"),
                     engine_params=row.get("engine_params") or {},
                 )

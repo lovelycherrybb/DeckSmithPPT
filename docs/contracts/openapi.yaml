@@ -2176,9 +2176,23 @@ components:
           type: string
           description: 该页修改后的逐页设计稿内容（如整页 SVG 文本）
 
+    DeckPageSpec:
+      type: object
+      description: 整稿有序页清单中的一项（ADR-027）。数组顺序即新页序；未被任何项引用的源页视为删除；不带 ref 的项是新增页（必须携带 content 整页 SVG）；带 ref 且带 content 是就地替换源页内容。落盘时引擎按最终顺序统一重编号页文件（NN_<name>.svg），未动的源页沿用原文件名。
+      properties:
+        ref:
+          type: integer
+          description: 复用源版本的第几页（从 1 开始，对应 PageItem.index）。省略 ref 即新增页
+        name:
+          type: string
+          description: 新增页的语义名（如 toc）；引擎落盘时重编号为 NN_<name>.svg。引用源页时可省略（沿用原文件名）
+        content:
+          type: string
+          description: 本项的整页 SVG 源码；新增页必给，引用源页时给出即就地替换
+
     ReviseRequest:
       type: object
-      description: '发起一次逐页修改并保存为新版本（子演示文件）。修改以“任务输入”提交：带改好的逐页内容 pages，或给一句对话指令 instruction（可同给，至少给一个）。源版本二选一：改自根演示文件用 presentation_id，改自某个子文件用 sub_presentation_id。受理后走快通道、不占生成并发闸（ADR-024），重导出成功才落子演示文件。'
+      description: '发起一次逐页修改并保存为新版本（子演示文件）。修改以“任务输入”提交：带改好的逐页内容 pages、整稿有序页清单 deck，或给一句对话指令 instruction（可同给，至少给一个）。源版本二选一：改自根演示文件用 presentation_id，改自某个子文件用 sub_presentation_id。受理后走快通道、不占生成并发闸（ADR-024），重导出成功才落子演示文件。'
       properties:
         presentation_id:
           type: string
@@ -2194,9 +2208,14 @@ components:
           description: 用于改稿/重导出的引擎；省略则沿用“改自那个版本”当初的产出引擎。须是具备 svg_edit 能力位的引擎
         pages:
           type: array
-          description: 改好的逐页内容（直接编辑通道）
+          description: 改好的逐页内容（直接编辑通道，按 index/name 覆盖对应页，页数不变）
           items:
             $ref: '#/components/schemas/PageEdit'
+        deck:
+          type: array
+          description: 有序整页清单（整稿通道，ADR-027）。给出后按清单物化页文件：顺序即新页序、未引用源页删除、新增页写入内容并全部重编号；然后重导出。页面的增删在前端完成，此处只提交增删后的最终清单。与 pages 同时给出时以 deck 为准
+          items:
+            $ref: '#/components/schemas/DeckPageSpec'
         instruction:
           type: string
           description: 对话式修改指令（由 AI 在副本上改稿），与 pages 至少给一个
@@ -2207,7 +2226,7 @@ components:
           - codex
           - hermes
           default: claude
-          description: 对话式改稿用哪个 AI（纯手动改 pages 时不涉 AI，可省略）
+          description: 对话式改稿用哪个 AI（纯手动改 pages/deck 时不涉 AI，可省略）
 
     # ===== 逐页预览相关（易失读模型，不落库）=====
     PageItem:
@@ -2432,7 +2451,7 @@ components:
       properties:
         text:
           type: string
-          description: AI 返回的文本（modify_draft=改写后的 Markdown；suggest_title=标题；revise_pages=改好的逐页内容，JSON 文本，前端并入草稿）
+          description: AI 返回的文本（modify_draft=改写后的 Markdown；suggest_title=标题；revise_pages=改好的逐页内容 JSON，前端并入草稿）
         kind:
           type: string
           description: 本次执行的任务类型（回显）

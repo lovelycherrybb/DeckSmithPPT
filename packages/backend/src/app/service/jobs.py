@@ -298,9 +298,10 @@ class JobService:
         不占生成并发闸（ADR-024）。改稿与重导出在认领时调 engine.revise 完成。
         """
         pages = [p.model_dump() for p in req.pages]
+        deck = [p.model_dump(exclude_none=True) for p in req.deck]
         instruction = (req.instruction or "").strip()
-        if not pages and not instruction:
-            raise HTTPException(status_code=400, detail="pages 与 instruction 至少给一个")
+        if not pages and not deck and not instruction:
+            raise HTTPException(status_code=400, detail="pages、deck 与 instruction 至少给一个")
 
         # 定位修改起点（根演示文件 或 某个子文件）；二者必居其一
         if req.presentation_id:
@@ -369,6 +370,7 @@ class JobService:
                 "root_presentation_id": root_pres_id,
                 "parent_sub_presentation_id": parent_sub_id,
                 "pages": pages,
+                "deck": deck or None,
                 "instruction": instruction or None,
             },
             created_at=now,

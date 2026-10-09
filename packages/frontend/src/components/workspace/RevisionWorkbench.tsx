@@ -9,9 +9,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert, Badge, Button, Drawer, Empty, Input, Segmented, Space, Spin, Tag, Typography, message,
+  Alert, Badge, Button, Drawer, Empty, Input, Popconfirm, Segmented, Space, Spin, Tag, Typography, message,
 } from 'antd';
-import { Download, Layers, MessageSquare } from 'lucide-react';
+import { Download, Layers, MessageSquare, Plus, RotateCcw, Trash2 } from 'lucide-react';
 import MultiPageSvgEditor from './MultiPageSvgEditor';
 import {
   getJob, getJobPages, listSubPresentations, presentationDownloadUrl,
@@ -24,7 +24,16 @@ const { Text } = Typography;
 
 interface Props { presentation: Presentation | null; open: boolean; onClose: () => void; }
 interface Node { key: string; kind: 'root' | 'sub'; label: string; short: string; taskId: string; parentKey: string | null; createdAt: string; }
-type Draft = Record<number, { name?: string; content: string }>;
+/** 有序整稿草稿（ADR-027）：ref=null 即新增页；content=null 表示沿用源页服务端内容。 */
+interface DeckItem { key: string; ref: number | null; name: string; content: string | null; url?: string }
+
+// 新增页的空白骨架：已随导出闸验证（finalize_svg → quality_checker → svg_to_pptx 全绿，
+// 见 ADR-027 层三验证）。留一行浅灰提示，用户随后用对话式改稿/编辑器填内容。
+const BLANK_PAGE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" data-pptx-page-role="content" lang="zh-CN" font-family="Microsoft YaHei, SimHei" font-size="20" fill="#1A1A1A">
+  <rect id="bg" x="0" y="0" width="1280" height="720" fill="#FFFFFF" data-pptx-role="background"></rect>
+  <text x="640" y="360" text-anchor="middle" font-size="24" fill="#999999">新页 · 在右侧对话式改稿里告诉 AI 这页放什么</text>
+</svg>
+`;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // 版本短标签：用 created_at（UTC ISO）按浏览器本地时区显示 MM-DD HH:MM。
@@ -44,7 +53,7 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
   const [pageIdx, setPageIdx] = useState(0);
   const [tab, setTab] = useState<'预览' | '拖拽编辑' | '编辑源码'>('预览');
   const [baseSvg, setBaseSvg] = useState('');
-  const [draft, setDraft] = useState<Draft>({});
+  const [deck, setDeck] = useState<DeckItem[]>([]);
   const [loadingPages, setLoadingPages] = useState(false);
   const [loadingSvg, setLoadingSvg] = useState(false);
   const [instruction, setInstruction] = useState('');
@@ -56,10 +65,12 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
 
   const busy = chatBusy || commitBusy;
   const selected = useMemo(() => nodes.find((n) => n.key === selectedKey) || null, [nodes, selectedKey]);
-  const currentPage = pages[pageIdx] || null;
-  const draftCount = Object.keys(draft).length;
-  const editedHere = currentPage ? draft[currentPage.index] : undefined;
-  const editValue = editedHere?.content ?? baseSvg;
+  const currentPage = deck[pageIdx] || null;
+  // 草稿改动数 = 内容被改/新增的页 + 被删除的源页（ADR-027 有序清单口径）
+  const changedCount = deck.filter((it) => it.content !== null || it.ref === null).length;
+  const deletedCount = Math.max(0, pages.length - deck.filter((it) => it.ref !== null).length);
+  const draftCount = changedCount + deletedCount;
+  const editValue = currentPage?.content ?? baseSvg;
 
   // 给每个版本一个短序号：原始=起点，子版本按创建先后 #1/#2…（血缘用序号点，比长文件名清楚）
   const ordinalByKey = useMemo(() => {
@@ -84,7 +95,7 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
   }, []);
 
   useEffect(() => {
-    if (!open || !presentation) { setSelectedKey(null); setPages([]); setDraft({}); return; }
+    if (!open || !presentation) { setSelectedKey(null); setPages([]); setDeck([]); return; }
     let alive = true;
     listSubPresentations(presentation.presentation_id)
       .then((rows) => { if (!alive) return; const ns = rebuild(presentation, rows); setSelectedKey(ns[0].key); })
@@ -93,27 +104,33 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
   }, [open, presentation, rebuild]);
 
   useEffect(() => {
-    setDraft({}); setPageIdx(0); setStatus(null);
+    setDeck([]); setPageIdx(0); setStatus(null);
     if (!selected) { setPages([]); return; }
     let alive = true;
     setLoadingPages(true); setPages([]);
     getJobPages(selected.taskId)
-      .then((d) => { if (alive) setPages((d.pages || []).map((p) => ({ index: p.index, name: p.name, url: p.url }))); })
-      .catch(() => { if (alive) setPages([]); })
+      .then((d) => {
+        if (!alive) return;
+        const list = (d.pages || []).map((p) => ({ index: p.index, name: p.name, url: p.url }));
+        setPages(list);
+        // 有序整稿草稿初始化为"全部引用源页"（ADR-027）；此后的增删改都落在这份清单上
+        setDeck(list.map((p) => ({ key: `src-${p.index}`, ref: p.index, name: p.name, content: null, url: p.url })));
+      })
+      .catch(() => { if (alive) { setPages([]); setDeck([]); } })
       .finally(() => { if (alive) setLoadingPages(false); });
     return () => { alive = false; };
   }, [selected]);
 
   useEffect(() => {
-    // 当前页的源码不依赖页签：对话式改稿在「预览」页签也能发指令，
-    // 必须提前把 baseSvg 拉好（曾因只在编辑页签才拉，导致预览页签发指令
-    // 时 content 为空串、AI 收到空页并原样回传空页）。
-    if (!currentPage) return;
+    // 当前页源码回源：只对"仍是源页且未改过内容"的项有意义；新增页/已改页直接用草稿内容，
+    // 不依赖页签（对话式改稿在「预览」页签也能发指令，曾因只在编辑页签才拉导致空页指令）。
+    const cur = deck[pageIdx];
+    if (!cur || !cur.url || cur.content !== null) return;
     let alive = true; setLoadingSvg(true);
-    fetch(currentPage.url).then((r) => r.text()).then((t) => { if (alive) setBaseSvg(t); })
+    fetch(cur.url).then((r) => r.text()).then((t) => { if (alive) setBaseSvg(t); })
       .catch(() => { if (alive) setBaseSvg(''); }).finally(() => { if (alive) setLoadingSvg(false); });
     return () => { alive = false; };
-  }, [currentPage]);
+  }, [deck, pageIdx]);
 
   const onScroll = () => {
     const box = boxRef.current; if (!box) return;
@@ -124,8 +141,29 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
   };
   const gotoPage = (i: number) => { setPageIdx(i); itemRefs.current[i]?.scrollIntoView({ behavior: 'smooth', block: 'center' }); };
 
-  const applyEdit = (index: number, name: string | undefined, content: string) =>
-    setDraft((d) => ({ ...d, [index]: { name, content } }));
+  /** 把 pos 位页的内容写进整稿草稿（编辑器/源码编辑/AI 回传共用）。 */
+  const applyContent = useCallback((pos: number, content: string) =>
+    setDeck((arr) => arr.map((it, i) => (i === pos ? { ...it, content } : it))), []);
+
+  // ── 页面增删（ADR-027）：全部是本地草稿操作，另存时才落盘 ──
+  const insertPageAfter = () => {
+    if (busy || !pages.length) return;
+    const pos = pageIdx + 1;
+    const item: DeckItem = { key: `new-${Date.now()}`, ref: null, name: 'newpage', content: BLANK_PAGE_SVG };
+    setDeck((arr) => [...arr.slice(0, pos), item, ...arr.slice(pos)]);
+    setPageIdx(pos); // 自动切到新页：紧接着就能对这一页说"帮我加目录"
+  };
+  const removePage = () => {
+    if (busy || !currentPage) return;
+    if (deck.length <= 1) { message.warning('至少要保留一页'); return; }
+    const pos = pageIdx;
+    setDeck((arr) => arr.filter((_, i) => i !== pos));
+    setPageIdx(Math.max(0, Math.min(pos, deck.length - 2)));
+  };
+  const resetDeck = () => {
+    setDeck(pages.map((p) => ({ key: `src-${p.index}`, ref: p.index, name: p.name, content: null, url: p.url })));
+    setPageIdx(0); setStatus(null);
+  };
 
   const sendInstruction = async () => {
     const text = instruction.trim();
@@ -134,9 +172,11 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
     if (!editValue.trim()) { message.warning('当前页源码还没加载好，稍等一两秒再发'); return; }
     setChatBusy(true); setStatus({ text: 'AI 正在改当前页…' });
     try {
-      const out = await revisePages([{ index: currentPage.index, name: currentPage.name, content: editValue }], text);
-      // 只并入有实质内容的页：防 AI 异常回传空内容把草稿页清空
-      for (const p of out) if (typeof p.index === 'number' && typeof p.content === 'string' && p.content.trim()) applyEdit(p.index, p.name, p.content);
+      const out = await revisePages([{ index: pageIdx + 1, name: currentPage.name, content: editValue }], text);
+      // 只并入有实质内容的项：防 AI 异常回传空内容把草稿页清空
+      const got = out.find((p) => p.index === pageIdx + 1 && typeof p.content === 'string' && p.content.trim())
+        || out.find((p) => typeof p.content === 'string' && p.content.trim());
+      if (got && typeof got.content === 'string') applyContent(pageIdx, got.content);
       setStatus({ text: 'AI 改好并并入草稿，可继续改别页或另存。' });
       setInstruction('');
     } catch (e) { setStatus({ text: `改稿失败：${(e as Error).message}`, error: true }); }
@@ -145,12 +185,20 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
 
   const commitDraft = useCallback(async () => {
     if (!selected) return;
-    const list = Object.entries(draft).map(([idx, v]) => ({ index: Number(idx), name: v.name, content: v.content }));
-    if (!list.length) { message.warning('草稿还没有改动'); return; }
+    const touched = deck.some((it) => it.content !== null || it.ref === null) || deck.length !== pages.length;
+    if (!touched) { message.warning('草稿还没有改动'); return; }
     setCommitBusy(true);
-    setStatus({ text: `提交 ${list.length} 页改动，正在后台重导出…（拉起 AI，可能数十秒到几分钟）` });
+    setStatus({ text: `提交整稿清单（${deck.length} 页），后台确定性重导出中…（无 AI，秒级到一两分钟）` });
     try {
-      const body = selected.kind === 'root' ? { presentation_id: selected.key, pages: list } : { sub_presentation_id: selected.key, pages: list };
+      // 有序整稿清单（ADR-027）：纯引用=保留源页；ref+content=就地替换；无 ref=新增页
+      const deckPayload = deck.map((it) => (
+        it.ref !== null
+          ? (it.content !== null ? { ref: it.ref, name: it.name, content: it.content } : { ref: it.ref })
+          : { name: it.name, content: it.content || '' }
+      ));
+      const body = selected.kind === 'root'
+        ? { presentation_id: selected.key, deck: deckPayload }
+        : { sub_presentation_id: selected.key, deck: deckPayload };
       const job = await submitRevision({ agent: 'claude', ...body } as ReviseRequest);
       let st = await getJob(job.job_id); let guard = 0;
       while ((st.status === 'queued' || st.status === 'running') && guard < 900) {
@@ -166,7 +214,7 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
       } else { setStatus({ text: `另存失败：${st.error || st.status}`, error: true }); message.error('另存未成功'); }
     } catch (e) { setStatus({ text: `提交失败：${(e as Error).message}`, error: true }); message.error('提交失败'); }
     finally { setCommitBusy(false); }
-  }, [selected, draft, presentation, rebuild]);
+  }, [selected, deck, pages, presentation, rebuild]);
 
   if (!presentation) return null;
 
@@ -211,9 +259,23 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px', borderBottom: '1px solid var(--border)' }}>
             <Segmented value={tab} onChange={(v) => setTab(v as typeof tab)} options={['预览', '拖拽编辑', '编辑源码']} />
-            <Text type="secondary" style={{ fontSize: 13 }}>{pages.length ? `当前 第 ${pageIdx + 1} / ${pages.length} 页 · ${currentPage?.name}` : '0 页'}</Text>
+            <Text type="secondary" style={{ fontSize: 13 }}>{deck.length ? `当前 第 ${pageIdx + 1} / ${deck.length} 页 · ${currentPage?.name}` : '0 页'}</Text>
             <Space style={{ marginLeft: 'auto' }}>
-              {draftCount > 0 && <Badge count={draftCount} showZero color="#fa8c16"><span style={{ paddingRight: 10, fontSize: 12 }}>草稿改动</span></Badge>}
+              <Button icon={<Plus size={14} />} disabled={busy || !pages.length}
+                onClick={insertPageAfter} title="在当前页后插入一张空白页">新增页</Button>
+              <Popconfirm title={`删除第 ${pageIdx + 1} 页？`} description="从整稿中移除此页，整体另存后生效"
+                onConfirm={removePage} disabled={busy || deck.length <= 1}>
+                <Button icon={<Trash2 size={14} />} danger disabled={busy || deck.length <= 1}>删除页</Button>
+              </Popconfirm>
+              {draftCount > 0 && (
+                <>
+                  <Badge count={draftCount} showZero color="#fa8c16"><span style={{ paddingRight: 10, fontSize: 12 }}>草稿改动</span></Badge>
+                  <Popconfirm title="重置整稿草稿？" description="丢弃全部本地改动（含增删页），回到源版本"
+                    onConfirm={resetDeck}>
+                    <Button size="small" icon={<RotateCcw size={12} />} disabled={busy}>重置</Button>
+                  </Popconfirm>
+                </>
+              )}
               <Button type="primary" icon={<Layers size={14} />} disabled={draftCount === 0 || commitBusy} onClick={commitDraft}>整体另存为新版本</Button>
             </Space>
           </div>
@@ -221,27 +283,33 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
           <div ref={tab === '预览' ? boxRef : undefined} onScroll={tab === '预览' ? onScroll : undefined}
             style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 16, background: 'var(--bg-subtle, #f6f7f9)' }}>
             {loadingPages ? <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div>
-              : !pages.length ? <Empty description="该版本暂无可预览页" />
+              : !deck.length ? <Empty description="该版本暂无可预览页" />
               : tab === '预览' ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                  {pages.map((p, i) => (
-                    <div key={p.index} ref={(el) => { itemRefs.current[i] = el; }} onClick={() => gotoPage(i)}
+                  {deck.map((it, i) => (
+                    <div key={it.key} ref={(el) => { itemRefs.current[i] = el; }} onClick={() => gotoPage(i)}
                       style={{ outline: i === pageIdx ? '2px solid #3b82f6' : '1px solid var(--border)', outlineOffset: 2, borderRadius: 8, overflow: 'hidden', cursor: 'pointer', background: '#fff' }}>
-                      <div style={{ padding: '4px 8px', fontSize: 12, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)' }}>
-                        第 {i + 1} 页 · {p.name}{draft[p.index] ? ' ·（已改）' : ''}
+                      <div style={{ padding: '4px 8px', fontSize: 12, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span>第 {i + 1} 页 · {it.name}</span>
+                        {it.ref === null && <Tag color="green" style={{ marginInlineEnd: 0, fontSize: 11, lineHeight: '16px' }}>新增</Tag>}
+                        {it.ref !== null && it.content !== null && <Tag color="orange" style={{ marginInlineEnd: 0, fontSize: 11, lineHeight: '16px' }}>已改</Tag>}
                       </div>
-                      <iframe title={p.name} src={draft[p.index] ? undefined : p.url} srcDoc={draft[p.index]?.content}
+                      <iframe title={it.name} src={it.content !== null ? undefined : it.url} srcDoc={it.content ?? undefined}
                         style={{ width: '100%', height: 420, border: 0, display: 'block', pointerEvents: 'none' }} />
                     </div>
                   ))}
                 </div>
               ) : tab === '拖拽编辑' ? (
-                <MultiPageSvgEditor pages={pages} draft={draft} onEdit={applyEdit} />
+                <MultiPageSvgEditor
+                  pages={deck.map((it, i) => ({ index: i + 1, name: it.name, url: it.url || '' }))}
+                  draft={Object.fromEntries(deck.flatMap((it, i) => (it.content !== null ? [[i + 1, { content: it.content }]] : []))) as Record<number, { content: string }>}
+                  onEdit={(index, _name, content) => applyContent(index - 1, content)}
+                />
               ) : (
                 <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
                   <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>编辑当前页（第 {pageIdx + 1} 页）源码——改动先进草稿</div>
-                  {loadingSvg && !editedHere ? <Spin /> : (
-                    <TextArea value={editValue} onChange={(e) => currentPage && applyEdit(currentPage.index, currentPage.name, e.target.value)}
+                  {loadingSvg && currentPage?.content === null ? <Spin /> : (
+                    <TextArea value={editValue} onChange={(e) => applyContent(pageIdx, e.target.value)}
                       style={{ flex: 1, fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 12 }} spellCheck={false} />
                   )}
                 </div>

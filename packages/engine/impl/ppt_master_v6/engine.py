@@ -655,8 +655,9 @@ class PptMasterV6Engine(PptEngine):
             rc, out = _run(export, "--quick-generate")
             lf.write(f"=== svg_to_pptx ===\n{out}\n"); lf.flush()
             if rc != 0:
+                reason = self._quality_fail_reason(dest_project) or out[-300:]
                 self._write_job(job_id, status="failed",
-                                error=f"确定性重导出失败（svg_to_pptx）：{out[-300:]}", updated_at=_now())
+                                error=f"重导出被质量闸拦下：{reason}", updated_at=_now())
                 return
         result = self._newest_export(job_id, started)
         if result is None:
@@ -664,6 +665,37 @@ class PptMasterV6Engine(PptEngine):
                             error="确定性重导出完成但未找到成品 pptx（详见 run.log）", updated_at=_now())
             return
         self._write_job(job_id, status="completed", result_path=str(result), updated_at=_now())
+
+    @staticmethod
+    def _quality_fail_reason(dest_project: Path) -> str:
+        """从质量报告里抽出阻塞级原因（越界/非法 transform 等），拼成一句人话给前端。"""
+        import json
+
+        rep = dest_project / "validation" / "svg_quality_report.json"
+        try:
+            data = json.loads(rep.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            return ""
+        msgs: list[str] = []
+
+        def walk(x: object) -> None:
+            if isinstance(x, dict):
+                m = x.get("message") or x.get("detail")
+                lvl = str(x.get("level") or x.get("severity") or "").lower()
+                if isinstance(m, str) and (lvl in ("error", "blocking") or "invalid" in m.lower() or "exceeds" in m.lower()):
+                    msgs.append(m)
+                for v in x.values():
+                    walk(v)
+            elif isinstance(x, list):
+                for it in x:
+                    walk(it)
+
+        walk(data)
+        uniq: list[str] = []
+        for m in msgs:
+            if m not in uniq:
+                uniq.append(m)
+        return "；".join(m[:130] for m in uniq[:4])
 
     @staticmethod
     def _build_revise_prompt(

@@ -269,10 +269,9 @@ async def api_agent_execute_async(req: AgentExecuteRequest, db: Session = Depend
             if payload is None:
                 payload = "".join(acc)
 
+            # revise_pages 在函数开头就走了同步特例分支，到这里只剩两种流式 kind
             if req.kind == "suggest_title":
                 cleaned = clean_title(payload)
-            elif req.kind == "revise_pages":
-                cleaned = clean_pages(payload)
             else:
                 cleaned = clean_markdown(payload)
             session_manager.set_result(session.session_id, cleaned)

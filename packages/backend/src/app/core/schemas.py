@@ -456,6 +456,17 @@ class PageEdit(BaseModel):
     name: str | None = None
 
 
+class DeckPageSpec(BaseModel):
+    """整稿有序页清单中的一项（对齐 openapi.yaml 的 DeckPageSpec，ADR-027）。
+
+    ref 引用源页（带 content 即就地替换）；不带 ref 即新增页（必须带 content 整页 SVG）；
+    数组顺序即新页序，未被引用的源页删除。content 必填性是跨字段约束，在引擎侧校验。
+    """
+    ref: int | None = None
+    name: str | None = None
+    content: str | None = None
+
+
 class ReviseRequest(BaseModel):
     """发起逐页修改请求（对齐 openapi.yaml 的 ReviseRequest）。
 
@@ -469,17 +480,6 @@ class ReviseRequest(BaseModel):
     deck: list[DeckPageSpec] = Field(default_factory=list)  # 有序整页清单（ADR-027，页增删）
     instruction: str | None = None
     agent: str = "claude"
-
-
-class DeckPageSpec(BaseModel):
-    """整稿有序页清单中的一项（对齐 openapi.yaml 的 DeckPageSpec，ADR-027）。
-
-    ref 引用源页（带 content 即就地替换）；不带 ref 即新增页（必须带 content 整页 SVG）；
-    数组顺序即新页序，未被引用的源页删除。content 必填性是跨字段约束，在引擎侧校验。
-    """
-    ref: int | None = None
-    name: str | None = None
-    content: str | None = None
 
 
 # ── 安全检查相关 ──

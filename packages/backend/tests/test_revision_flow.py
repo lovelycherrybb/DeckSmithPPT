@@ -38,9 +38,9 @@ class ReviseEngine:
         self.status_value = status_value
 
     def revise(self, job_id, *, source_task_id=None, pages=None, instruction=None,
-               engine_params=None):
+               deck=None, engine_params=None):
         self.revised.append({"job_id": job_id, "source_task_id": source_task_id,
-                             "pages": pages, "instruction": instruction})
+                             "pages": pages, "instruction": instruction, "deck": deck})
         return job_id
 
     def status(self, job_id):

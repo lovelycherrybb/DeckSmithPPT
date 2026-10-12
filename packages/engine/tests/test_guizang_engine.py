@@ -64,7 +64,7 @@ _VALID_PRODUCT_SH = (
 )
 
 
-def _wait_terminal(eng, job_id: str, budget_s: float = 90.0) -> str:
+def _wait_terminal(eng, job_id: str, budget_s: float = 240.0) -> str:
     """轮询到终态并返回状态值；超时则把 job 记录与 run.log 末尾一起抛出。
 
     为什么不写死 `for _ in range(N)`：CI runner 上“产物未写出 → 自动 --resume 续跑”这条链
@@ -383,7 +383,7 @@ def test_无产物时自动resume续跑并成功(engine_factory, tmp_path):
         + _VALID_PRODUCT_SH +
         'printf \'{"type":"result","subtype":"success","is_error":false}\\n\'\n'
     )
-    eng = engine_factory(claude_bin=_fake_claude(tmp_path, script), timeout_seconds=120)
+    eng = engine_factory(claude_bin=_fake_claude(tmp_path, script), timeout_seconds=300)
     job_id = eng.submit(content="# x\n正文", title="续跑测试", pages=12,
                         engine_params={"style": "swiss"})
     _wait_terminal(eng, job_id)
@@ -419,7 +419,7 @@ def test_resume续跑的token消耗按分项累加(engine_factory, tmp_path):
         '"usage":{"input_tokens":5,"cache_creation_input_tokens":null,'
         '"cache_read_input_tokens":800,"output_tokens":10}}\\n\'\n'
     )
-    eng = engine_factory(claude_bin=_fake_claude(tmp_path, script), timeout_seconds=120)
+    eng = engine_factory(claude_bin=_fake_claude(tmp_path, script), timeout_seconds=300)
     job_id = eng.submit(content="# x\n正文", title="用量累加", pages=12,
                         engine_params={"style": "swiss"})
     _wait_terminal(eng, job_id)

@@ -110,5 +110,8 @@ def test_无访客令牌认领返回0(db):
 # ── 路由注册 ──
 def test_auth路由已挂载():
     from app.main import app
-    paths = {getattr(r, "path", None) for r in app.routes}
+    # 走 OpenAPI 路径表而不是遍历 app.routes：后者取 .path 的写法依赖路由对象结构，
+    # 随 fastapi/starlette 版本变（本机钉旧版绿、CI 装钉住的 0.141.1 就红）。
+    # openapi() 由已注册路由生成，是版本无关的注册证据。
+    paths = set(app.openapi()["paths"])
     assert {"/api/auth/login", "/api/auth/logout", "/api/auth/me", "/api/auth/password"} <= paths

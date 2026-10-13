@@ -4,6 +4,8 @@
 
 核心设计两条：**引擎可插拔** + **契约先行**。当前最新发布标签 `v0.5.0`。许可：MIT。
 
+**关于名字**：开源仓库与项目名是 **DeckSmithPPT**，而界面顶部品牌位显示的是 **DeckSmithPower**，二者指同一套系统。该品牌字串目前硬编码在前端三处显示位（`src/app/layout.js` 的页面标题、`src/app/page.js`、`src/components/StudioLayout.tsx` 顶栏）与 `src/components/AppVersion.tsx` 的一处注释里，没有配置项；要换成自己的品牌名，改这几处字符串即可。
+
 **关于生成能力**：本项目自身不训练、也不直连模型，而是把第三方 PPT 生成工作流（上游技能）收进统一的引擎协议、任务契约与界面之下。所有引擎都需要一个可访问的 Anthropic 兼容端点，**没有离线退路**，凭证由使用者自行配置。
 
 ![工作台：选择输出引擎、视觉风格与叙事模式](docs/assets/screenshots/01-workspace.png)

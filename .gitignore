@@ -55,8 +55,14 @@ docs/research/
 # 内部设计文档（vc_design），本地留存不入库
 docs/vc_design/
 
+# 对外宣发草稿（小红书/公众号文案），本地留存不入库
+docs/marketing/
+
 # 会话临时草稿/中间产物（科普 html、交付包 MANIFEST/SHA256SUMS、db 备份等），本地留存不入库
 .scratch/
+
+# 会话写作缓存目录（按路径镜像对话过程中读写过的文件，含运行期 jobs 草稿与 prompt），本地留存不入库
+.writing/
 
 # 项目内部工作手册，仅本地使用
 AGENTS.md

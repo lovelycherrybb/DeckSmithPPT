@@ -1,0 +1,442 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Brand / Style / Layout / Deck 模板选择完整指南</title>
+  <style>
+    :root {
+      --ink: #17191b;
+      --paper: #f2f2ee;
+      --white: #fbfbf8;
+      --muted: #676d72;
+      --line: #c8cbc7;
+      --blue: #2558d8;
+      --red: #e4472e;
+      --yellow: #f1c84a;
+      --green: #317c58;
+      --shadow: 0 18px 46px rgba(18, 24, 31, .12);
+      --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Noto Sans SC", sans-serif;
+      --serif: "Iowan Old Style", "Songti SC", "Noto Serif SC", serif;
+      --mono: "SFMono-Regular", "Roboto Mono", Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--sans); line-height: 1.65; letter-spacing: 0; }
+    button, select { font: inherit; }
+    button { cursor: pointer; }
+    img { display: block; max-width: 100%; }
+    .shell { width: min(1220px, calc(100% - 40px)); margin: 0 auto; }
+    .topbar { position: sticky; top: 0; z-index: 30; background: rgba(242,242,238,.94); border-bottom: 1px solid var(--line); backdrop-filter: blur(12px); }
+    .topbar-inner { min-height: 58px; display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+    .mark { display: flex; align-items: center; gap: 11px; }
+    .mark-box { width: 31px; height: 31px; display: grid; place-items: center; background: var(--ink); color: #fff; font: 700 12px/1 var(--mono); }
+    .mark b { font: 700 13px/1.1 var(--mono); text-transform: uppercase; }
+    .mark small { display: block; color: var(--muted); font-size: 11px; }
+    .nav { display: flex; gap: 5px; flex-wrap: wrap; }
+    .nav a { padding: 8px 10px; color: var(--muted); text-decoration: none; font-size: 12px; border: 1px solid transparent; }
+    .nav a:hover { color: var(--ink); background: var(--white); border-color: var(--line); }
+    .hero { padding: 62px 0 42px; border-bottom: 1px solid var(--line); background: linear-gradient(90deg, rgba(37,88,216,.07) 1px, transparent 1px) 0 0 / 28px 28px, linear-gradient(rgba(37,88,216,.07) 1px, transparent 1px) 0 0 / 28px 28px, var(--paper); }
+    .hero-grid { display: grid; grid-template-columns: minmax(0,1.08fr) minmax(350px,.92fr); gap: 42px; align-items: end; }
+    .kicker { color: var(--red); font: 700 11px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { margin: 18px 0; max-width: 780px; font-family: var(--serif); font-size: clamp(48px, 7vw, 90px); line-height: .98; }
+    .lead { max-width: 690px; color: var(--muted); font-size: 18px; }
+    .lead strong { color: var(--ink); }
+    .hero-note { margin-top: 24px; padding: 13px 16px; border-left: 4px solid var(--yellow); background: rgba(251,251,248,.72); color: var(--muted); font-size: 13px; }
+    .hero-panel { border: 1px solid var(--ink); background: var(--white); box-shadow: var(--shadow); }
+    .panel-head { display: flex; justify-content: space-between; align-items: center; padding: 11px 14px; border-bottom: 1px solid var(--ink); font: 700 11px/1 var(--mono); text-transform: uppercase; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--red); }
+    .hero-image { aspect-ratio: 16/9; overflow: hidden; background: #10141f; }
+    .hero-image img { width: 100%; height: 100%; object-fit: cover; }
+    .hero-caption { padding: 12px 14px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--line); }
+    .hero-caption b { color: var(--ink); }
+    section { padding: 74px 0; border-bottom: 1px solid var(--line); }
+    .section-head { display: flex; justify-content: space-between; gap: 28px; align-items: end; margin-bottom: 32px; }
+    h2 { margin: 10px 0 0; font-family: var(--serif); font-size: clamp(34px,5vw,58px); line-height: 1.05; }
+    .section-desc { max-width: 460px; margin: 0; color: var(--muted); font-size: 15px; }
+    .module-grid { display: grid; grid-template-columns: repeat(4,1fr); border-top: 1px solid var(--ink); border-bottom: 1px solid var(--ink); }
+    .module { min-height: 238px; padding: 22px 19px; border-right: 1px solid var(--ink); position: relative; }
+    .module:last-child { border-right: 0; }
+    .module-no { color: var(--blue); font: 700 12px/1 var(--mono); }
+    .module h3 { margin: 32px 0 9px; font-size: 21px; }
+    .module p { margin: 0; color: var(--muted); font-size: 13px; }
+    .module .tag { display: inline-block; margin-top: 18px; padding: 5px 7px; background: var(--yellow); font: 700 10px/1 var(--mono); text-transform: uppercase; }
+    .module::after { content: ""; position: absolute; right: -7px; top: 50%; width: 12px; height: 12px; background: var(--red); transform: rotate(45deg); z-index: 2; }
+    .module:last-child::after { display: none; }
+    .scenario-wrap { display: grid; grid-template-columns: .75fr 1.25fr; gap: 28px; align-items: stretch; }
+    .scenario-menu { display: grid; gap: 8px; align-content: start; }
+    .scenario-button { padding: 15px 16px; text-align: left; border: 1px solid var(--line); background: transparent; }
+    .scenario-button:hover { background: var(--white); border-color: var(--ink); }
+    .scenario-button[aria-pressed="true"] { background: var(--ink); color: #fff; border-color: var(--ink); }
+    .scenario-button small { display: block; margin-top: 5px; color: var(--muted); font-size: 11px; }
+    .scenario-button[aria-pressed="true"] small { color: #cbd1d8; }
+    .scenario-output { min-height: 382px; padding: 28px; background: var(--ink); color: #fff; display: flex; flex-direction: column; justify-content: space-between; }
+    .scenario-output .label { color: var(--yellow); font: 700 11px/1 var(--mono); text-transform: uppercase; }
+    .scenario-output h3 { margin: 16px 0 8px; font-family: var(--serif); font-size: 38px; line-height: 1.05; }
+    .scenario-output p { max-width: 680px; color: #cdd3da; }
+    .scenario-facts { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; }
+    .scenario-fact { padding-top: 12px; border-top: 1px solid #4c535c; }
+    .scenario-fact span { display: block; color: #99a3af; font-size: 11px; }
+    .scenario-fact b { display: block; margin-top: 5px; font-size: 13px; }
+    .builder { display: grid; grid-template-columns: .82fr 1.18fr; gap: 28px; }
+    .builder-form { display: grid; gap: 13px; align-content: start; }
+    .field label { display: block; margin-bottom: 6px; color: var(--muted); font: 700 11px/1 var(--mono); text-transform: uppercase; }
+    .field select { width: 100%; padding: 12px; border: 1px solid var(--ink); background: var(--white); color: var(--ink); }
+    .builder-result { padding: 26px; background: var(--blue); color: #fff; min-height: 344px; display: flex; flex-direction: column; justify-content: space-between; }
+    .builder-result .label { color: var(--yellow); font: 700 11px/1 var(--mono); text-transform: uppercase; }
+    .builder-result h3 { margin: 15px 0 8px; font-family: var(--serif); font-size: 31px; }
+    .builder-result p { color: #dce4ff; }
+    .builder-result pre { margin: 16px 0; white-space: pre-wrap; font: 12px/1.8 var(--mono); color: #f1f5ff; }
+    .copy-button { align-self: start; padding: 9px 12px; border: 1px solid var(--yellow); background: transparent; color: var(--yellow); font: 700 11px/1 var(--mono); }
+    .flow { display: grid; grid-template-columns: .9fr 1.1fr; gap: 30px; align-items: start; }
+    .flow-list { border-top: 1px solid var(--ink); }
+    .flow-step { width: 100%; display: grid; grid-template-columns: 46px 1fr auto; gap: 12px; align-items: center; padding: 17px 0; border: 0; border-bottom: 1px solid var(--line); background: transparent; text-align: left; }
+    .flow-step:hover .flow-title { color: var(--blue); }
+    .flow-step[aria-pressed="true"] .flow-no { background: var(--red); color: #fff; }
+    .flow-step[aria-pressed="true"] .flow-title { color: var(--blue); }
+    .flow-no { width: 36px; height: 36px; display: grid; place-items: center; border: 1px solid var(--ink); background: var(--white); font: 700 11px/1 var(--mono); }
+    .flow-title { font-weight: 700; font-size: 15px; }
+    .flow-sub { display: block; color: var(--muted); font-size: 11px; }
+    .flow-tag { color: var(--muted); font: 700 10px/1 var(--mono); text-transform: uppercase; }
+    .flow-detail { position: sticky; top: 88px; border: 1px solid var(--ink); background: var(--white); box-shadow: var(--shadow); }
+    .flow-detail-head { padding: 18px 20px; border-bottom: 1px solid var(--ink); display: flex; justify-content: space-between; gap: 16px; }
+    .flow-detail-head h3 { margin: 0; font-family: var(--serif); font-size: 28px; line-height: 1.1; }
+    .flow-badge { align-self: start; padding: 5px 7px; background: var(--yellow); font: 700 10px/1 var(--mono); }
+    .flow-detail-body { padding: 20px; }
+    .flow-detail-body p { color: var(--muted); font-size: 14px; }
+    .flow-detail-body ul { margin: 16px 0 0; padding-left: 18px; color: var(--muted); font-size: 13px; }
+    .flow-detail-body li + li { margin-top: 8px; }
+    .compare { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; }
+    .compare-card { min-height: 205px; padding: 19px; border: 1px solid var(--line); background: var(--white); }
+    .compare-card.bad { border-top: 5px solid var(--red); }
+    .compare-card.good { border-top: 5px solid var(--green); }
+    .compare-card h3 { margin: 18px 0 8px; font-size: 18px; }
+    .compare-card p { margin: 0; color: var(--muted); font-size: 13px; }
+    .compare-card code { display: block; margin-top: 14px; padding: 9px; background: var(--paper); color: var(--ink); font: 11px/1.55 var(--mono); }
+    .status-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+    .status-panel { padding: 24px; border: 1px solid var(--ink); background: var(--white); }
+    .status-panel h3 { margin: 0 0 14px; font-family: var(--serif); font-size: 30px; }
+    .status-list { display: grid; gap: 10px; }
+    .status-row { display: flex; justify-content: space-between; gap: 18px; padding-bottom: 10px; border-bottom: 1px solid var(--line); font-size: 13px; }
+    .status-row:last-child { border-bottom: 0; padding-bottom: 0; }
+    .status-row span { color: var(--muted); }
+    .pill { padding: 4px 7px; font: 700 10px/1 var(--mono); text-transform: uppercase; }
+    .pill.yes { background: var(--green); color: #fff; }
+    .pill.no { background: var(--red); color: #fff; }
+    footer { padding: 32px 0 56px; color: var(--muted); font-size: 12px; }
+    .footer-grid { display: flex; justify-content: space-between; gap: 22px; flex-wrap: wrap; }
+    code { font-family: var(--mono); }
+    .reveal { opacity: 0; transform: translateY(18px); transition: opacity .55s ease, transform .55s ease; }
+    .reveal.visible { opacity: 1; transform: translateY(0); }
+    @media (max-width: 960px) {
+      .hero-grid, .scenario-wrap, .builder, .flow, .status-grid { grid-template-columns: 1fr; }
+      .hero-panel { max-width: 720px; }
+      .module-grid, .compare { grid-template-columns: repeat(2,1fr); }
+      .module:nth-child(2) { border-right: 0; }
+      .module:nth-child(-n+2) { border-bottom: 1px solid var(--ink); }
+      .module:nth-child(2)::after { display: none; }
+    }
+    @media (max-width: 620px) {
+      .shell { width: min(100% - 24px, 1220px); }
+      .nav { display: none; }
+      .hero { padding-top: 44px; }
+      h1 { font-size: 51px; }
+      section { padding: 54px 0; }
+      .section-head { display: block; }
+      .section-desc { margin-top: 15px; }
+      .module-grid, .compare, .scenario-facts { grid-template-columns: 1fr; }
+      .module { border-right: 0; border-bottom: 1px solid var(--ink); }
+      .module:last-child { border-bottom: 0; }
+      .module::after { display: none; }
+      .scenario-output { padding: 22px; }
+      .scenario-output h3 { font-size: 31px; }
+      .flow-step { grid-template-columns: 42px 1fr; }
+      .flow-tag { grid-column: 2; }
+      .flow-detail-head { display: block; }
+      .flow-badge { display: inline-block; margin-top: 12px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="shell topbar-inner">
+      <div class="mark">
+        <div class="mark-box">T</div>
+        <div><b>Template Selection</b><small>Brand / Style / Layout / Deck</small></div>
+      </div>
+      <nav class="nav" aria-label="章节导航">
+        <a href="#modules">四类模块</a>
+        <a href="#scenarios">场景判断</a>
+        <a href="#builder">拼装与请求</a>
+        <a href="#flow">完整流程</a>
+        <a href="#status">项目现状</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="shell hero-grid">
+        <div>
+          <div class="kicker">how to use / not just definitions</div>
+          <h1>模板选择，不是选风格。<br>是决定“要复用什么”。</h1>
+          <p class="lead">Brand、Style、Layout、Deck 是四块可以拆开、也可以拼起来的<strong>可复用工作区</strong>。先判断你想复用身份、方法、骨架还是整类演示，再选择模板，最后把精确路径交给 Generate。</p>
+          <div class="hero-note"><b>最容易误解的一句话：</b><span>“瑞士极简风”是单次生成的视觉参数；Style 模板工作区是可复用的方法和方向包，两者不是一回事。</span></div>
+        </div>
+        <div class="hero-panel">
+          <div class="panel-head"><span>official template application example</span><span class="dot"></span></div>
+          <div class="hero-image"><img src="assets/example-brand.webp" alt="中国电信品牌模板示例"></div>
+          <div class="hero-caption"><b>Brand + Layout 的典型结果：</b>身份来自品牌工作区，页面骨架来自结构工作区。</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="modules" class="reveal">
+      <div class="shell">
+        <div class="section-head">
+          <div><div class="kicker">01 / four reusable workspaces</div><h2>四块模板，各管一件事</h2></div>
+          <p class="section-desc">它们不是四种 PPT 文件，而是四类规则包。可以单独用，也可以组合。</p>
+        </div>
+        <div class="module-grid">
+          <article class="module"><div class="module-no">01 / BRAND</div><h3>身份真值</h3><p>颜色、字体、Logo、voice、icon style。它决定“这像谁”。</p><span class="tag">identity</span></article>
+          <article class="module"><div class="module-no">02 / STYLE</div><h3>方法与方向</h3><p>沟通方法、页面角色、证据表达、视觉默认值、图片方向。它决定“怎么讲”。</p><span class="tag">method</span></article>
+          <article class="module"><div class="module-no">03 / LAYOUT</div><h3>页面骨架</h3><p>画布、page types、语义文字角色、slot、Master/Layout/Placeholder。它决定“怎么排”。</p><span class="tag">structure</span></article>
+          <article class="module"><div class="module-no">04 / DECK</div><h3>整类演示</h3><p>重复场景、受众、结果、叙事、身份、结构、原型。它决定“哪一类汇报”。</p><span class="tag">application</span></article>
+        </div>
+      </div>
+    </section>
+
+    <section id="scenarios" class="reveal">
+      <div class="shell">
+        <div class="section-head">
+          <div><div class="kicker">02 / choose by goal</div><h2>先看你要复用什么</h2></div>
+          <p class="section-desc">选模板的起点不是“喜欢什么风”，而是“什么规则需要跨项目重复”。</p>
+        </div>
+        <div class="scenario-wrap">
+          <div class="scenario-menu" role="group" aria-label="使用场景">
+            <button class="scenario-button" data-scenario="brand" aria-pressed="true">我只想统一品牌身份<small>颜色、字体、Logo、语气</small></button>
+            <button class="scenario-button" data-scenario="style" aria-pressed="false">我想统一表达方法<small>论证、证据、页面角色、视觉默认值</small></button>
+            <button class="scenario-button" data-scenario="layout" aria-pressed="false">我想统一页面骨架<small>画布、槽位、页面语法、SVG roster</small></button>
+            <button class="scenario-button" data-scenario="deck" aria-pressed="false">我想复用整类汇报<small>场景、受众、叙事、身份、结构</small></button>
+            <button class="scenario-button" data-scenario="brand-layout" aria-pressed="false">品牌身份 + 页面结构<small>最常用的工作区组合</small></button>
+          </div>
+          <div class="scenario-output" id="scenarioOutput">
+            <div><div class="label" id="scenarioLabel">recommended workspace / brand</div><h3 id="scenarioTitle">只选 Brand</h3><p id="scenarioDesc">如果你只需要统一品牌身份，就选一个 Brand 工作区。页面仍然自由编排，不会自动获得固定页面结构。</p></div>
+            <div class="scenario-facts">
+              <div class="scenario-fact"><span>select</span><b id="scenarioSelect">Brand</b></div>
+              <div class="scenario-fact"><span>not included</span><b id="scenarioMissing">页面骨架、重复场景</b></div>
+              <div class="scenario-fact"><span>typical output</span><b id="scenarioOutputText">flat 页面 + 品牌身份</b></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="builder" class="reveal">
+      <div class="shell">
+        <div class="section-head">
+          <div><div class="kicker">03 / workspace assembly</div><h2>拼出你的模板组合</h2></div>
+          <p class="section-desc">每个 kind 可选一个工作区，也可以留空。右侧会生成一句可直接交给 PPT Master 的请求。</p>
+        </div>
+        <div class="builder">
+          <div class="builder-form">
+            <div class="field"><label for="brandSelect">Brand workspace</label><select id="brandSelect"><option value="">无</option><option value="anthropic">anthropic</option><option value="中国电信">中国电信</option><option value="xiaomi">xiaomi</option></select></div>
+            <div class="field"><label for="styleSelect">Style workspace</label><select id="styleSelect"><option value="">无</option><option value="consulting-decision">consulting-decision</option><option value="science-explainer">science-explainer</option><option value="technical-deepdive">technical-deepdive</option></select></div>
+            <div class="field"><label for="layoutSelect">Layout workspace</label><select id="layoutSelect"><option value="">无</option><option value="presentation_core">presentation_core</option><option value="report_core">report_core</option><option value="editorial_bleed">editorial_bleed</option></select></div>
+            <div class="field"><label for="deckSelect">Deck workspace</label><select id="deckSelect"><option value="">无</option><option value="中国电信">中国电信</option><option value="中汽研">中汽研</option></select></div>
+            <div class="field"><label for="sourceSelect">source</label><select id="sourceSelect"><option>projects/demo/sources/report.pdf</option><option>projects/demo/source.pptx</option><option>一个主题：年度经营复盘</option></select></div>
+          </div>
+          <div class="builder-result">
+            <div><div class="label">generated request</div><h3 id="builderTitle">自由设计</h3><p id="builderDesc">当前没有选择模板工作区。PPT Master 会按内容自由设计页面。</p><pre id="promptText"></pre></div>
+            <button class="copy-button" id="copyButton">复制请求</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="flow" class="reveal">
+      <div class="shell">
+        <div class="section-head">
+          <div><div class="kicker">04 / complete workflow</div><h2>完整使用流程</h2></div>
+          <p class="section-desc">模板选择发生在 Generate 的规划阶段。不是生成完 PPT 后再贴皮肤。</p>
+        </div>
+        <div class="flow">
+          <div class="flow-list" role="group" aria-label="模板使用步骤">
+            <button class="flow-step" data-flow="0" aria-pressed="true"><span class="flow-no">01</span><span><span class="flow-title">判断复用维度</span><span class="flow-sub">身份 / 方法 / 结构 / 整类演示</span></span><span class="flow-tag">decide</span></button>
+            <button class="flow-step" data-flow="1" aria-pressed="false"><span class="flow-no">02</span><span><span class="flow-title">准备精确模板 root</span><span class="flow-sub">库工作区或项目工作区路径</span></span><span class="flow-tag">locate</span></button>
+            <button class="flow-step" data-flow="2" aria-pressed="false"><span class="flow-no">03</span><span><span class="flow-title">写清生成请求</span><span class="flow-sub">源材料 + 结果 + 模板工作区</span></span><span class="flow-tag">request</span></button>
+            <button class="flow-step" data-flow="3" aria-pressed="false"><span class="flow-no">04</span><span><span class="flow-title">Stage 1 确认模板选择</span><span class="flow-sub">自由设计 / 使用模板</span></span><span class="flow-tag">confirm</span></button>
+            <button class="flow-step" data-flow="4" aria-pressed="false"><span class="flow-no">05</span><span><span class="flow-title">应用工作区并生成</span><span class="flow-sub">解析 spec、安装资源、作者 SVG</span></span><span class="flow-tag">apply</span></button>
+            <button class="flow-step" data-flow="5" aria-pressed="false"><span class="flow-no">06</span><span><span class="flow-title">质量检查并导出</span><span class="flow-sub">checker、预览、PPTX</span></span><span class="flow-tag">deliver</span></button>
+          </div>
+          <aside class="flow-detail">
+            <div class="flow-detail-head"><h3 id="flowTitle">先决定你想复用什么</h3><span class="flow-badge" id="flowBadge">DECIDE</span></div>
+            <div class="flow-detail-body"><p id="flowDesc">模板选择的第一步不是选文件，而是判断哪些规则值得跨项目重复。只想要品牌一致，就选 Brand；想统一论证和证据表达，就选 Style；想复用页面骨架，就选 Layout。</p><ul id="flowList"><li>问自己：未来还会重复哪类演示？</li><li>问自己：哪些值必须固定，哪些只是本次偏好？</li><li>把“风格描述”转换成明确的 workspace 类型。</li></ul></div>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <section id="mistakes" class="reveal">
+      <div class="shell">
+        <div class="section-head">
+          <div><div class="kicker">05 / common mistakes</div><h2>三种最常见的选错</h2></div>
+          <p class="section-desc">这三组对照能帮你把“感觉像模板”的说法，落到真正可执行的工作区。</p>
+        </div>
+        <div class="compare">
+          <article class="compare-card bad"><div class="kicker">wrong / 01</div><h3>把视觉风格当成模板</h3><p>“麦肯锡风”“极简风”是解释性描述，不会自动解析为本地模板工作区。</p><code>style = swiss-minimal<br>≠ Style workspace</code></article>
+          <article class="compare-card bad"><div class="kicker">wrong / 02</div><h3>把原始 PPTX 当模板路径</h3><p>想保留原设计并替换内容，走 Edit Native；想建立可复用系统，先 Create Template。</p><code>source.pptx ≠ templates/</code></article>
+          <article class="compare-card good"><div class="kicker">right / 03</div><h3>把结构和身份分开</h3><p>最常见且稳妥的组合是 Brand + Layout：身份由 Brand 管，结构由 Layout 管。</p><code>Brand + Layout<br>identity + structure</code></article>
+        </div>
+      </div>
+    </section>
+
+    <section id="status" class="reveal">
+      <div class="shell">
+        <div class="section-head">
+          <div><div class="kicker">06 / DeckSmithPPT today</div><h2>上游有这些能力，项目用到哪一层？</h2></div>
+          <p class="section-desc">这是产品决策时最重要的区分：上游支持，不等于当前 UI/API 已经接入。</p>
+        </div>
+        <div class="status-grid">
+          <div class="status-panel">
+            <h3>上游 PPT Master v6</h3>
+            <div class="status-list">
+              <div class="status-row"><span>Generate PPTX</span><b class="pill yes">supported</b></div>
+              <div class="status-row"><span>Create Template</span><b class="pill yes">supported</b></div>
+              <div class="status-row"><span>Edit Native PPTX</span><b class="pill yes">supported</b></div>
+              <div class="status-row"><span>Image to PPTX</span><b class="pill yes">supported</b></div>
+              <div class="status-row"><span>Brand / Style / Layout / Deck</span><b class="pill yes">supported</b></div>
+            </div>
+          </div>
+          <div class="status-panel">
+            <h3>当前 DeckSmithPPT</h3>
+            <div class="status-list">
+              <div class="status-row"><span>ppt_master_v6 生成 PPTX</span><b class="pill yes">已接入</b></div>
+              <div class="status-row"><span>逐页 SVG 页面墙预览</span><b class="pill yes">已接入</b></div>
+              <div class="status-row"><span>模板工作区选择</span><b class="pill no">未暴露</b></div>
+              <div class="status-row"><span>自然语言编辑 PPTX</span><b class="pill no">未暴露</b></div>
+              <div class="status-row"><span>图片还原 PPTX</span><b class="pill no">未暴露</b></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="shell footer-grid">
+      <div><div class="kicker">source map</div><div><code>lib/ppt-master-v6/docs/zh/templates-architecture.md</code></div><div><code>lib/ppt-master-v6/skills/ppt-master/workflows/routing.md</code></div><div><code>docs/contracts/engine.schema.json</code></div></div>
+      <div>本页解释的是 PPT Master v6 的模板工作区选择模型。<br>DeckSmithPPT 当前主要使用生成路线，不代表上游能力全部已经产品化。</div>
+    </div>
+  </footer>
+
+  <script>
+    (function () {
+      var scenarioData = {
+        brand: ['recommended workspace / brand', '只选 Brand', '如果你只需要统一品牌身份，就选一个 Brand 工作区。页面仍然自由编排，不会自动获得固定页面结构。', 'Brand', '页面骨架、重复场景', 'flat 页面 + 品牌身份'],
+        style: ['recommended workspace / style', '只选 Style', '如果你想统一“怎么讲”，选 Style 工作区。它复用沟通方法、证据表达、页面角色和视觉默认值，但不提供固定页面骨架。', 'Style', '品牌真值、页面骨架', 'flat 页面 + 方法方向'],
+        layout: ['recommended workspace / layout', '只选 Layout', '如果你想统一页面结构，选 Layout 工作区。它提供画布、page types、语义槽位和 SVG roster，但不替你决定品牌身份。', 'Layout', '品牌身份、重复场景', 'structured 页面骨架'],
+        deck: ['recommended workspace / deck', '只选 Deck', '如果你要复用一整类汇报，选 Deck。它把场景、受众、叙事、身份和结构作为一个整体来复用。', 'Deck', '无：它是一体化工作区', '重复演示应用'],
+        'brand-layout': ['recommended workspace / brand + layout', 'Brand + Layout', '最常见的组合：Brand 负责“像谁”，Layout 负责“怎么排”。两者不会自动合并成 Deck，但可以同时安装并一起参与生成。', 'Brand + Layout', '重复应用语境', '品牌化结构化页面']
+      };
+      function renderScenario(key) {
+        var d = scenarioData[key];
+        document.getElementById('scenarioLabel').textContent = d[0];
+        document.getElementById('scenarioTitle').textContent = d[1];
+        document.getElementById('scenarioDesc').textContent = d[2];
+        document.getElementById('scenarioSelect').textContent = d[3];
+        document.getElementById('scenarioMissing').textContent = d[4];
+        document.getElementById('scenarioOutputText').textContent = d[5];
+      }
+      document.querySelectorAll('.scenario-button').forEach(function (button) {
+        button.addEventListener('click', function () {
+          document.querySelectorAll('.scenario-button').forEach(function (item) { item.setAttribute('aria-pressed', 'false'); });
+          button.setAttribute('aria-pressed', 'true');
+          renderScenario(button.dataset.scenario);
+        });
+      });
+
+      var rootMap = {
+        anthropic: 'skills/ppt-master/templates/brands/anthropic/',
+        '中国电信': 'skills/ppt-master/templates/brands/中国电信/',
+        xiaomi: 'skills/ppt-master/templates/brands/xiaomi/',
+        'consulting-decision': 'skills/ppt-master/templates/styles/consulting-decision/',
+        'science-explainer': 'skills/ppt-master/templates/styles/science-explainer/',
+        'technical-deepdive': 'skills/ppt-master/templates/styles/technical-deepdive/',
+        presentation_core: 'skills/ppt-master/templates/layouts/presentation_core/',
+        report_core: 'skills/ppt-master/templates/layouts/report_core/',
+        editorial_bleed: 'skills/ppt-master/templates/layouts/editorial_bleed/',
+        '中汽研': 'skills/ppt-master/templates/decks/中汽研/'
+      };
+      function selected(id) {
+        var el = document.getElementById(id);
+        return el.value;
+      }
+      function updateBuilder() {
+        var brand = selected('brandSelect');
+        var style = selected('styleSelect');
+        var layout = selected('layoutSelect');
+        var deck = selected('deckSelect');
+        var source = selected('sourceSelect');
+        var parts = [];
+        if (brand) parts.push('Brand 工作区：' + rootMap[brand]);
+        if (style) parts.push('Style 工作区：' + rootMap[style]);
+        if (layout) parts.push('Layout 工作区：' + rootMap[layout]);
+        if (deck) parts.push('Deck 工作区：' + rootMap[deck]);
+        var title = parts.length ? '使用模板工作区' : '自由设计';
+        var desc = parts.length ? '当前组合会把不同 kind 的规则分别应用。Layout 若存在，会优先提供结构。' : '当前没有选择模板工作区。PPT Master 会按内容自由设计页面。';
+        document.getElementById('builderTitle').textContent = title;
+        document.getElementById('builderDesc').textContent = desc;
+        var prompt = '用 ' + source + ' 做一份 deck。\n';
+        if (parts.length) {
+          prompt += '请走 Generate PPTX，并使用以下模板工作区：\n' + parts.join('\n') + '\n';
+          prompt += '请在 Stage 1 确认模板选择后生成新的 SVG 页面并导出可编辑 PPTX。';
+        } else {
+          prompt += '请走自由设计的 Generate PPTX，根据内容确定叙事、页面结构和视觉系统，最后导出可编辑 PPTX。';
+        }
+        document.getElementById('promptText').textContent = prompt;
+      }
+      ['brandSelect', 'styleSelect', 'layoutSelect', 'deckSelect', 'sourceSelect'].forEach(function (id) {
+        document.getElementById(id).addEventListener('change', updateBuilder);
+      });
+      document.getElementById('copyButton').addEventListener('click', function () {
+        var text = document.getElementById('promptText').textContent;
+        if (navigator.clipboard) navigator.clipboard.writeText(text);
+        this.textContent = '已复制';
+        var self = this;
+        setTimeout(function () { self.textContent = '复制请求'; }, 1200);
+      });
+      updateBuilder();
+
+      var flowData = [
+        ['先决定你想复用什么', 'DECIDE', '模板选择的第一步不是选文件，而是判断哪些规则值得跨项目重复。只想要品牌一致，就选 Brand；想统一论证和证据表达，就选 Style；想复用页面骨架，就选 Layout。', ['问自己：未来还会重复哪类演示？', '问自己：哪些值必须固定，哪些只是本次偏好？', '把“风格描述”转换成明确的 workspace 类型。']],
+        ['拿到精确 workspace root', 'LOCATE', 'PPT Master 不会根据“麦肯锡风”“中国电信模板”这样的模糊名称自动猜路径。要么在 Stage 1 选择注册项，要么给出精确工作区根目录。', ['库模板：skills/ppt-master/templates/<kind>/<id>/', '项目模板：projects/<name>/', '必须消费 workspace root，而不是只取里面的 templates/。']],
+        ['把源、结果和模板写进请求', 'REQUEST', '一条完整请求至少要说清源材料、目标结果和模板 root。模板不是生成后贴上去的皮肤，而是在规划阶段参与应用。', ['源：PDF、DOCX、PPTX、主题或素材', '结果：受众、页数、用途、阅读模式', '模板：每个 kind 的精确 root']],
+        ['Stage 1 确认模板选择', 'CONFIRM', 'Default Generate 会先准备模板候选，再在 Stage 1 同时确认沟通契约和“自由设计 / 使用模板”。只有确认的非自由设计才会安装工作区。', ['普通请求默认自由设计', '明确模板意图会展开模板模式', '一个 kind 最多选一个工作区']],
+        ['应用工作区并作者页面', 'APPLY', '确认后，PPT Master 校验并安装模板资源，再根据当前内容生成新的 SVG 页面。参考模板和原型不会被原地修改。', ['Layout 拥有结构优先级', 'Brand/Style 单独使用时页面保持 flat', '模板只提供规则，内容仍来自当前请求']],
+        ['质量检查并导出 PPTX', 'DELIVER', '页面完成后再走 checker、预览和导出。最终产物是可编辑 PPTX，SVG 是页面设计源，二者角色不同。', ['svg_output 是逐页设计源', 'quality report 决定是否可导出', '导出后修改已交付 PPTX 走 Edit Native']]
+      ];
+      function renderFlow(index) {
+        var d = flowData[index];
+        document.getElementById('flowTitle').textContent = d[0];
+        document.getElementById('flowBadge').textContent = d[1];
+        document.getElementById('flowDesc').textContent = d[2];
+        document.getElementById('flowList').innerHTML = d[3].map(function (item) { return '<li>' + item + '</li>'; }).join('');
+      }
+      document.querySelectorAll('.flow-step').forEach(function (button) {
+        button.addEventListener('click', function () {
+          document.querySelectorAll('.flow-step').forEach(function (item) { item.setAttribute('aria-pressed', 'false'); });
+          button.setAttribute('aria-pressed', 'true');
+          renderFlow(Number(button.dataset.flow));
+        });
+      });
+
+      var observer = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) { if (entry.isIntersecting) entry.target.classList.add('visible'); });
+      }, { threshold: .12 });
+      document.querySelectorAll('.reveal').forEach(function (item) { observer.observe(item); });
+    }());
+  </script>
+</body>
+</html>

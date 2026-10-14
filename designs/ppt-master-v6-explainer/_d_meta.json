@@ -1,0 +1,27 @@
+{
+  "type": "design",
+  "designSystems": [],
+  "primaryDesignSystem": null,
+  "assets": {
+    "PPT Master Skill 交互科普页": {
+      "versions": [
+        {
+          "path": "PPT Master Skill Explorer.html",
+          "createdAt": "2026-09-30T03:47:25.001Z",
+          "status": "needs-review"
+        }
+      ]
+    },
+    "Brand Style Layout Deck 模板选择完整指南": {
+      "versions": [
+        {
+          "path": "Brand-Style-Layout-Deck-模板选择完整指南.html",
+          "createdAt": "2026-09-30T07:30:55.496Z",
+          "status": "needs-review"
+        }
+      ]
+    }
+  },
+  "createdAt": "2026-09-30T03:47:25.002Z",
+  "updatedAt": "2026-09-30T07:30:55.497Z"
+}

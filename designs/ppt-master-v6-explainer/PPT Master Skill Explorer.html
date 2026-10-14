@@ -1,0 +1,721 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PPT Master Skill Explorer</title>
+  <style>
+    :root {
+      --ink: #151719;
+      --muted: #62676c;
+      --paper: #f1f1ed;
+      --white: #fbfbf8;
+      --line: #c9cbc7;
+      --blue: #2457d6;
+      --red: #e4472e;
+      --yellow: #f1c84a;
+      --green: #3d8660;
+      --shadow: 0 18px 44px rgba(19, 24, 31, .12);
+      --mono: "SFMono-Regular", "Roboto Mono", Consolas, monospace;
+      --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Noto Sans SC", sans-serif;
+      --serif: "Iowan Old Style", "Songti SC", "Noto Serif SC", serif;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: var(--sans);
+      line-height: 1.65;
+      letter-spacing: 0;
+    }
+    button, select { font: inherit; }
+    button { cursor: pointer; }
+    img { display: block; max-width: 100%; }
+    a { color: inherit; }
+
+    .shell { width: min(1240px, calc(100% - 40px)); margin: 0 auto; }
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      background: rgba(241, 241, 237, .94);
+      border-bottom: 1px solid var(--line);
+      backdrop-filter: blur(12px);
+    }
+    .topbar-inner {
+      min-height: 58px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+    }
+    .brand-lockup { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .brand-mark {
+      width: 30px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      background: var(--ink);
+      color: var(--white);
+      font: 700 13px/1 var(--mono);
+    }
+    .brand-name { font: 700 13px/1.1 var(--mono); text-transform: uppercase; }
+    .brand-sub { color: var(--muted); font-size: 11px; line-height: 1.2; }
+    .topnav { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+    .topnav a {
+      padding: 8px 10px;
+      text-decoration: none;
+      color: var(--muted);
+      font-size: 12px;
+      border: 1px solid transparent;
+    }
+    .topnav a:hover { color: var(--ink); border-color: var(--line); background: var(--white); }
+
+    .hero {
+      padding: 66px 0 42px;
+      border-bottom: 1px solid var(--line);
+      background:
+        linear-gradient(90deg, rgba(36, 87, 214, .07) 1px, transparent 1px) 0 0 / 28px 28px,
+        linear-gradient(rgba(36, 87, 214, .07) 1px, transparent 1px) 0 0 / 28px 28px,
+        var(--paper);
+    }
+    .hero-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.12fr) minmax(360px, .88fr);
+      gap: 42px;
+      align-items: end;
+    }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      font: 700 11px/1 var(--mono);
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--blue);
+    }
+    .eyebrow::before { content: ""; width: 24px; height: 3px; background: var(--red); }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 {
+      margin: 20px 0 18px;
+      max-width: 760px;
+      font-family: var(--serif);
+      font-size: clamp(48px, 7vw, 94px);
+      line-height: .98;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+    .hero-copy { max-width: 670px; color: var(--muted); font-size: 18px; }
+    .hero-copy strong { color: var(--ink); }
+    .hero-note {
+      margin-top: 26px;
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+      max-width: 620px;
+      padding: 13px 16px;
+      border-left: 4px solid var(--yellow);
+      background: rgba(251, 251, 248, .7);
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .hero-note b { color: var(--ink); }
+
+    .hero-panel {
+      border: 1px solid var(--ink);
+      background: var(--white);
+      box-shadow: var(--shadow);
+    }
+    .panel-topline {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 11px 14px;
+      border-bottom: 1px solid var(--ink);
+      font: 700 11px/1 var(--mono);
+      text-transform: uppercase;
+    }
+    .panel-dot { width: 8px; height: 8px; background: var(--red); border-radius: 50%; }
+    .hero-visual { position: relative; aspect-ratio: 16 / 9; overflow: hidden; background: #10141f; }
+    .hero-visual img { width: 100%; height: 100%; object-fit: cover; }
+    .hero-visual-caption {
+      position: absolute;
+      left: 14px;
+      right: 14px;
+      bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      color: #fff;
+      font: 700 11px/1.3 var(--mono);
+      text-shadow: 0 1px 12px rgba(0, 0, 0, .8);
+    }
+    .visual-tabs { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--ink); }
+    .visual-tab {
+      border: 0;
+      border-right: 1px solid var(--ink);
+      background: var(--white);
+      padding: 11px 8px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .visual-tab:last-child { border-right: 0; }
+    .visual-tab[aria-selected="true"] { background: var(--ink); color: var(--white); }
+
+    .stat-strip {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      border-bottom: 1px solid var(--line);
+    }
+    .stat {
+      min-height: 108px;
+      padding: 22px 18px;
+      border-right: 1px solid var(--line);
+    }
+    .stat:last-child { border-right: 0; }
+    .stat-value { font: 700 34px/1 var(--mono); }
+    .stat-label { margin-top: 8px; color: var(--muted); font-size: 12px; }
+
+    section { padding: 78px 0; border-bottom: 1px solid var(--line); }
+    .section-head { display: flex; justify-content: space-between; gap: 28px; align-items: end; margin-bottom: 34px; }
+    .section-kicker { color: var(--red); font: 700 11px/1 var(--mono); text-transform: uppercase; letter-spacing: .08em; }
+    h2 { margin: 10px 0 0; font-family: var(--serif); font-size: clamp(34px, 5vw, 58px); line-height: 1.05; }
+    .section-desc { max-width: 450px; margin: 0; color: var(--muted); font-size: 15px; }
+
+    .concept-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; border-top: 1px solid var(--ink); border-bottom: 1px solid var(--ink); }
+    .concept { min-height: 220px; padding: 24px 20px; border-right: 1px solid var(--ink); position: relative; }
+    .concept:last-child { border-right: 0; }
+    .concept-no { color: var(--blue); font: 700 12px/1 var(--mono); }
+    .concept h3 { margin: 32px 0 10px; font-size: 21px; }
+    .concept p { margin: 0; color: var(--muted); font-size: 13px; }
+    .concept::after { content: ""; position: absolute; right: -7px; top: 50%; width: 12px; height: 12px; background: var(--yellow); transform: rotate(45deg); z-index: 2; }
+    .concept:last-child::after { display: none; }
+
+    .route-lab { display: grid; grid-template-columns: .72fr 1.28fr; gap: 28px; align-items: stretch; }
+    .route-menu { display: grid; gap: 8px; align-content: start; }
+    .route-button {
+      text-align: left;
+      border: 1px solid var(--line);
+      background: transparent;
+      padding: 15px 16px;
+      transition: .2s ease;
+    }
+    .route-button:hover { border-color: var(--ink); background: var(--white); }
+    .route-button[aria-pressed="true"] { background: var(--ink); color: var(--white); border-color: var(--ink); }
+    .route-button small { display: block; margin-top: 5px; color: var(--muted); font-size: 11px; }
+    .route-button[aria-pressed="true"] small { color: #c8cdd5; }
+    .route-output {
+      min-height: 360px;
+      padding: 28px;
+      background: var(--ink);
+      color: var(--white);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .route-output .label { color: var(--yellow); font: 700 11px/1 var(--mono); text-transform: uppercase; }
+    .route-output h3 { margin: 16px 0 8px; font-family: var(--serif); font-size: 36px; line-height: 1.05; }
+    .route-output p { color: #cbd0d8; max-width: 640px; }
+    .route-facts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 22px; }
+    .route-fact { padding-top: 12px; border-top: 1px solid #4d535c; }
+    .route-fact span { display: block; color: #99a2ae; font-size: 11px; }
+    .route-fact b { display: block; margin-top: 6px; font-size: 13px; font-weight: 600; }
+
+    .workflow { display: grid; grid-template-columns: 1.12fr .88fr; gap: 30px; align-items: start; }
+    .step-list { border-top: 1px solid var(--ink); }
+    .step {
+      width: 100%;
+      display: grid;
+      grid-template-columns: 54px 1fr auto;
+      gap: 12px;
+      align-items: center;
+      padding: 18px 0;
+      border: 0;
+      border-bottom: 1px solid var(--line);
+      background: transparent;
+      text-align: left;
+    }
+    .step:hover .step-title { color: var(--blue); }
+    .step[aria-pressed="true"] .step-no { background: var(--red); color: #fff; }
+    .step[aria-pressed="true"] .step-title { color: var(--blue); }
+    .step-no { width: 38px; height: 38px; display: grid; place-items: center; background: var(--white); border: 1px solid var(--ink); font: 700 12px/1 var(--mono); }
+    .step-title { font-weight: 700; font-size: 16px; }
+    .step-sub { color: var(--muted); font-size: 12px; }
+    .step-status { color: var(--muted); font: 700 10px/1 var(--mono); text-transform: uppercase; }
+    .step-detail { position: sticky; top: 88px; border: 1px solid var(--ink); background: var(--white); box-shadow: var(--shadow); }
+    .detail-head { padding: 18px 20px; border-bottom: 1px solid var(--ink); display: flex; justify-content: space-between; gap: 18px; }
+    .detail-head h3 { margin: 0; font-family: var(--serif); font-size: 27px; line-height: 1.1; }
+    .detail-tag { align-self: start; padding: 5px 7px; background: var(--yellow); font: 700 10px/1 var(--mono); }
+    .detail-body { padding: 20px; }
+    .detail-body p { color: var(--muted); font-size: 14px; }
+    .detail-body ul { margin: 18px 0 0; padding-left: 18px; color: var(--muted); font-size: 13px; }
+    .detail-body li + li { margin-top: 8px; }
+
+    .spec-lab { display: grid; grid-template-columns: .8fr 1.2fr; gap: 30px; align-items: stretch; }
+    .spec-tabs { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; align-content: start; }
+    .spec-tab { padding: 18px; border: 1px solid var(--line); background: transparent; text-align: left; }
+    .spec-tab[aria-pressed="true"] { border-color: var(--ink); background: var(--white); }
+    .spec-tab b { display: block; font: 700 14px/1.2 var(--mono); }
+    .spec-tab span { display: block; margin-top: 7px; color: var(--muted); font-size: 12px; }
+    .spec-window { border: 1px solid var(--ink); background: var(--ink); color: var(--white); min-height: 360px; padding: 26px; }
+    .spec-window .code-label { color: var(--yellow); font: 700 11px/1 var(--mono); text-transform: uppercase; }
+    .spec-window pre { margin: 20px 0 0; white-space: pre-wrap; font: 13px/1.8 var(--mono); color: #dfe4ea; }
+    .spec-window .accent { color: var(--yellow); }
+
+    .template-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
+    .template-tab { padding: 11px 15px; border: 1px solid var(--line); background: transparent; font-weight: 700; }
+    .template-tab[aria-selected="true"] { background: var(--blue); color: #fff; border-color: var(--blue); }
+    .template-panel { display: grid; grid-template-columns: 1.05fr .95fr; gap: 30px; }
+    .template-summary { border-top: 1px solid var(--ink); }
+    .template-summary h3 { margin: 17px 0 8px; font-family: var(--serif); font-size: 31px; }
+    .template-summary p { color: var(--muted); font-size: 14px; }
+    .chip-row { display: flex; flex-wrap: wrap; gap: 7px; margin: 18px 0 25px; }
+    .chip { padding: 5px 8px; border: 1px solid var(--line); background: var(--white); font: 11px/1.2 var(--mono); }
+    .ownership { border: 1px solid var(--ink); background: var(--white); }
+    .ownership-row { display: grid; grid-template-columns: 1.1fr .9fr; gap: 14px; padding: 14px 16px; border-bottom: 1px solid var(--line); font-size: 12px; }
+    .ownership-row:last-child { border-bottom: 0; }
+    .ownership-row b { font-family: var(--mono); }
+    .ownership-row span { color: var(--muted); }
+
+    .native-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; }
+    .native-stack { display: grid; gap: 8px; }
+    .native-layer { display: grid; grid-template-columns: 42px 1fr; gap: 13px; align-items: center; padding: 16px; border: 1px solid var(--line); background: var(--white); }
+    .native-layer-no { width: 30px; height: 30px; display: grid; place-items: center; background: var(--yellow); font: 700 11px/1 var(--mono); }
+    .native-layer b { display: block; font-size: 15px; }
+    .native-layer span { display: block; color: var(--muted); font-size: 12px; }
+    .quote-panel { padding: 28px; background: var(--blue); color: #fff; align-self: stretch; }
+    .quote-panel blockquote { margin: 0; font-family: var(--serif); font-size: 33px; line-height: 1.12; }
+    .quote-panel cite { display: block; margin-top: 26px; color: #d7e0ff; font-size: 12px; font-style: normal; }
+
+    .boundary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    .boundary { min-height: 190px; padding: 18px; border: 1px solid var(--line); background: var(--white); }
+    .boundary-mark { color: var(--red); font: 700 12px/1 var(--mono); }
+    .boundary h3 { margin: 22px 0 8px; font-size: 18px; }
+    .boundary p { margin: 0; color: var(--muted); font-size: 13px; }
+
+    .builder { display: grid; grid-template-columns: .85fr 1.15fr; gap: 30px; }
+    .builder-form { display: grid; gap: 14px; align-content: start; }
+    .field label { display: block; margin-bottom: 6px; color: var(--muted); font: 700 11px/1 var(--mono); text-transform: uppercase; }
+    .field select { width: 100%; padding: 12px; border: 1px solid var(--ink); background: var(--white); color: var(--ink); }
+    .prompt-card { padding: 26px; background: var(--ink); color: var(--white); min-height: 330px; display: flex; flex-direction: column; justify-content: space-between; }
+    .prompt-card .label { color: var(--yellow); font: 700 11px/1 var(--mono); text-transform: uppercase; }
+    .prompt-card pre { margin: 20px 0; white-space: pre-wrap; font: 13px/1.8 var(--mono); color: #dfe4ea; }
+    .copy-button { align-self: start; border: 1px solid var(--yellow); background: transparent; color: var(--yellow); padding: 10px 13px; font: 700 11px/1 var(--mono); }
+
+    .footer { padding: 34px 0 58px; color: var(--muted); font-size: 12px; }
+    .footer-grid { display: flex; justify-content: space-between; gap: 22px; flex-wrap: wrap; }
+    .source-list { display: grid; gap: 5px; }
+    .source-list code { font-family: var(--mono); color: var(--ink); }
+    .stamp { color: var(--red); font: 700 11px/1 var(--mono); text-transform: uppercase; }
+
+    .reveal { opacity: 0; transform: translateY(18px); transition: opacity .55s ease, transform .55s ease; }
+    .reveal.visible { opacity: 1; transform: translateY(0); }
+
+    @media (max-width: 980px) {
+      .hero-grid, .route-lab, .workflow, .spec-lab, .template-panel, .native-grid, .builder { grid-template-columns: 1fr; }
+      .hero-panel { max-width: 720px; }
+      .concept-grid { grid-template-columns: repeat(2, 1fr); }
+      .concept:nth-child(2) { border-right: 0; }
+      .concept:nth-child(-n+2) { border-bottom: 1px solid var(--ink); }
+      .concept:nth-child(2)::after { display: none; }
+      .stat-strip { grid-template-columns: repeat(3, 1fr); }
+      .stat:nth-child(3) { border-right: 0; }
+      .stat:nth-child(n+4) { border-top: 1px solid var(--line); }
+      .boundary-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 620px) {
+      .shell { width: min(100% - 24px, 1240px); }
+      .topbar-inner { align-items: flex-start; padding: 11px 0; }
+      .topnav { display: none; }
+      .hero { padding-top: 44px; }
+      h1 { font-size: 52px; }
+      .hero-copy { font-size: 16px; }
+      section { padding: 54px 0; }
+      .section-head { display: block; }
+      .section-desc { margin-top: 15px; }
+      .concept-grid, .stat-strip, .boundary-grid, .route-facts { grid-template-columns: 1fr; }
+      .concept { border-right: 0; border-bottom: 1px solid var(--ink); }
+      .concept:last-child { border-bottom: 0; }
+      .concept::after { display: none; }
+      .stat { border-right: 0; border-bottom: 1px solid var(--line); }
+      .stat:last-child { border-bottom: 0; }
+      .stat:nth-child(n+4) { border-top: 0; }
+      .route-fact { border-top: 1px solid #4d535c; }
+      .route-output { padding: 22px; }
+      .route-output h3 { font-size: 31px; }
+      .step { grid-template-columns: 42px 1fr; }
+      .step-status { grid-column: 2; }
+      .detail-head { display: block; }
+      .detail-tag { display: inline-block; margin-top: 13px; }
+      .spec-window { padding: 20px; }
+      .quote-panel blockquote { font-size: 27px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="shell topbar-inner">
+      <div class="brand-lockup">
+        <div class="brand-mark">PM</div>
+        <div>
+          <div class="brand-name">PPT Master Skill</div>
+          <div class="brand-sub">field guide / v6.6.0</div>
+        </div>
+      </div>
+      <nav class="topnav" aria-label="章节导航">
+        <a href="#model">心智模型</a>
+        <a href="#routes">路由</a>
+        <a href="#workflow">流水线</a>
+        <a href="#templates">模板</a>
+        <a href="#builder">请求拼装</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="shell hero-grid">
+        <div>
+          <div class="eyebrow">AI-driven presentation workflow</div>
+          <h1>它不是“生成几张幻灯片”。<br>它是一条受约束的 PPTX 生产线。</h1>
+          <p class="hero-copy">PPT Master 把主题、材料、已有 PPT 或视觉参考，先路由到一个唯一的运行时，再按 Plan → Do · Check · Act 的节奏生成、校验、修复并导出<strong>可继续编辑的 PowerPoint</strong>。</p>
+          <div class="hero-note"><b>一句话理解：</b><span>它管理的是“意图 → 规范 → 页面 → 原生对象 → 交付”的整条链路，而不只是排版风格。</span></div>
+        </div>
+        <div class="hero-panel" aria-label="官方示例预览">
+          <div class="panel-topline"><span>source evidence / examples</span><span class="panel-dot"></span></div>
+          <div class="hero-visual">
+            <img id="heroImage" src="assets/example-pixel.webp" alt="像素风中国早餐图鉴示例预览">
+            <div class="hero-visual-caption"><span id="heroCaption">PIXEL / one-off generated sample</span><span id="heroIndex">01 / 03</span></div>
+          </div>
+          <div class="visual-tabs" role="tablist" aria-label="示例切换">
+            <button class="visual-tab" role="tab" aria-selected="true" data-image="assets/example-pixel.webp" data-caption="PIXEL / one-off generated sample" data-index="01 / 03">像素风</button>
+            <button class="visual-tab" role="tab" aria-selected="false" data-image="assets/example-blueprint.webp" data-caption="BLUEPRINT / technical explainer" data-index="02 / 03">技术蓝图</button>
+            <button class="visual-tab" role="tab" aria-selected="false" data-image="assets/example-brand.webp" data-caption="BRAND / native template application" data-index="03 / 03">品牌模板</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="shell stat-strip" aria-label="关键规模">
+      <div class="stat"><div class="stat-value">3</div><div class="stat-label">顶层路由：Generate / Create Template / Edit Native</div></div>
+      <div class="stat"><div class="stat-value">21</div><div class="stat-label">品牌工作区</div></div>
+      <div class="stat"><div class="stat-value">7</div><div class="stat-label">Layout 模板包 / 86 张 SVG 原型</div></div>
+      <div class="stat"><div class="stat-value">187</div><div class="stat-label">Office preset 轮廓</div></div>
+      <div class="stat"><div class="stat-value">0</div><div class="stat-label">对上游参考文件的原地修改</div></div>
+    </div>
+
+    <section id="model" class="reveal">
+      <div class="shell">
+        <div class="section-head">
+          <div><div class="section-kicker">01 / mental model</div><h2>先把它想成一套路由系统</h2></div>
+          <p class="section-desc">PPT Master 的入口不是一张万能 prompt，而是一个“只选一条路”的决策器。选错路，后面的一切都会偏。</p>
+        </div>
+        <div class="concept-grid">
+          <article class="concept"><div class="concept-no">INPUT</div><h3>材料与意图</h3><p>主题、PDF、DOCX、网页、图片、已有 PPTX、品牌资产，或一份明确的模板简报。</p></article>
+          <article class="concept"><div class="concept-no">ROUTER</div><h3>唯一路由</h3><p>Generate PPTX、Create Template、Edit Native PPTX 三选一；Image to PPTX 与 Quick 是 Generate 的 profile。</p></article>
+          <article class="concept"><div class="concept-no">AUTHORITY</div><h3>运行时与门禁</h3><p>只有被选中的 runtime 权威文件被加载；Plan 结束要留下文件或保留决策，阻塞门必须等人确认。</p></article>
+          <article class="concept"><div class="concept-no">OUTPUT</div><h3>原生交付</h3><p>SVG 页面、quality report、可编辑 PPTX，按需再加备注、配音、动画、MP4。</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section id="routes" class="reveal">
+      <div class="shell">
+        <div class="section-head">
+          <div><div class="section-kicker">02 / deterministic router</div><h2>同一句话，落在三条不同的生产线</h2></div>
+          <p class="section-desc">路由规则禁止“给用户摆菜单”。输入条件已经决定路线时，系统不应再问一遍。</p>
+        </div>
+        <div class="route-lab">
+          <div class="route-menu" role="group" aria-label="任务类型">
+            <button class="route-button" data-route="generate" aria-pressed="true">把材料变成一份全新 deck<small>PDF / 主题 / 网页 / 图片 → 新的 PPTX</small></button>
+            <button class="route-button" data-route="template" aria-pressed="false">把参考 PPT 做成可复用模板<small>Brand / Style / Layout / Deck workspace</small></button>
+            <button class="route-button" data-route="edit" aria-pressed="false">保留原设计，替换成新内容<small>原生 PPTX 不重画页面壳</small></button>
+            <button class="route-button" data-route="image" aria-pressed="false">把一堆页面截图还原成 PPTX<small>image-to-pptx / Quick-only</small></button>
+            <button class="route-button" data-route="quick" aria-pressed="false">快点出结果，跳过规划锁<small>quick-generate / no spec lock</small></button>
+          </div>
+          <div class="route-output" id="routeOutput">
+            <div><div class="label" id="routeLabel">selected route / generate pptx</div><h3 id="routeTitle">生成一份新演示</h3><p id="routeDesc">输入事实或可研究的主题，规划沟通契约，逐页作者 SVG，再导出新的 PPTX。模板只是候选，不会自动被推断出来。</p></div>
+            <div class="route-facts">
+              <div class="route-fact"><span>authority</span><b id="routeAuthority">generate-pptx.md</b></div>
+              <div class="route-fact"><span>mutation</span><b id="routeMutation">作者新页面</b></div>
+              <div class="route-fact"><span>output</span><b id="routeOutputText">spec / lock / SVG / PPTX</b></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="workflow" class="reveal">
+      <div class="shell">
+        <div class="section-head">
+          <div><div class="section-kicker">03 / default generate</div><h2>七个步骤，两次“停下来”</h2></div>
+          <p class="section-desc">默认路线把工作切成可审计的阶段。第五步图片准备和第六步执行器是最容易被误解成“直接开始画”的地方。</p>
+        </div>
+        <div class="workflow">
+          <div class="step-list" role="group" aria-label="默认生成步骤">
+            <button class="step" data-step="0" aria-pressed="true"><span class="step-no">01</span><span><span class="step-title">Source Content Processing</span><span class="step-sub">转换、阅读、事实缺口识别</span></span><span class="step-status">plan</span></button>
+            <button class="step" data-step="1" aria-pressed="false"><span class="step-no">02</span><span><span class="step-title">Project Initialization</span><span class="step-sub">建立项目工作区与输入清单</span></span><span class="step-status">plan</span></button>
+            <button class="step" data-step="2" aria-pressed="false"><span class="step-no">03</span><span><span class="step-title">Template Candidate Preparation</span><span class="step-sub">只准备候选，不替用户选模板</span></span><span class="step-status">plan</span></button>
+            <button class="step" data-step="3" aria-pressed="false"><span class="step-no">04</span><span><span class="step-title">Strategist Phase</span><span class="step-sub">沟通契约、页面 roster、Design Spec</span></span><span class="step-status">plan</span></button>
+            <button class="step" data-step="4" aria-pressed="false"><span class="step-no">05</span><span><span class="step-title">Image Acquisition Phase</span><span class="step-sub">AI / web / slice / prepared-only</span></span><span class="step-status">plan</span></button>
+            <button class="step" data-step="5" aria-pressed="false"><span class="step-no">06</span><span><span class="step-title">Executor Phase</span><span class="step-sub">逐页作者 SVG，early / final gate</span></span><span class="step-status">do · check</span></button>
+            <button class="step" data-step="6" aria-pressed="false"><span class="step-no">07</span><span><span class="step-title">Post-processing &amp; Export</span><span class="step-sub">预览、PPTX、报告与交付</span></span><span class="step-status">act</span></button>
+          </div>
+          <aside class="step-detail">
+            <div class="detail-head"><h3 id="stepTitle">先把事实变成可执行输入</h3><span class="detail-tag" id="stepTag">PLAN</span></div>
+            <div class="detail-body"><p id="stepDesc">默认流程从源内容处理开始：需要转换的材料先转换，能读的事实先读出来，规划阶段会把“资料缺口”交给 topic-research，而不是靠模型自信补写。</p><ul id="stepList"><li>事实存在，或研究可以补齐关键缺口</li><li>图片资源按 §VIII 行进入对应 acquisition path</li><li>Plan 结束时，每个输入都要成为文件或保留决策</li></ul></div>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <section id="spec" class="reveal">
+      <div class="shell">
+        <div class="section-head">
+          <div><div class="section-kicker">04 / planning artifacts</div><h2>Design Spec 说“想要什么”，Lock 说“只能这样”</h2></div>
+          <p class="section-desc">两者是默认流程中的权威产物：前者允许表达设计意图，后者把可执行边界压进页面作者和导出器。</p>
+        </div>
+        <div class="spec-lab">
+          <div class="spec-tabs" role="group" aria-label="规划产物">
+            <button class="spec-tab" data-spec="design" aria-pressed="true"><b>design_spec.md</b><span>项目、画布、视觉、图片、每页内容与 audience move</span></button>
+            <button class="spec-tab" data-spec="lock" aria-pressed="false"><b>spec_lock.md</b><span>画布、语言、色板、字体、节奏、结构模式与 forbidden 规则</span></button>
+            <button class="spec-tab" data-spec="quick" aria-pressed="false"><b>quick-generate</b><span>不落盘二者；决策留在当前 Agent 上下文中</span></button>
+            <button class="spec-tab" data-spec="template" aria-pressed="false"><b>template workspace</b><span>design_spec.md 定义 kind 与结构段，SVG roster 是可复用原型</span></button>
+          </div>
+          <div class="spec-window"><div class="code-label" id="specLabel">design_spec.md / project contract</div><pre id="specText"><span class="accent">## I. Project Information</span>
+Project Name | Canvas | Page Count
+Target Audience | Communication Intent
+Desired Audience Outcome | Core Message
+
+<span class="accent">## VIII. Image Resource List</span>
+Filename | Purpose | Acquire Via | Status
+
+<span class="accent">## IX. Content Outline</span>
+Slide 01 → Audience move → Composition
+Title → Core message → Content → Math
+
+<span class="accent">role:</span> 说明项目如何与读者沟通，保留设计自由度。</pre></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="templates" class="reveal">
+      <div class="shell">
+        <div class="section-head">
+          <div><div class="section-kicker">05 / reusable workspace</div><h2>模板不是皮肤，是四种不同所有权</h2></div>
+          <p class="section-desc">Brand、Style、Layout、Deck 不是四种 PowerPoint 文件，而是四种可复用规则包。它们可以组合，但字段和优先级不能混。</p>
+        </div>
+        <div class="template-tabs" role="tablist" aria-label="模板类型">
+          <button class="template-tab" role="tab" aria-selected="true" data-template="brand">Brand · 21</button>
+          <button class="template-tab" role="tab" aria-selected="false" data-template="style">Style · 14</button>
+          <button class="template-tab" role="tab" aria-selected="false" data-template="layout">Layout · 7 / 86 SVG</button>
+          <button class="template-tab" role="tab" aria-selected="false" data-template="deck">Deck · 2</button>
+        </div>
+        <div class="template-panel">
+          <div class="template-summary"><h3 id="templateTitle">Brand：身份真值</h3><p id="templateDesc">颜色、字体、Logo、voice、icon style。它提供身份约束，不提供页面 roster；没有 Layout 时，生成页面保持 flat。</p><div class="chip-row" id="templateChips"><span class="chip">anthropic</span><span class="chip">microsoft</span><span class="chip">中国电信</span><span class="chip">xiaomi</span><span class="chip">aws</span></div><p id="templatePath">典型路径：<code>templates/brands/&lt;id&gt;/templates/design_spec.md</code></p></div>
+          <div class="ownership">
+            <div class="ownership-row"><b>身份段</b><span>Color / Typography / Logo / Voice / Icon</span></div>
+            <div class="ownership-row"><b>方法段</b><span>Communication / Evidence / Visual defaults</span></div>
+            <div class="ownership-row"><b>结构段</b><span>Canvas / Page types / SVG roster / slots</span></div>
+            <div class="ownership-row"><b>应用段</b><span>Deck 专属：重复场景、受众、代表性叙事</span></div>
+            <div class="ownership-row"><b>组合规则</b><span>Layout 拥有结构优先；Brand / Style 不会偷偷升级成 Deck</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="native" class="reveal">
+      <div class="shell">
+        <div class="section-head">
+          <div><div class="section-kicker">06 / native depth</div><h2>最终交付的是 PowerPoint，而不是一张扁平图</h2></div>
+          <p class="section-desc">PPT Master 把可编辑当成及格线，强调 Master / Layout / Placeholder、原生形状、图表表格与结构化输出。</p>
+        </div>
+        <div class="native-grid">
+          <div class="native-stack">
+            <div class="native-layer"><div class="native-layer-no">01</div><div><b>Theme</b><span>颜色、字体、效果的解析投影</span></div></div>
+            <div class="native-layer"><div class="native-layer-no">02</div><div><b>Master / Layout</b><span>结构几何、可复用页面拓扑、slot 合同</span></div></div>
+            <div class="native-layer"><div class="native-layer-no">03</div><div><b>Placeholder</b><span>语义文字角色、对齐、换行、容量行为</span></div></div>
+            <div class="native-layer"><div class="native-layer-no">04</div><div><b>Slide-local objects</b><span>可见形状、图片、图表、表格、连接线</span></div></div>
+            <div class="native-layer"><div class="native-layer-no">05</div><div><b>Validation &amp; export</b><span>quality report、trace、可继续编辑 PPTX</span></div></div>
+          </div>
+          <div class="quote-panel"><blockquote>“可编辑早已是及格线——真正拉开差距的是原生深度。”</blockquote><cite>README_CN.md / product positioning</cite></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="boundaries" class="reveal">
+      <div class="shell">
+        <div class="section-head">
+          <div><div class="section-kicker">07 / guardrails</div><h2>四条最容易踩的边界</h2></div>
+          <p class="section-desc">这些不是“实现细节”，而是理解 PPT Master 行为的最小知识。</p>
+        </div>
+        <div class="boundary-grid">
+          <article class="boundary"><div class="boundary-mark">01 / NO MENU</div><h3>不要问路线菜单</h3><p>请求已经命中路由矩阵时，routing.md 要求确定性选择；只有真正歧义的既有 deck 才问一个判别问题。</p></article>
+          <article class="boundary"><div class="boundary-mark">02 / NO GRAFT</div><h3>不能直接给 PPT 加母版</h3><p>原 PPTX/SVG 不会原地升级结构。想做可复用结构，先 Create Template，再交给 Generate。</p></article>
+          <article class="boundary"><div class="boundary-mark">03 / NO BLUR</div><h3>风格说明 ≠ Style 工作区</h3><p>“极简风”是自由设计说明；Style 是真实注册工作区，要被选择或给出精确 root 才会消费。</p></article>
+          <article class="boundary"><div class="boundary-mark">04 / NO SOURCE MUTATION</div><h3>参考文件只读</h3><p>Create Template 会把参考包当证据分析，新的 workspace 才是产物；来源 PPTX 不会被就地改写。</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section id="builder" class="reveal">
+      <div class="shell">
+        <div class="section-head">
+          <div><div class="section-kicker">08 / request builder</div><h2>把理解转成一句可执行请求</h2></div>
+          <p class="section-desc">右侧会按路由规则拼出一句可直接交给 PPT Master 的请求。它的价值是提醒你补齐“源、结果、模板 root、模式”这四个关键信息。</p>
+        </div>
+        <div class="builder">
+          <div class="builder-form">
+            <div class="field"><label for="builderRoute">route</label><select id="builderRoute"><option value="generate">Generate PPTX</option><option value="template">Create Template</option><option value="edit">Edit Native PPTX</option><option value="quick">Quick Generate</option></select></div>
+            <div class="field"><label for="builderSource">source</label><select id="builderSource"><option>projects/demo/sources/report.pdf</option><option>projects/demo/source.pptx</option><option>一个主题：AI 时代的知识工作</option><option>brand-kit/ 与几张参考图</option></select></div>
+            <div class="field"><label for="builderMode">mode / constraint</label><select id="builderMode"><option>Default：保留规划与质量门</option><option>Quick：明确快，跳过 spec / lock</option><option>模板：使用精确 workspace root</option><option>原生：保留现有设计与页面壳</option></select></div>
+          </div>
+          <div class="prompt-card"><div><div class="label">generated request</div><pre id="promptText">用 projects/demo/sources/report.pdf 做一份面向管理层的 deck。
+请走 Default Generate PPTX：先补齐事实，再确认沟通契约与页面 roster，最后导出可编辑 PPTX。</pre></div><button class="copy-button" id="copyPrompt">复制请求</button></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="shell footer-grid">
+      <div class="source-list"><div class="stamp">source map</div><code>skills/ppt-master/SKILL.md</code><code>workflows/routing.md</code><code>workflows/generate-pptx.md</code><code>docs/zh/templates-architecture.md</code></div>
+      <div>示例图片来自 <code>docs/assets/screenshots/</code>，仅作为上游项目展示证据。<br>本页是理解导航，不替代 PPT Master 的 runtime authority。</div>
+    </div>
+  </footer>
+
+  <script>
+    (function () {
+      var heroImage = document.getElementById('heroImage');
+      var heroCaption = document.getElementById('heroCaption');
+      var heroIndex = document.getElementById('heroIndex');
+      document.querySelectorAll('.visual-tab').forEach(function (tab) {
+        tab.addEventListener('click', function () {
+          document.querySelectorAll('.visual-tab').forEach(function (item) { item.setAttribute('aria-selected', 'false'); });
+          tab.setAttribute('aria-selected', 'true');
+          heroImage.src = tab.dataset.image;
+          heroCaption.textContent = tab.dataset.caption;
+          heroIndex.textContent = tab.dataset.index;
+        });
+      });
+
+      var routeData = {
+        generate: ['selected route / generate pptx', '生成一份新演示', '输入事实或可研究的主题，规划沟通契约，逐页作者 SVG，再导出新的 PPTX。模板只是候选，不会自动被推断出来。', 'generate-pptx.md', '作者新页面', 'spec / lock / SVG / PPTX'],
+        template: ['selected route / create template', '创建可复用模板工作区', '从 PPTX、SVG、PDF、网站、品牌资产或直接简报里提取稳定规则。先做事实简报，再由用户确认，最终生成独立 workspace。', 'create-template.md', '新建 workspace', 'design_spec / SVG roster / review PPTX'],
+        edit: ['selected route / edit native pptx', '保留原设计，编辑原生 PPTX', '把现有 PPTX 导入 round-trip workspace：未编辑页面尽量恢复字节级原样，编辑页只重建改过的对象。', 'edit-native-pptx.md', 'round-trip workspace', 'new PPTX / notes / motion overlay'],
+        image: ['profile / image-to-pptx', '从页面截图重建可编辑 PPTX', '把有顺序的页面帧归一化成 roster，再按内容族重建最小可用图层。Image to PPTX 始终是 Quick profile。', 'profiles/image-to-pptx.md', '重建页面帧', 'layered editable PPTX'],
+        quick: ['profile / quick-generate', '直接 SVG 到 PPTX', '明确快或跳过策略时，Quick 不写 spec / lock，不打开确认 UI；自由设计或 Brand/Style 保持 flat，Layout/Deck 仍可带结构。', 'profiles/quick-generate.md', '无锁快速作者', 'SVG / PPTX']
+      };
+      function renderRoute(key) {
+        var data = routeData[key];
+        document.getElementById('routeLabel').textContent = data[0];
+        document.getElementById('routeTitle').textContent = data[1];
+        document.getElementById('routeDesc').textContent = data[2];
+        document.getElementById('routeAuthority').textContent = data[3];
+        document.getElementById('routeMutation').textContent = data[4];
+        document.getElementById('routeOutputText').textContent = data[5];
+      }
+      document.querySelectorAll('.route-button').forEach(function (button) {
+        button.addEventListener('click', function () {
+          document.querySelectorAll('.route-button').forEach(function (item) { item.setAttribute('aria-pressed', 'false'); });
+          button.setAttribute('aria-pressed', 'true');
+          renderRoute(button.dataset.route);
+        });
+      });
+
+      var stepData = [
+        ['先把事实变成可执行输入', 'PLAN', '默认流程从源内容处理开始：需要转换的材料先转换，能读的事实先读出来，规划阶段会把“资料缺口”交给 topic-research，而不是靠模型自信补写。', ['事实存在，或研究可以补齐关键缺口', '图片资源按 §VIII 行进入对应 acquisition path', 'Plan 结束时，每个输入都要成为文件或保留决策']],
+        ['建立项目工作区', 'PLAN', '项目初始化把输入、资源、输出边界固定下来，避免后面边画边改契约。工作区不是通用应用 scaffold，而是这次 deck 的生成现场。', ['确定项目路径与输入清单', '为 SVG、validation、notes、exports 预留归属', '后续失败在 owning layer 修复，不静默降级']],
+        ['模板只是候选，不是默认答案', 'PLAN', 'Step 3 准备候选；Stage 1 才确认自由设计或模板使用。裸模板名不会被隐式解析，必须选择注册项或给出精确 workspace root。', ['Default：候选 + Stage 1 选择', 'Quick：精确 root 直接校验安装', '没有精确 root 时保持自由设计']],
+        ['让 Strategist 决定“怎么说”', 'PLAN', 'Strategist 处理沟通契约、模式、视觉方向、页面 roster、图片计划与内容大纲。design_spec 是解释设计，spec_lock 是执行设计。', ['页面任务、关系、节奏、证据纪律', 'Design Spec Gate 1 后才可进入 lock', '模板应用是自然语言方案，不是模式选择器']],
+        ['图片准备是条件阶段', 'PLAN', '只有 §VIII 有 acquire row 或派生声明时才触发。每个来源都要到达 terminal 状态，才进入 Executor。', ['AI / web / slice / prepared-user-only', '分析 image inventory，排除 pending / failed', '缺失资源会回到 Gate 1 修复']],
+        ['逐页作者，门后集中修复', 'DO · CHECK', 'Executor 先完成 P01–P05，再走 early gate（六页及以下可跳过），完成全部页面后走 final gate。checker 只在 gate 或集中修复 pass 后调用。', ['逐页 SVG 与 §IX 内容覆盖', 'early gate 看方法偏差，不只为单页擦边', 'final gate 覆盖完整 roster，0 errors 后才导出']],
+        ['把预览、PPTX 与证据一起交付', 'ACT', '后处理生成自包含 SVG 预览、导出原生 PPTX，并保留 quality report / trace。失败时修复 owning layer，再按路线声明的 pointer 恢复。', ['导出可编辑 PPTX 与时间戳', '质量报告决定是否可发布', '备注、配音、动画是条件模块']]
+      ];
+      function renderStep(index) {
+        var data = stepData[index];
+        document.getElementById('stepTitle').textContent = data[0];
+        document.getElementById('stepTag').textContent = data[1];
+        document.getElementById('stepDesc').textContent = data[2];
+        document.getElementById('stepList').innerHTML = data[3].map(function (item) { return '<li>' + item + '</li>'; }).join('');
+      }
+      document.querySelectorAll('.step').forEach(function (button) {
+        button.addEventListener('click', function () {
+          document.querySelectorAll('.step').forEach(function (item) { item.setAttribute('aria-pressed', 'false'); });
+          button.setAttribute('aria-pressed', 'true');
+          renderStep(Number(button.dataset.step));
+        });
+      });
+
+      var specData = {
+        design: ['design_spec.md / project contract', '## I. Project Information\nProject Name | Canvas | Page Count\nTarget Audience | Communication Intent\nDesired Audience Outcome | Core Message\n\n## VIII. Image Resource List\nFilename | Purpose | Acquire Via | Status\n\n## IX. Content Outline\nSlide 01 → Audience move → Composition\nTitle → Core message → Content → Math\n\nrole: 说明项目如何与读者沟通，保留设计自由度。'],
+        lock: ['spec_lock.md / execution lock', '## canvas\nviewBox: 0 0 960 540\nformat: ppt169\n\n## communication\nprimary_language: zh-CN\nobjective: decision-support\nconsumption_mode: reading\n\n## colors\nbg / primary / accent / text\n\n## page_rhythm\nP01: anchor\n\n## pptx_structure\nmode: flat\n\n## forbidden\nmask, style, class, foreignObject, script, animate*, iframe'],
+        quick: ['quick-generate / context-only', 'Quick profile boundary\n- no design_spec.md\n- no spec_lock.md\n- no Confirm UI\n- decide without interaction\n- exact workspace root only\n- lockless final checker\n- export SVG → PPTX\n\n上一轮对话丢掉上下文后，重新运行 Quick；它不是无结构，只是不落盘规划锁。'],
+        template: ['templates/<kind>/<id>/templates/design_spec.md', 'kind: brand | style | layout | deck\n\nBrand → identity only\nStyle → reusable method / direction\nLayout → brand-neutral structure + SVG roster\nDeck → recurring application + integrated identity / structure\n\nworkspace shape\ntemplates/design_spec.md\ntemplates/*.svg\nimages/\nicons/imported/\nexports/  (review evidence only)']
+      };
+      function renderSpec(key) {
+        var data = specData[key];
+        document.getElementById('specLabel').textContent = data[0];
+        document.getElementById('specText').textContent = data[1];
+      }
+      document.querySelectorAll('.spec-tab').forEach(function (button) {
+        button.addEventListener('click', function () {
+          document.querySelectorAll('.spec-tab').forEach(function (item) { item.setAttribute('aria-pressed', 'false'); });
+          button.setAttribute('aria-pressed', 'true');
+          renderSpec(button.dataset.spec);
+        });
+      });
+
+      var templateData = {
+        brand: ['Brand：身份真值', '颜色、字体、Logo、voice、icon style。它提供身份约束，不提供页面 roster；没有 Layout 时，生成页面保持 flat。', ['anthropic', 'microsoft', '中国电信', 'xiaomi', 'aws'], '典型路径：templates/brands/<id>/templates/design_spec.md'],
+        style: ['Style：可移植的方法与方向', '沟通方法、页面角色词汇、证据纪律、视觉默认值、图片图标方向。Style 不写身份真值、页面 roster 或 native structure。', ['consulting-decision', 'science-explainer', 'narrative-keynote', 'technical-deepdive', 'workshop-teaching'], '典型路径：templates/styles/<id>/templates/design_spec.md'],
+        layout: ['Layout：品牌中立的结构', '画布、page types、语义文字角色、slot 与 SVG roster。它拥有结构优先权，但不规定品牌身份或重复沟通场景。', ['presentation_core', 'report_core', 'editorial_bleed', 'story_vertical', 'moments_square'], '典型路径：templates/layouts/<id>/templates/*.svg'],
+        deck: ['Deck：可重复演示的应用契约', '把重复场景、受众结果、代表性叙事、身份和结构作为一个整体。Deck 不是预先组合的 Brand + Layout，而是描述一类可复用演示。', ['中国电信', '中汽研'], '典型路径：templates/decks/<id>/templates/design_spec.md']
+      };
+      function renderTemplate(key) {
+        var data = templateData[key];
+        document.getElementById('templateTitle').textContent = data[0];
+        document.getElementById('templateDesc').textContent = data[1];
+        document.getElementById('templateChips').innerHTML = data[2].map(function (item) { return '<span class="chip">' + item + '</span>'; }).join('');
+        document.getElementById('templatePath').textContent = data[3];
+      }
+      document.querySelectorAll('.template-tab').forEach(function (button) {
+        button.addEventListener('click', function () {
+          document.querySelectorAll('.template-tab').forEach(function (item) { item.setAttribute('aria-selected', 'false'); });
+          button.setAttribute('aria-selected', 'true');
+          renderTemplate(button.dataset.template);
+        });
+      });
+
+      function updatePrompt() {
+        var route = document.getElementById('builderRoute').value;
+        var source = document.getElementById('builderSource').value;
+        var mode = document.getElementById('builderMode').value;
+        var routes = {
+          generate: '请走 Default Generate PPTX：先补齐事实，再确认沟通契约与页面 roster，最后导出可编辑 PPTX。',
+          template: '请走 Create Template：把来源里真正稳定、值得重复的规则做成新的可复用 workspace，先给我事实简报再确认。',
+          edit: '请走 Edit Native PPTX：保留现有设计与页面壳，只选择适合的页面并替换内容。',
+          quick: '请走 Quick Generate：明确快，跳过 spec / lock 与确认 UI，直接作者 SVG 并导出 PPTX。'
+        };
+        var modeText = mode.indexOf('模板') === 0 ? '请使用精确 workspace root：skills/ppt-master/templates/layouts/presentation_core/。' : mode + '。';
+        document.getElementById('promptText').textContent = '用 ' + source + ' 做一份 deck。\n' + routes[route] + '\n' + modeText;
+      }
+      ['builderRoute', 'builderSource', 'builderMode'].forEach(function (id) { document.getElementById(id).addEventListener('change', updatePrompt); });
+      document.getElementById('copyPrompt').addEventListener('click', function () {
+        var text = document.getElementById('promptText').textContent;
+        if (navigator.clipboard) { navigator.clipboard.writeText(text); }
+        this.textContent = '已复制';
+        setTimeout(function () { document.getElementById('copyPrompt').textContent = '复制请求'; }, 1200);
+      });
+
+      var observer = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) { if (entry.isIntersecting) { entry.target.classList.add('visible'); } });
+      }, { threshold: .12 });
+      document.querySelectorAll('.reveal').forEach(function (item) { observer.observe(item); });
+    }());
+  </script>
+</body>
+</html>

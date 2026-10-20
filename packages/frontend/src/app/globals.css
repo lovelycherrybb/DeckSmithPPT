@@ -163,7 +163,9 @@ a {
 .ant-btn-primary {
   background: var(--primary) !important;
   border-color: var(--primary) !important;
-  color: #fff !important;
+  /* 主色块上的文字色：默认仍是白，但允许配色方案改判——瑞士风上游规则明写
+     「柠檬黄/柠檬绿这类浅色高饱和必须用纯黑字，放白字会糊掉」，写死白就无法遵守。 */
+  color: var(--text-on-primary, #fff) !important;
 }
 .ant-btn-primary:hover {
   background: var(--primary-dark) !important;
@@ -394,9 +396,17 @@ textarea.ant-input {
 .ant-descriptions .ant-descriptions-view { border-color: var(--border) !important; }
 
 /* ── Modal / Drawer ── */
-.ant-modal-content { background: var(--bg-card) !important; border-radius: var(--radius-xl) !important; }
-.ant-modal-header { background: var(--bg-card) !important; border-bottom-color: var(--border) !important; }
-.ant-modal-title { color: var(--text-primary) !important; }
+/* --modal-surface / --modal-header-bg / --modal-title-* 是给「视觉风格悬停预览」留的钩子：
+   默认值与钩子出现之前完全一致（底面用纸色、标题 16px/600/无字距），只有预览时才会被覆盖。
+   底纹要铺满整块弹窗，所以标题栏在预览时必须透明，否则它自己那层不透明底色会把纹切断。 */
+.ant-modal-content { background: var(--modal-surface, var(--bg-card)) !important; border-radius: var(--radius-xl) !important; }
+.ant-modal-header { background: var(--modal-header-bg, var(--bg-card)) !important; border-bottom-color: var(--border) !important; }
+.ant-modal-title {
+  color: var(--text-primary) !important;
+  font-size: var(--modal-title-size, 16px) !important;
+  font-weight: var(--modal-title-weight, 600) !important;
+  letter-spacing: var(--modal-title-tracking, normal) !important;
+}
 .ant-modal-close-x { color: var(--text-muted) !important; }
 .ant-modal-body { color: var(--text-secondary); }
 .ant-drawer-content { background: var(--bg-card) !important; }

@@ -69,6 +69,7 @@ import MdEditor from '@/components/ui/MdEditor';
 import { useAuth } from '@/components/AuthProvider';
 import { formatDate } from '@/lib/formatDate';
 import { paramLabel, paramValueLabel, paramDependency, BASE_DUP_PARAM_KEYS } from '@/lib/engineParams';
+import { stylePreviewFor, stylePreviewModalStyles } from '@/lib/stylePreview';
 import { tokenUsagePartRows, tokenUsageSummary, tokenUsageTotal } from '@/lib/tokenUsage';
 
 
@@ -173,6 +174,14 @@ export default function DraftsPanel({
 
   // ── 去生成弹窗（指定版本） ──
   const [generateTarget, setGenerateTarget] = useState<{ draft: Draft; version: string; label: string } | null>(null);
+  /* 风格悬停预览：只存「当前鼠标/键盘走到哪个枚举值」，与表单里真正选中的值互不相干。
+     null 表示不预览（弹窗回到应用主题）。 */
+  const [previewValue, setPreviewValue] = useState<string | null>(null);
+  const stylePreview = stylePreviewFor(previewValue);
+  const closeGenerateModal = () => {
+    setGenerateTarget(null);
+    setPreviewValue(null);
+  };
   // 本人偏好：作为生成弹窗的初始值（默认引擎/页数）。未登录/访客取不到则回落默认。
   const [prefs, setPrefs] = useState<UserPreference | null>(null);
   useEffect(() => {
@@ -422,7 +431,7 @@ export default function DraftsPanel({
         pages: values.pages,
         engine_params: engineParams,
       });
-      setGenerateTarget(null);
+      closeGenerateModal();
       genForm.resetFields();
       onGenerate(job);
     } catch (e) {
@@ -815,9 +824,12 @@ export default function DraftsPanel({
       <Modal
         title={`生成演示文件（${generateTarget?.label || ''}）`}
         open={!!generateTarget}
-        onCancel={() => setGenerateTarget(null)}
+        onCancel={closeGenerateModal}
         footer={null}
         width={560}
+        /* 悬停某个风格时整弹窗换成那个风格的样子。变量挂在 content 上，弹窗内的标题、表单、
+           控件都从它继承取色；关掉下拉即退回应用主题。 */
+        styles={stylePreviewModalStyles(stylePreview)}
       >
         <Form form={genForm} layout="vertical">
           <Form.Item name="engine" label="输出引擎" rules={[{ required: true }]}>
@@ -864,6 +876,9 @@ export default function DraftsPanel({
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 {genParamEntries.map(([key, value]) => {
                   const label = paramLabel(key, value.description);
+                  /* 这个枚举参数里有没有配了外观的值（目前只有视觉风格那三个）。按值查外观表，
+                     不按参数名判断，所以别的枚举参数不受影响、以后加风格也不用改这里。 */
+                  const previewableEnum = !!value.enum?.length && value.enum.some((v) => stylePreviewFor(v));
                   return (
                     <Form.Item
                       key={key}
@@ -878,6 +893,22 @@ export default function DraftsPanel({
                             label: paramValueLabel(key, v, value.description),
                           }))}
                           placeholder={`选择${label}`}
+                          onOpenChange={(open) => { if (!open) setPreviewValue(null); }}
+                          /* 鼠标划过哪个风格，就把整个弹窗换成那个风格的样子；悬停只是预览，
+                             不改动已选中的值，关掉下拉就退回应用主题。 */
+                          optionRender={
+                            previewableEnum
+                              ? (option) => (
+                                  <div
+                                    onMouseEnter={() =>
+                                      setPreviewValue(stylePreviewFor(option.value) ? String(option.value) : null)
+                                    }
+                                  >
+                                    {option.label}
+                                  </div>
+                                )
+                              : undefined
+                          }
                         />
                       ) : value.type === 'boolean' ? (
                         <Select
@@ -901,7 +932,7 @@ export default function DraftsPanel({
           )}
           <Form.Item style={{ marginTop: 20 }}>
             <Space>
-              <Button onClick={() => setGenerateTarget(null)}>取消</Button>
+              <Button onClick={closeGenerateModal}>取消</Button>
               <Button
                 type="primary"
                 icon={<Rocket size={14} />}

@@ -113,22 +113,8 @@ class ClaudeDraftEngine(PptMasterEngine):
     def _extract_material(
         self, content: str | None, title: str, sources: list[dict] | None
     ) -> tuple[str, str | None]:
-        """提取素材原文：file_path/url 走 source_to_md，text 直接用。返回 (素材, 提取到的标题)。"""
-        md: str | None = None
-        material_title: str | None = None
-
-        if sources:
-            for s in sources:
-                stype, svalue = s.get("type", ""), s.get("value", "")
-                if not svalue:
-                    continue
-                if stype in ("file_path", "url"):
-                    md = self._run_source_to_md(svalue)
-                    if md:
-                        break
-                elif stype == "text":
-                    md = svalue
-                    break
+        """提取素材原文：多份素材全部转换后拼成一份。返回 (素材, 提取到的标题)。"""
+        md = self._merge_material(self._collect_material(sources))
 
         if md is None:
             md = content or ""
@@ -137,6 +123,7 @@ class ClaudeDraftEngine(PptMasterEngine):
         md = strip_source_noise(md)
 
         # 从素材提取标题（首个标题行）
+        material_title: str | None = None
         if md and not title:
             first_line = md.strip().splitlines()[0]
             if first_line.startswith("#"):

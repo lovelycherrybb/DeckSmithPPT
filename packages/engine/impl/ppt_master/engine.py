@@ -92,6 +92,16 @@ def strip_source_noise(md: str) -> str:
     return out
 
 
+def _source_name(source: dict) -> str:
+    """素材的展示名：文件取文件名，链接取链接本身，文本素材固定叫法。"""
+    stype, value = source.get("type", ""), source.get("value", "")
+    if stype == "file_path":
+        return Path(value).name
+    if stype == "text":
+        return "文本素材"
+    return value
+
+
 class PptMasterEngine(PptEngine):
     """通过 ppt-master 工作流生成 PPTX（长任务、异步）。
 
@@ -296,6 +306,40 @@ class PptMasterEngine(PptEngine):
         except Exception:
             return None
 
+    def _collect_material(self, sources: list[dict] | None) -> list[tuple[str, str]]:
+        """逐个素材转 Markdown，返回全部成功片段 [(素材名, 正文)]，保持上传顺序。
+
+        契约（engine.schema.json 的 sources：支持多文件上传）要求多份素材一起进草稿，
+        所以这里既不 break 也不覆盖——某一份转不动只跳过它自己，其余照常收下。
+        """
+        parts: list[tuple[str, str]] = []
+        for s in sources or []:
+            stype, svalue = s.get("type", ""), s.get("value", "")
+            if not svalue:
+                continue
+            if stype in ("file_path", "url"):
+                md = self._run_source_to_md(svalue)
+            elif stype == "text":
+                md = svalue
+            else:
+                md = None
+            if md:
+                parts.append((_source_name(s), md))
+        return parts
+
+    @staticmethod
+    def _merge_material(parts: list[tuple[str, str]]) -> str | None:
+        """拼成一份素材正文。单份原样返回（与历史行为一致）；多份标注来源，避免读成一整篇。"""
+        if not parts:
+            return None
+        if len(parts) == 1:
+            return parts[0][1]
+        total = len(parts)
+        return "\n\n---\n\n".join(
+            f"【素材 {idx}／{total}：{name}】\n\n{body}"
+            for idx, (name, body) in enumerate(parts, start=1)
+        )
+
     def _build_draft(
         self,
         content: str | None,
@@ -307,23 +351,11 @@ class PptMasterEngine(PptEngine):
         """构建草稿 Markdown。返回 (draft, effective_title)。
 
         优先级：file_path/url 素材走 source_to_md 确定性转换；text 直接用；
-        否则用 content；全空则模板兜底。
+        多份素材全部收下拼成一份；全空则用 content；再空则模板兜底。
         """
-        md: str | None = None
         effective_title = title
 
-        if sources:
-            for s in sources:
-                stype, svalue = s.get("type", ""), s.get("value", "")
-                if not svalue:
-                    continue
-                if stype in ("file_path", "url"):
-                    md = self._run_source_to_md(svalue)
-                    if md:
-                        break
-                elif stype == "text":
-                    md = svalue
-                    break
+        md = self._merge_material(self._collect_material(sources))
 
         if md is None:
             md = content or ""

@@ -22,6 +22,10 @@
           "type": "string",
           "description": "引擎描述"
         },
+        "suit_for": {
+          "type": "string",
+          "description": "适用场景：一句话说明适合处理什么样的稿件，供用户在多个引擎之间做选择；可选，未声明则前端不显示（不得由前端按引擎名自行补齐）。实现方式与额度消耗口径写在 description，不写在这里。"
+        },
         "engine_type": {
           "$ref": "#/$defs/EngineType",
           "description": "引擎类型"

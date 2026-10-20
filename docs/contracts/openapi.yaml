@@ -1630,6 +1630,11 @@ components:
         description:
           type: string
           description: 引擎描述
+        suit_for:
+          type: string
+          description: '适用场景：一句话说明这个引擎适合处理什么样的稿件，供用户在多个引擎之间做选择。
+            可选，未声明时前端不显示这句短注（不得由前端按引擎名自行补齐）。
+            与 description 分工：本字段只写「适合什么」的选择依据，实现方式与额度消耗口径写在 description 里。'
         engine_type:
           type: string
           enum:

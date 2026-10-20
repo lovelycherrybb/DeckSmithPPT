@@ -257,9 +257,17 @@ export default function CreateWizard({ draftEngines, currentProjectId, onSubmitt
         {step === 1 && (
           <>
             <Form layout="vertical">
+              {/* 这一步的三块内容各自成组：引擎选择、标题、提交动作。此前它们用等距挤在一起，
+                  说明文字又和标签同权重，读下来是一整片。这里拉开组距，说明改用 extra
+                  （走 globals.css 的 .ant-form-item-extra 次级文字色），组内紧、组间松。 */}
               <Form.Item
                 label="草稿引擎"
-                help={draftEngines.find((e) => e.name === (draftEngine || draftEngines[0]?.name))?.description || '不同引擎理解素材的方式不同'}
+                style={{ marginBottom: 30 }}
+                extra={
+                  <div style={{ fontSize: 13, lineHeight: 1.75, marginTop: 6 }}>
+                    {draftEngines.find((e) => e.name === (draftEngine || draftEngines[0]?.name))?.description || '不同引擎理解素材的方式不同'}
+                  </div>
+                }
               >
                 <Select
                   value={draftEngine || draftEngines[0]?.name}
@@ -268,12 +276,31 @@ export default function CreateWizard({ draftEngines, currentProjectId, onSubmitt
                     value: e.name,
                     label: e.display_name || e.name,
                   }))}
+                  /* 选项里带一句「适用场景」（引擎契约字段 suit_for，由后端声明）——用户要在两个引擎之间
+                     做判断，只看名字选不出来。折叠后选中框仍只显示引擎名，不长高。未声明该字段的引擎
+                     只有名字一行，不在前端按引擎名补任何文案。 */
+                  optionRender={(option) => {
+                    const engine = draftEngines.find((e) => e.name === option.value);
+                    return (
+                      <div style={{ padding: '3px 0' }}>
+                        <div>{engine?.display_name || String(option.value)}</div>
+                        {engine?.suit_for && (
+                          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{engine.suit_for}</div>
+                        )}
+                      </div>
+                    );
+                  }}
                 />
               </Form.Item>
               {currentProjectId ? null : (
               <Form.Item
                 label="标题（将作为新项目名称）"
-                help="首次生成会自动创建项目；可让 AI 拟题，留空则由引擎从素材自动拟定"
+                style={{ marginBottom: 30 }}
+                extra={
+                  <div style={{ fontSize: 13, lineHeight: 1.75, marginTop: 6 }}>
+                    首次生成会自动创建项目；可让 AI 拟题，留空则由引擎从素材自动拟定
+                  </div>
+                }
               >
                 <Input.Search
                   placeholder={
@@ -296,18 +323,21 @@ export default function CreateWizard({ draftEngines, currentProjectId, onSubmitt
                 />
               </Form.Item>
               )}
-              <Button
-                type="primary"
-                icon={<Sparkles size={15} />}
-                loading={submitting}
-                onClick={handleSubmit}
-              >
-                提交草稿任务
-              </Button>
+              <div style={{ marginTop: 34 }}>
+                <Button
+                  type="primary"
+                  icon={<Sparkles size={15} />}
+                  loading={submitting}
+                  onClick={handleSubmit}
+                >
+                  提交草稿任务
+                </Button>
+              </div>
             </Form>
             <Alert
               type="info"
               showIcon
+              style={{ marginTop: 26 }}
               message="提交后引擎会理解素材并生成结构化草稿，通常几秒到几十秒完成。"
             />
           </>

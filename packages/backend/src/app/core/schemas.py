@@ -275,6 +275,8 @@ class EngineInfo(BaseModel):
     name: str
     display_name: str
     description: str = ""
+    # 适用场景：只写「适合什么稿件」这一句选择依据；未声明的引擎前端不显示短注
+    suit_for: str = ""
     engine_type: str = "draft"  # draft=草稿生成引擎，output=输出引擎
     params_schema: dict[str, Any]
     # 能力位（如 page_preview）：由「引擎是否真实实现逐页枚举钩子」自动派生，不按引擎名写死

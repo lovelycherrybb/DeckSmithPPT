@@ -153,14 +153,22 @@ ENGINE_REGISTRY = {
     "ppt_master_draft": {
         "name": "ppt_master_draft",
         "display_name": "默认引擎",
-        "description": "普通草稿生成引擎，直接处理用户上传的文件并提取内容生成 Markdown 草稿",
+        "suit_for": "适合已经梳理完成的稿件",
+        "description": (
+            "稿件本身已经成型，直接转成草稿，内容和顺序照搬原文，改动最少、不消耗额度。"
+            "支持 word/excel/ppt/pdf/markdown/txt 及网页链接。"
+        ),
         "engine_type": "draft",  # 草稿引擎
         "params_schema": PPT_MASTER_DRAFT_PARAMS,
     },
     "claude_draft": {
         "name": "claude_draft",
-        "display_name": "claude 引擎",
-        "description": "基于 Claude Code 的草稿生成引擎，通过 AI 理解用户上传的材料并生成结构化的 Markdown 草稿",
+        "display_name": "Claude 引擎",
+        "suit_for": "适合整理长篇、混合型稿件",
+        "description": (
+            "交 AI 通读后归纳成分章节的草稿大纲，成稿更规整，耗时数分钟并消耗额度。"
+            "单次通读约一万五千字，多份素材合并后超长部分只取头尾、中间不纳入。"
+        ),
         "engine_type": "draft",  # 草稿引擎
         "params_schema": CLAUDE_DRAFT_PARAMS,
     },

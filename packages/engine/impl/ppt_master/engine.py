@@ -57,8 +57,21 @@ _RE_EMPTY_ANCHOR = re.compile(r'<a id="[^"]*"></a>')
 _RE_TOC_LINK_LINE = re.compile(r'^\[.*\]\(#_Toc[^)]*\)\s*$')
 _RE_TOC_HEADING = re.compile(r'^目\s*录$')
 
-# 逐页产物命名规则：NN_slug.svg（数字前缀 = 页序）。不匹配者视为临时/非页 SVG。
-_RE_PAGE_SVG = re.compile(r'^\d+_.*\.svg$')
+# 逐页产物命名规则：页序数字打头，后面可跟分隔符与页名。不匹配者视为临时/非页 SVG。
+# 允许最多两个字母前缀是实测逼出来的：上游技能对页文件名没有强制约定，模型会起
+# `P01.svg` 这类名字（真实任务 391354cf 十页全叫这个格式），只认 `NN_slug.svg` 会让
+# 这些任务在界面上"生成完成却没有一页"。数字必须紧跟在字母之后，所以 `logo2.svg`
+# 这种（数字在名字尾部）仍然落在规则外，不会把资源图误当成第二页。
+_RE_PAGE_SVG = re.compile(r'^(?:[A-Za-z]{1,2})?\d+(?:[_.-].*)?\.svg$')
+_RE_FIRST_DIGITS = re.compile(r'\d+')
+
+
+def _page_index_of(name: str) -> int | None:
+    """页文件名 → 页序；不是页就返回 None。取名字里第一段数字，不依赖下划线。"""
+    if not _RE_PAGE_SVG.match(name):
+        return None
+    found = _RE_FIRST_DIGITS.search(name)
+    return int(found.group()) if found else None
 
 
 def strip_source_noise(md: str) -> str:
@@ -574,10 +587,8 @@ class PptMasterEngine(PptEngine):
         shutil.copytree(src_project, dest_project)
         work_svg = dest_project / "svg_output"
 
-        page_files = sorted(
-            (c for c in work_svg.glob("*.svg") if _RE_PAGE_SVG.match(c.name)),
-            key=lambda c: int(c.name.split("_", 1)[0]),
-        )
+        page_files = [c for c in work_svg.glob("*.svg") if _page_index_of(c.name) is not None]
+        page_files.sort(key=lambda c: _page_index_of(c.name))
         for p in (pages or []):
             target: Path | None = None
             if p.get("name"):
@@ -898,17 +909,17 @@ class PptMasterEngine(PptEngine):
         svg_dir = self.resolve_svg_output_dir(job_id)
         if svg_dir is None:
             return []
-        by_prefix: dict[int, Path] = {}
+        by_index: dict[int, Path] = {}
         for p in svg_dir.glob("*.svg"):
-            if not _RE_PAGE_SVG.match(p.name):
+            prefix = _page_index_of(p.name)
+            if prefix is None:
                 continue
-            prefix = int(p.name.split("_", 1)[0])
-            prev = by_prefix.get(prefix)
+            prev = by_index.get(prefix)
             if prev is None or p.stat().st_mtime > prev.stat().st_mtime:
-                by_prefix[prefix] = p
+                by_index[prefix] = p
         pages = [
             {"index": i, "name": p.name, "path": p, "kind": "image"}
-            for i, p in enumerate((by_prefix[k] for k in sorted(by_prefix)), start=1)
+            for i, p in enumerate((by_index[k] for k in sorted(by_index)), start=1)
         ]
         return pages
 

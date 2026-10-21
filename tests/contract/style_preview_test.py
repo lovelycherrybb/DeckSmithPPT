@@ -46,7 +46,8 @@ HEX_COLOR_RE = re.compile(r"^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})
 # 于是 "#b98d६f" 被截成 "#b98d" 判为合法——正是这条闸要拦的那个错，不能自己漏掉。
 HEX_TOKEN_RE = re.compile(r"#[\w-]+")
 # 离线交付只禁「要联网才拿得到」的东西：远程地址、@import、data: 内联，以及非本站根路径的 url()。
-# 同源绝对路径 url('/xxx.webp') 是允许的——杂志风五套主题的底纹用的就是随包分发的上游图。
+# 同源绝对路径 url('/xxx.webp') 放行——留给将来真要用随包图形的情况。目前 29 条外观全部纯 CSS，
+# 没有任何条目在用图（杂志风试过上游真图，实测不如 CSS，已撤）。
 NETWORK_URL_RE = re.compile(r"(?:https?:)?//|@import|data:", re.IGNORECASE)
 URL_CALL_RE = re.compile(r"url\(\s*['\"]?([^'\")]+)['\"]?\s*\)")
 PUBLIC_DIR = REPO_ROOT / "packages" / "frontend" / "public"

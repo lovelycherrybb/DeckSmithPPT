@@ -649,7 +649,7 @@
       "--border": "rgba(10, 10, 11, 0.18)",
       "--border-hover": "#18181a",
       "--text-on-primary": "#f1efea",
-      "--modal-surface": "linear-gradient(rgba(241,239,234,.88), rgba(241,239,234,.94)), url('/style-backgrounds/monocle.webp') center/cover no-repeat",
+      "--modal-surface": "radial-gradient(65% 50% at 15% 10%, rgba(10,10,11,.10), transparent 62%), radial-gradient(55% 45% at 85% 25%, rgba(10,10,11,.07), transparent 60%), linear-gradient(120deg, transparent 35%, rgba(10,10,11,.05) 50%, transparent 65%), radial-gradient(80% 55% at 50% 108%, rgba(10,10,11,.12), transparent 66%), #f1efea",
       "--modal-header-bg": "transparent",
       "--modal-title-size": "22px",
       "--modal-title-weight": "600"
@@ -672,7 +672,7 @@
       "--border": "rgba(10, 31, 61, 0.18)",
       "--border-hover": "#152a4a",
       "--text-on-primary": "#f1f3f5",
-      "--modal-surface": "linear-gradient(rgba(241,243,245,.88), rgba(241,243,245,.94)), url('/style-backgrounds/indigo.webp') center/cover no-repeat",
+      "--modal-surface": "radial-gradient(65% 50% at 15% 10%, rgba(10,31,61,.10), transparent 62%), radial-gradient(55% 45% at 85% 25%, rgba(10,31,61,.07), transparent 60%), linear-gradient(120deg, transparent 35%, rgba(10,31,61,.05) 50%, transparent 65%), radial-gradient(80% 55% at 50% 108%, rgba(10,31,61,.12), transparent 66%), #f1f3f5",
       "--modal-header-bg": "transparent",
       "--modal-title-size": "22px",
       "--modal-title-weight": "600"
@@ -695,7 +695,7 @@
       "--border": "rgba(26, 46, 31, 0.18)",
       "--border-hover": "#253d2c",
       "--text-on-primary": "#f5f1e8",
-      "--modal-surface": "linear-gradient(rgba(245,241,232,.88), rgba(245,241,232,.94)), url('/style-backgrounds/forest.webp') center/cover no-repeat",
+      "--modal-surface": "radial-gradient(65% 50% at 15% 10%, rgba(26,46,31,.10), transparent 62%), radial-gradient(55% 45% at 85% 25%, rgba(26,46,31,.07), transparent 60%), linear-gradient(120deg, transparent 35%, rgba(26,46,31,.05) 50%, transparent 65%), radial-gradient(80% 55% at 50% 108%, rgba(26,46,31,.12), transparent 66%), #f5f1e8",
       "--modal-header-bg": "transparent",
       "--modal-title-size": "22px",
       "--modal-title-weight": "600"
@@ -718,7 +718,7 @@
       "--border": "rgba(42, 30, 19, 0.20)",
       "--border-hover": "#3a2a1d",
       "--text-on-primary": "#eedfc7",
-      "--modal-surface": "linear-gradient(rgba(238,223,199,.86), rgba(238,223,199,.93)), url('/style-backgrounds/kraft.webp') center/cover no-repeat",
+      "--modal-surface": "radial-gradient(65% 50% at 15% 10%, rgba(42,30,19,.10), transparent 62%), radial-gradient(55% 45% at 85% 25%, rgba(42,30,19,.07), transparent 60%), linear-gradient(120deg, transparent 35%, rgba(42,30,19,.05) 50%, transparent 65%), radial-gradient(80% 55% at 50% 108%, rgba(42,30,19,.12), transparent 66%), #eedfc7",
       "--modal-header-bg": "transparent",
       "--modal-title-size": "22px",
       "--modal-title-weight": "600"
@@ -741,7 +741,7 @@
       "--border": "rgba(31, 26, 20, 0.20)",
       "--border-hover": "#2d2620",
       "--text-on-primary": "#f0e6d2",
-      "--modal-surface": "linear-gradient(rgba(240,230,210,.88), rgba(240,230,210,.94)), url('/style-backgrounds/dune.webp') center/cover no-repeat",
+      "--modal-surface": "radial-gradient(65% 50% at 15% 10%, rgba(31,26,20,.10), transparent 62%), radial-gradient(55% 45% at 85% 25%, rgba(31,26,20,.07), transparent 60%), linear-gradient(120deg, transparent 35%, rgba(31,26,20,.05) 50%, transparent 65%), radial-gradient(80% 55% at 50% 108%, rgba(31,26,20,.12), transparent 66%), #f0e6d2",
       "--modal-header-bg": "transparent",
       "--modal-title-size": "22px",
       "--modal-title-weight": "600"

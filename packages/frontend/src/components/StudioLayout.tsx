@@ -98,6 +98,11 @@ export default function StudioLayout({ children, activeTab = 'workspace', onTabC
       : []),
   ];
 
+  /* 显示名先剥首尾空白，再取首字符做头像。库里存过带前导空格的昵称——后端已改为入库前清洗，
+     但存量脏数据不会自己变干净，不 trim 就会渲染成一个空白圆、用户名旁边还多一段空隙。
+     昵称清洗后为空时回落到用户名，避免出现另一种空头像。 */
+  const displayName = (user?.nickname || user?.username || '').trim() || user?.username || '';
+
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-dark)' }}>
       {/* 顶部导航 */}
@@ -168,7 +173,7 @@ export default function StudioLayout({ children, activeTab = 'workspace', onTabC
                     type: 'group',
                     label: (
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                        {user.nickname || user.username}
+                        {displayName}
                         <Tag color={user.role === 'manager' ? 'gold' : user.role === 'vip' ? 'purple' : 'default'} style={{ margin: 0 }}>
                           {ROLE_LABEL[user.role] || user.role}
                         </Tag>
@@ -184,9 +189,9 @@ export default function StudioLayout({ children, activeTab = 'workspace', onTabC
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
                 <Avatar size={28} style={{ background: 'var(--primary)', fontSize: 13 }}>
-                  {(user.nickname || user.username).slice(0, 1).toUpperCase()}
+                  {displayName.slice(0, 1).toUpperCase()}
                 </Avatar>
-                <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>{user.nickname || user.username}</span>
+                <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>{displayName}</span>
               </div>
             </Dropdown>
           ) : GUEST_GATE_TABS.has(currentTab) ? null : (

@@ -3,9 +3,9 @@
 - 请求进来：用 *Request 模型校验前端发的 JSON
 - 响应回去：用 *Out / *Info 模型格式化后端回的 JSON
 """
-from typing import Any
+from typing import Any, ClassVar
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 # ── 通用层 ──
@@ -63,7 +63,35 @@ class ClaimProjectRequest(BaseModel):
     target_user_id: str
 
 
-class UserCreate(BaseModel):
+class _TrimmedUserInput(BaseModel):
+    """用户信息的文本字段一律剥掉首尾空白。新建与改资料共用一处，防止两条路径口径漂移。
+
+    为什么要清洗：昵称带前导空格会让界面头像取到空格、渲染成一个空白圆（实测三个账号如此），
+    用户名旁边还多一段空隙。手机号和用户名同理，空白不参与任何业务含义。
+
+    只剥离、**不把空串折成 None**：改资料接口用 None 表示「这个字段没传、保持原值」，
+    实测仓储 update 就是 `if value is not None` 才赋值——一旦把空串折成 None，用户想清空
+    昵称或手机号的动作会被悄悄吞掉。空串交给下游自然处理：新建时昵称为空会回落到用户名，
+    展示时昵称为空也会回落到用户名。
+
+    密码不在此列——密码里的空格是内容，任何时候都不能被改写。
+    """
+
+    TRIM_FIELDS: ClassVar[tuple[str, ...]] = ("username", "nickname", "phone")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _trim_text_fields(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        for key in cls.TRIM_FIELDS:
+            value = data.get(key)
+            if isinstance(value, str):
+                data = {**data, key: value.strip()}
+        return data
+
+
+class UserCreate(_TrimmedUserInput):
     """管理员新增用户；初始密码固定 234567，不在此传。"""
     username: str
     nickname: str | None = None
@@ -71,7 +99,7 @@ class UserCreate(BaseModel):
     is_vip: bool = False
 
 
-class UserUpdate(BaseModel):
+class UserUpdate(_TrimmedUserInput):
     """管理员改用户信息；用户名不可改（不在此字段）。"""
     nickname: str | None = None
     phone: str | None = None

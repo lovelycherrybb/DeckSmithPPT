@@ -11,12 +11,19 @@ on:
       - "scripts/check-drift.sh"
       - "scripts/check-drift.py"
       - "scripts/check-alignment.py"
+      # 交付包构建口径的检查件（tests/contract/release_mirror_switch_test.py）守的就是
+      # 这两个来源：发版脚本与前端镜像定义。不列进来的话，改了它们这一层不会跑——
+      # 与顶部注释说的是同一个教训。后端 Dockerfile 已被 packages/backend/** 覆盖。
+      - "scripts/release.sh"
+      - "packages/frontend/Dockerfile"
       - "tests/**"
       - ".github/workflows/ci-contract.yml"
   pull_request:
     paths:
       - "docs/contracts/**"
       - "packages/backend/**"
+      - "packages/frontend/Dockerfile"
+      - "scripts/release.sh"
       - "tests/**"
 
 jobs:

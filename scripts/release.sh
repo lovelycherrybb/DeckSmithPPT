@@ -4,6 +4,15 @@
 #   bash scripts/release.sh                # 用最新 tag 推版本号，构建当前机器架构
 #   bash scripts/release.sh 0.2.0
 #   PLATFORMS="linux/amd64" BASE_IMAGE=<内网仓库>/node:20-slim bash scripts/release.sh 0.2.0
+#   bash scripts/release.sh 0.6.2 --mirror cn          # 取包改走国内镜像（apt / pip / npm）
+#   RELEASE_DRY_RUN=1 bash scripts/release.sh 0.6.2 --mirror cn
+#       ↑ 只打印将执行的构建命令，不构建、不碰 dist/ 下任何出厂清单
+#
+# 关于 --mirror：不给它时走官方源，构建行为与本开关加入之前逐字一致；这一步是刻意的
+# ——交付包的"从哪儿取的包"必须与"取了哪些包"一样可追溯，走没走过国内镜像由镜像标签
+# decksmith.build-mirror 留痕。为什么需要它：2026-10-21 出 0.6.2 amd64 时，同一份依赖
+# 清单在那台 x86 机器上 apt 连不上 Debian 官方源、pip 下大轮子读到超时，换国内镜像才跑通。
+# 详见 docs/adr/ADR-030-发版脚本国内源开关.md。
 #
 # 设计约束（都是实测撞出来的，别改回"想当然"的写法）：
 #
@@ -25,6 +34,55 @@ if [ -z "$VERSION" ]; then
   echo "错误：无法推断版本号（仓库没有 tag），请把版本号作为第一个参数传入" >&2
   exit 2
 fi
+# shift 在 $# 为 0 时返回非零，本脚本开了 set -e，直接 shift 会把"没带参数"变成"静默退出"
+if [ $# -gt 0 ]; then shift; fi
+
+# ── --mirror 解析：不传＝official＝一行源都不改 ──
+MIRROR="${MIRROR:-}"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --mirror)   MIRROR="${2:-}"; shift 2 || true ;;
+    --mirror=*) MIRROR="${1#*=}"; shift ;;
+    *) echo "错误：未知参数 $1（用法见脚本头部注释）" >&2; exit 2 ;;
+  esac
+done
+
+APT_MIRROR=""; APT_SECURITY_MIRROR=""; PIP_INDEX_URL=""; PIP_EXTRA_INDEX_URL=""
+PIP_TIMEOUT=""; PIP_RETRIES=""; NPM_REGISTRY=""
+case "$MIRROR" in
+  ""|official)
+    MIRROR=official
+    ;;
+  cn)
+    # apt 走 http 是实测结果：那张 x86 机器的加密流量被网络侧换过证书，容器里 apt 验不过
+    # tuna 的 https（"certificate issuer is unknown"），退回 http 才装上；apt 的索引本身
+    # 带签名校验，走 http 不降低完整性保证。pip / npm 的 https 同机实测可过，保持 https。
+    APT_MIRROR="http://mirrors.tuna.tsinghua.edu.cn/debian"
+    APT_SECURITY_MIRROR="http://mirrors.tuna.tsinghua.edu.cn/debian-security"
+    PIP_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple"
+    PIP_EXTRA_INDEX_URL="https://pypi.org/simple"
+    PIP_TIMEOUT="120"
+    PIP_RETRIES="10"
+    NPM_REGISTRY="https://registry.npmmirror.com"
+    ;;
+  *)
+    echo "错误：--mirror 只认 official（默认）或 cn，收到：${MIRROR}" >&2
+    exit 2
+    ;;
+esac
+
+# 一张镜像从声明到落地都记这个数组，构建与 RELEASE_DRY_RUN 打印共用同一份参数，
+# 避免"试跑打印的是复制品、真跑的是另一份"这种假绿灯
+MIRROR_ARGS=(
+  --build-arg "BUILD_MIRROR=$MIRROR"
+  --build-arg "APT_MIRROR=$APT_MIRROR"
+  --build-arg "APT_SECURITY_MIRROR=$APT_SECURITY_MIRROR"
+  --build-arg "PIP_INDEX_URL=$PIP_INDEX_URL"
+  --build-arg "PIP_EXTRA_INDEX_URL=$PIP_EXTRA_INDEX_URL"
+  --build-arg "PIP_TIMEOUT=$PIP_TIMEOUT"
+  --build-arg "PIP_RETRIES=$PIP_RETRIES"
+  --build-arg "NPM_REGISTRY=$NPM_REGISTRY"
+)
 
 SERVER_ARCH="$(docker info --format '{{.Architecture}}')"
 PLATFORMS="${PLATFORMS:-linux/${SERVER_ARCH}}"
@@ -34,12 +92,25 @@ CLAUDE_VERSION="${CLAUDE_VERSION:-2.1.197}"
 OUT="$ROOT/dist"
 IMAGE_PREFIX="${IMAGE_PREFIX:-decksmith}"
 
+# 试跑模式把产物目录指到临时目录：本脚本会**整体重写** dist/SHA256SUMS 与 MANIFEST.txt，
+# 少了这道保护，一次试跑就能把上一版出厂记录抹掉（2026-10-16、10-21 各丢过一次）。
+if [ "${RELEASE_DRY_RUN:-0}" = "1" ]; then
+  OUT="$(mktemp -d)"
+fi
+
 echo "=== DeckSmith 交付包产出 ==="
 echo "版本      : $VERSION"
 echo "目标平台  : $PLATFORMS"
 echo "基础镜像  : $BASE_IMAGE"
+echo "取包源    : $MIRROR"
+if [ "$MIRROR" = "cn" ]; then
+  echo "            apt=$APT_MIRROR  pip=$PIP_INDEX_URL  npm=$NPM_REGISTRY"
+fi
 echo "claude    : ${CLAUDE_VERSION}（构建期钉住；装到别的版本会让构建当场失败）"
 echo "产物目录  : $OUT"
+if [ "${RELEASE_DRY_RUN:-0}" = "1" ]; then
+  echo "模式      : 试跑（只打印命令，不构建、不动真 dist/）"
+fi
 echo
 
 # ── 前置自检：缺任一项都直接停，不要产出半成品交付包 ──
@@ -78,6 +149,10 @@ fi
 mkdir -p "$OUT"
 : > "$OUT/SHA256SUMS"
 MANIFEST="$OUT/MANIFEST.txt"
+MIRROR_NOTE="官方源"
+if [ "$MIRROR" = "cn" ]; then
+  MIRROR_NOTE="国内镜像（apt/pip/npm 换源；只换取包地址，取哪些包不变）"
+fi
 
 {
   echo "DeckSmith 交付包"
@@ -86,6 +161,7 @@ MANIFEST="$OUT/MANIFEST.txt"
   echo "git 提交  : $(git rev-parse --short HEAD)  分支: $(git rev-parse --abbrev-ref HEAD)"
   echo "构建环境  : $(docker version --format '{{.Server.Version}}') / 本机架构 $SERVER_ARCH"
   echo "基础镜像  : $BASE_IMAGE"
+  echo "取包源    : $MIRROR — $MIRROR_NOTE"
   echo
   echo "导入方式（客户机只需自己架构的那一份）："
   echo "  gzip -dc < 文件名.tar.gz | docker load"
@@ -107,10 +183,17 @@ for platform in $PLATFORMS; do
 
     args=(buildx build --platform "$platform" -f "$dockerfile" -t "$image"
           --build-arg "BASE_IMAGE=$BASE_IMAGE"
+          "${MIRROR_ARGS[@]}"
           --output "type=docker,dest=$staging")
     # web 的接口代理目标在构建期固化，必须显式传后端 service 名与端口
     [ "$svc" = "web" ] && args+=(--build-arg BACKEND_HOST=app --build-arg BACKEND_PORT=8080)
     [ "$svc" = "app" ] && args+=(--build-arg "CLAUDE_VERSION=$CLAUDE_VERSION")
+
+    # 试跑打印的就是上面这份 args，不另写一遍——否则"试跑看着对、真跑跑的是另一套"
+    if [ "${RELEASE_DRY_RUN:-0}" = "1" ]; then
+      echo "DRYRUN | docker ${args[*]} ."
+      continue
+    fi
 
     if ! docker "${args[@]}" .; then
       echo "!!! 失败：$svc [$platform]" >&2

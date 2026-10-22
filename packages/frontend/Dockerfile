@@ -23,14 +23,30 @@
 # 基础镜像提为参数：实测本环境拉不到 Docker Hub，有加速器的内网可自行指向
 ARG BASE_IMAGE=node:20-slim
 FROM ${BASE_IMAGE} AS deps
+# 取包源开关：与 packages/backend/Dockerfile 同一套语义——默认全空＝一行源都不改。
+# 各层用哪个值由构建命令重复传（ARG 不跨层继承），见 docs/adr/ADR-030。
+ARG BUILD_MIRROR=official
+ARG APT_MIRROR=
+ARG APT_SECURITY_MIRROR=
+ARG NPM_REGISTRY=
 WORKDIR /repo/packages/frontend
 COPY packages/frontend/package.json packages/frontend/package-lock.json ./
-RUN npm ci
+RUN npm ci ${NPM_REGISTRY:+--registry "$NPM_REGISTRY"}
 
 # ── 生成 + 构建层 ──
 ARG BASE_IMAGE
 FROM ${BASE_IMAGE} AS build
+ARG APT_MIRROR
+ARG APT_SECURITY_MIRROR
 WORKDIR /repo
+
+# APT_MIRROR 为空时整段跳过；安全更新地址必须先替换（前缀关系，理由见后端那份说明）
+RUN set -eux; if [ -n "$APT_MIRROR" ]; then \
+      for f in /etc/apt/sources.list.d/debian.sources /etc/apt/sources.list; do \
+        [ -f "$f" ] || continue; \
+        sed -i "s|http://deb.debian.org/debian-security|${APT_SECURITY_MIRROR}|g; s|http://security.debian.org/debian-security|${APT_SECURITY_MIRROR}|g; s|http://deb.debian.org/debian|${APT_MIRROR}|g" "$f"; \
+      done; \
+    fi
 
 # generate-types.sh 第二步要调 python3 跑 scripts/gen-engine-types.py；node 镜像不含 python3
 RUN apt-get update \
@@ -56,6 +72,10 @@ RUN npm --prefix packages/frontend run build
 # ── 运行层 ──
 ARG BASE_IMAGE
 FROM ${BASE_IMAGE} AS runner
+# 与后端镜像同一口径留痕：现场 `docker inspect decksmith/web:<版本>` 就能看到这张包
+# 当时是走官方源还是国内镜像取包构建的
+ARG BUILD_MIRROR=official
+LABEL decksmith.build-mirror="${BUILD_MIRROR}"
 WORKDIR /app
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \

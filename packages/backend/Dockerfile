@@ -18,6 +18,22 @@
 ARG BASE_IMAGE=node:20-slim
 FROM ${BASE_IMAGE}
 
+# ── 取包源开关 ──
+# 默认全部为空＝一行源都不改，构建行为与加这个开关之前完全一致；只有
+# scripts/release.sh 以 MIRROR=cn 显式传入时才生效。
+# 为什么要有（2026-10-21 实测）：同一份依赖清单，境外源在国内机器上会中途断——
+# 那台 x86 机器 apt 直接连不上 deb.debian.org，pip 下 68.9MB 的轮子读到超时。
+# 换源只改"从哪儿取包"，不改"取哪些包"。走没走过国内源由下面
+# decksmith.build-mirror 标签随镜像留痕，交付包事后可核对。
+ARG BUILD_MIRROR=official
+ARG APT_MIRROR=
+ARG APT_SECURITY_MIRROR=
+ARG PIP_INDEX_URL=
+ARG PIP_EXTRA_INDEX_URL=
+ARG PIP_TIMEOUT=
+ARG PIP_RETRIES=
+ARG NPM_REGISTRY=
+
 # claude CLI 必须钉版本。不钉则 `npm install -g @anthropic-ai/claude-code` 取的是
 # **构建当时** registry 的最新版，与开发机上装的 CLI 无关——实测三处各异：
 # npm 注册表 2.1.272 / 我们镜像 2.1.197 / 开发机 CLI 2.1.105。
@@ -27,7 +43,20 @@ ARG CLAUDE_VERSION=2.1.197
 
 # 版本随镜像留痕：现场用 `docker inspect decksmith/app:<版本>` 即可核对实际 CLI 版本
 LABEL decksmith.claude-version="${CLAUDE_VERSION}" \
-      decksmith.components="backend,engine,claude-cli,upstream-skills"
+      decksmith.components="backend,engine,claude-cli,upstream-skills" \
+      decksmith.build-mirror="${BUILD_MIRROR}"
+
+# APT_MIRROR 为空时整段跳过。不为空时只替换 Debian 归档地址：bookworm 的源在
+# deb822 格式的 /etc/apt/sources.list.d/debian.sources 里，老镜像才是
+# /etc/apt/sources.list，两处都试一遍。
+# 安全更新那条必须先替换——`http://deb.debian.org/debian` 是
+# `http://deb.debian.org/debian-security` 的**前缀**，顺序反了就拼出一个不存在的路径。
+RUN set -eux; if [ -n "$APT_MIRROR" ]; then \
+      for f in /etc/apt/sources.list.d/debian.sources /etc/apt/sources.list; do \
+        [ -f "$f" ] || continue; \
+        sed -i "s|http://deb.debian.org/debian-security|${APT_SECURITY_MIRROR}|g; s|http://security.debian.org/debian-security|${APT_SECURITY_MIRROR}|g; s|http://deb.debian.org/debian|${APT_MIRROR}|g" "$f"; \
+      done; \
+    fi
 
 # procps: 引擎用 `ps -p` 判进程存活（_process_alive）；curl 给 HEALTHCHECK；
 # git: claude CLI 会 shell 外调它（会话 jsonl 里的 gitBranch 字段即其所写），缺失虽不报错
@@ -59,7 +88,12 @@ COPY packages/engine/requirements.txt /app/packages/engine/requirements.txt
 COPY lib/ppt-master/requirements.txt /app/lib/ppt-master/requirements.txt
 COPY lib/ppt-master/skills/ppt-master/requirements.txt /app/lib/ppt-master/skills/ppt-master/requirements.txt
 
-RUN pip install -r /app/packages/backend/requirements.txt
+# 取包地址、超时与重试只在开关打开时附加；三个变量都为空时，这一行与开关之前逐字等价。
+RUN pip install ${PIP_INDEX_URL:+--index-url "$PIP_INDEX_URL"} \
+    ${PIP_EXTRA_INDEX_URL:+--extra-index-url "$PIP_EXTRA_INDEX_URL"} \
+    ${PIP_TIMEOUT:+--timeout "$PIP_TIMEOUT"} \
+    ${PIP_RETRIES:+--retries "$PIP_RETRIES"} \
+    -r /app/packages/backend/requirements.txt
 
 # 决策 8 的构建期断言：装得上不等于 import 得到（开发机上就栽在 PATH python3 缺 pathops）
 RUN python3 -c "import pathops, uharfbuzz, pptx, fitz, mammoth, openpyxl, flask, curl_cffi" \
@@ -77,7 +111,7 @@ RUN chmod +x /usr/local/bin/entrypoint.sh
 # claude CLI：两个输出引擎的硬依赖，无离线退路（ADR-011 决策 2）。
 # 按钉住的版本精确安装，并**断言装到的就是那个版本**——不信任"npm 应该会给我们这个版本"。
 # 版本同时落到镜像 label 与 /opt/claude-version，供交付包 MANIFEST 与现场核对取用。
-RUN npm install -g --omit=dev "@anthropic-ai/claude-code@${CLAUDE_VERSION}" \
+RUN npm install -g --omit=dev ${NPM_REGISTRY:+--registry "$NPM_REGISTRY"} "@anthropic-ai/claude-code@${CLAUDE_VERSION}" \
     && npm cache clean --force \
     && actual="$(claude --version | awk '{print $1}')" \
     && if [ "$actual" != "$CLAUDE_VERSION" ]; then \

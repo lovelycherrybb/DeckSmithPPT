@@ -5,7 +5,7 @@
  */
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Button,
   Card,
@@ -36,6 +36,7 @@ import {
   type Project as ProjectSummary,
 } from '@/lib/api';
 import { usePollingJobs } from '@/hooks/usePollingJobs';
+import { isPending } from '@/lib/jobStatus';
 import DraftsPanel from '@/components/workspace/DraftsPanel';
 import GenerationJobsPanel from '@/components/workspace/GenerationJobsPanel';
 import PresentationsPanel from '@/components/workspace/PresentationsPanel';
@@ -62,35 +63,44 @@ export default function HistoryTab({ onOpenInWorkspace }: Props) {
   const [presentations, setPresentations] = useState<Presentation[]>([]);
   const [viewLoading, setViewLoading] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  // silent：任务完成联动走静默档——不铺 loading（用户正看着的东西不该被转圈盖一下），
+  // 也不弹错误提示（下一次轮询或手动刷新都会补回来，为一次后台补拉甩红条反而吓人）。
+  // 参数用对象而非裸布尔，是为了让 `onClick={load}` 这类"把点击事件当第一个参数塞进来"
+  // 的写法在编译期就报错（裸 boolean 时它会被判成 truthy，于是刷新按钮永远静默、错误永远吞掉）。
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent === true;
+    if (!silent) setLoading(true);
     try {
       setProjects(await listProjects(100));
     } catch (e) {
-      messageApi.error(e instanceof Error ? e.message : '获取项目列表失败');
+      if (!silent) messageApi.error(e instanceof Error ? e.message : '获取项目列表失败');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [messageApi]);
 
   // 进入「查看」时拉取该项目的草稿/演示文件/引擎清单
-  const loadViewData = useCallback(async (projectId: string) => {
-    setViewLoading(true);
-    try {
-      const [d, pres, eng] = await Promise.all([
-        listProjectDrafts(projectId),
-        listProjectPresentations(projectId),
-        listEngines(),
-      ]);
-      setDrafts(d);
-      setPresentations(pres);
-      setEngines(eng);
-    } catch (e) {
-      messageApi.error(e instanceof Error ? e.message : '获取项目数据失败');
-    } finally {
-      setViewLoading(false);
-    }
-  }, [messageApi]);
+  const loadViewData = useCallback(
+    async (projectId: string, opts?: { silent?: boolean }) => {
+      const silent = opts?.silent === true;
+      if (!silent) setViewLoading(true);
+      try {
+        const [d, pres, eng] = await Promise.all([
+          listProjectDrafts(projectId),
+          listProjectPresentations(projectId),
+          listEngines(),
+        ]);
+        setDrafts(d);
+        setPresentations(pres);
+        setEngines(eng);
+      } catch (e) {
+        if (!silent) messageApi.error(e instanceof Error ? e.message : '获取项目数据失败');
+      } finally {
+        if (!silent) setViewLoading(false);
+      }
+    },
+    [messageApi]
+  );
 
   useEffect(() => {
     load();
@@ -100,6 +110,40 @@ export default function HistoryTab({ onOpenInWorkspace }: Props) {
   useEffect(() => {
     if (viewProjectId) loadViewData(viewProjectId);
   }, [viewProjectId, loadViewData]);
+
+  // ── 任务完成联动（与 WorkspaceTab 同一判据、同一口径：isPending = queued + running）──
+  // 从前只读视图只在「进入查看」那一刻拉一次草稿/演示文件，而任务状态走的是全站轮询，
+  // 于是现象是"任务明明变成已完成了，演示文件库还是空的，非要刷整页才看得到文件"。
+  // 后端把任务判成 completed 与登记演示文件在同一次调度收尾里做完（只差一次 INSERT），
+  // 所以不需要额外的延时补拉，一次联动即可。
+
+  // 切换查看项目时把基线打回 -1：否则上一个项目"还剩 1 个未结束"会在新项目上被
+  // 误判成"刚完成"，平白多刷一次（新项目自己那次由上面的 loadViewData 负责）。
+  const viewActiveRef = useRef(-1);
+  useEffect(() => {
+    viewActiveRef.current = -1;
+  }, [viewProjectId]);
+
+  // 只看当前查看项目的未结束任务：轮询是全量的，别的项目收尾不该惊动这个项目的面板
+  useEffect(() => {
+    if (!viewProjectId) return;
+    const active = jobs.filter(
+      (j) => isPending(j.status) && j.project_id === viewProjectId
+    ).length;
+    if (viewActiveRef.current > 0 && active === 0) {
+      loadViewData(viewProjectId, { silent: true });
+    }
+    viewActiveRef.current = active;
+  }, [jobs, viewProjectId, loadViewData]);
+
+  // 外层表格的「演示文件数量 / 进行中任务」两列同理：未结束任务清零时静默补一次，
+  // 不必为了看数字再点一次刷新。口径同上（全站维度，与表格行口径一致）。
+  const tableActiveRef = useRef(-1);
+  useEffect(() => {
+    const active = jobs.filter((j) => isPending(j.status)).length;
+    if (tableActiveRef.current > 0 && active === 0) load({ silent: true });
+    tableActiveRef.current = active;
+  }, [jobs, load]);
 
   const viewProject = projects.find((p) => p.project_id === viewProjectId);
 
@@ -199,7 +243,7 @@ export default function HistoryTab({ onOpenInWorkspace }: Props) {
       <Card
         title="历史项目"
         extra={
-          <Button size="small" icon={<RefreshCw size={13} />} onClick={load} loading={loading}>
+          <Button size="small" icon={<RefreshCw size={13} />} onClick={() => load()} loading={loading}>
             刷新
           </Button>
         }

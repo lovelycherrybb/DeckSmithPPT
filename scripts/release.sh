@@ -5,6 +5,9 @@
 #   bash scripts/release.sh 0.2.0
 #   PLATFORMS="linux/amd64" BASE_IMAGE=<内网仓库>/node:20-slim bash scripts/release.sh 0.2.0
 #   bash scripts/release.sh 0.6.2 --mirror cn          # 取包改走国内镜像（apt / pip / npm）
+#   SERVICES=web bash scripts/release.sh 0.6.2         # 只出一张（默认 app web 两张一起出）
+#       ↑ 分批出包用：app 那张约 2.7GB、要四十分钟，中途被外部因素打断时，先出的 web 留得住。
+#         注意每次运行都会整体重写 SHA256SUMS / MANIFEST，分批时请自行合并两份清单。
 #   RELEASE_DRY_RUN=1 bash scripts/release.sh 0.6.2 --mirror cn
 #       ↑ 只打印将执行的构建命令，不构建、不碰 dist/ 下任何出厂清单
 #
@@ -188,9 +191,15 @@ fi
   echo "清单："
 } > "$MANIFEST"
 
+# SERVICES 只用于分批出包（大镜像那轮被打断时，先出的小镜像能留得住），默认仍两张一起出。
+SERVICES="${SERVICES:-app web}"
+for svc in $SERVICES; do
+  case "$svc" in app|web) ;; *) echo "错误：SERVICES 只认 app / web，收到：$svc" >&2; exit 2 ;; esac
+done
+
 for platform in $PLATFORMS; do
   arch="${platform##*/}"
-  for svc in app web; do
+  for svc in $SERVICES; do
     case "$svc" in
       app) dockerfile="packages/backend/Dockerfile";  image="$IMAGE_PREFIX/app:$VERSION" ;;
       web) dockerfile="packages/frontend/Dockerfile"; image="$IMAGE_PREFIX/web:$VERSION" ;;

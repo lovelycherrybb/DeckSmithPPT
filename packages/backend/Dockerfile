@@ -62,14 +62,22 @@ RUN set -eux; if [ -n "$APT_MIRROR" ]; then \
 # git: claude CLI 会 shell 外调它（会话 jsonl 里的 gitBranch 字段即其所写），缺失虽不报错
 #       但属静默降级，现场难归因，故一并装上；
 # CA + tzdata 给出网调用与时区
-RUN apt-get update \
+#
+# 三处取包（apt / pip / npm）都挂 BuildKit 持久缓存。为什么必须挂：这台出包机到国内镜像站
+# 会中途断流（2026-10-26 实测），一次失败过去要把约 1.5GB 依赖从头再下，四十分钟白费；
+# 缓存挂载在构建失败后仍然留着，重试只补没下完的那几个。缓存只存在于构建侧，
+# 不进镜像层，交付包内容与不加挂载时逐字节一致。
+RUN --mount=type=cache,id=decksmith-apt,target=/var/cache/apt/archives \
+    apt-get update \
     && apt-get install -y --no-install-recommends \
          python3 python3-venv python3-pip python3-dev \
          procps curl git ca-certificates tzdata \
     && rm -rf /var/lib/apt/lists/*
 
+# PIP_NO_CACHE_DIR 不再全局设 1：那等于让 pip 下完就扔，挂载的缓存会被当场清空
+# （2026-10-26 复核时发现这条与上面的缓存挂载互相抵消）。改成只在下面那条 install 里
+# 用 --no-cache-dir 显式控制。
 ENV PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     VIRTUAL_ENV=/opt/venv \
     PATH="/opt/venv/bin:$PATH"
@@ -89,7 +97,10 @@ COPY lib/ppt-master/requirements.txt /app/lib/ppt-master/requirements.txt
 COPY lib/ppt-master/skills/ppt-master/requirements.txt /app/lib/ppt-master/skills/ppt-master/requirements.txt
 
 # 取包地址、超时与重试只在开关打开时附加；三个变量都为空时，这一行与开关之前逐字等价。
-RUN pip install ${PIP_INDEX_URL:+--index-url "$PIP_INDEX_URL"} \
+# 不加 --no-cache-dir：轮子要落进下面挂载的持久缓存，下次重试不必重新下载。
+# 缓存目录不进镜像层，交付包内容不变。
+RUN --mount=type=cache,id=decksmith-pip,target=/root/.cache/pip \
+    pip install ${PIP_INDEX_URL:+--index-url "$PIP_INDEX_URL"} \
     ${PIP_EXTRA_INDEX_URL:+--extra-index-url "$PIP_EXTRA_INDEX_URL"} \
     ${PIP_TIMEOUT:+--timeout "$PIP_TIMEOUT"} \
     ${PIP_RETRIES:+--retries "$PIP_RETRIES"} \
@@ -111,8 +122,10 @@ RUN chmod +x /usr/local/bin/entrypoint.sh
 # claude CLI：两个输出引擎的硬依赖，无离线退路（ADR-011 决策 2）。
 # 按钉住的版本精确安装，并**断言装到的就是那个版本**——不信任"npm 应该会给我们这个版本"。
 # 版本同时落到镜像 label 与 /opt/claude-version，供交付包 MANIFEST 与现场核对取用。
-RUN npm install -g --omit=dev ${NPM_REGISTRY:+--registry "$NPM_REGISTRY"} "@anthropic-ai/claude-code@${CLAUDE_VERSION}" \
-    && npm cache clean --force \
+# 原来紧跟一句 `npm cache clean --force`，其作用正是把缓存清掉——与持久缓存挂载互相抵消，
+# 已去掉；缓存目录是挂载点，不进镜像层。
+RUN --mount=type=cache,id=decksmith-npm,target=/root/.npm \
+    npm install -g --omit=dev ${NPM_REGISTRY:+--registry "$NPM_REGISTRY"} "@anthropic-ai/claude-code@${CLAUDE_VERSION}" \
     && actual="$(claude --version | awk '{print $1}')" \
     && if [ "$actual" != "$CLAUDE_VERSION" ]; then \
          echo "FATAL: 请求 claude ${CLAUDE_VERSION}，实际装到 ${actual}"; exit 1; \

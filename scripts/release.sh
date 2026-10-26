@@ -62,8 +62,13 @@ case "$MIRROR" in
     # 带签名校验，走 http 不降低完整性保证。pip / npm 的 https 同机实测可过，保持 https。
     APT_MIRROR="http://mirrors.tuna.tsinghua.edu.cn/debian"
     APT_SECURITY_MIRROR="http://mirrors.tuna.tsinghua.edu.cn/debian-security"
-    PIP_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple"
-    PIP_EXTRA_INDEX_URL="https://pypi.org/simple"
+    # pip 首选阿里：2026-10-26 在那台 x86 构建机上同一网络路径实测六个源，清华当时只有
+    # 约 135 KB/s（一个 79KB 的包下了 137 秒仍断流，四十分钟的构建毁在这一步），
+    # 阿里约 1.9 MB/s、南大 0.95 MB/s、华为 0.75 MB/s。清华降为备用索引（阿里缺某个
+    # 钉住的版本时仍能落到它上面）。注意备用索引只能传一个地址——Dockerfile 里是
+    # `--extra-index-url "$PIP_EXTRA_INDEX_URL"` 整体引用，塞两个会被拆开传错。
+    PIP_INDEX_URL="https://mirrors.aliyun.com/pypi/simple"
+    PIP_EXTRA_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple"
     PIP_TIMEOUT="120"
     PIP_RETRIES="10"
     NPM_REGISTRY="https://registry.npmmirror.com"

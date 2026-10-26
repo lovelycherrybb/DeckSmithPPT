@@ -31,7 +31,10 @@ ARG APT_SECURITY_MIRROR=
 ARG NPM_REGISTRY=
 WORKDIR /repo/packages/frontend
 COPY packages/frontend/package.json packages/frontend/package-lock.json ./
-RUN npm ci ${NPM_REGISTRY:+--registry "$NPM_REGISTRY"}
+# 挂持久缓存：出包机到镜像站会中途断流（2026-10-26 实测），一次失败不该把整包依赖重下。
+# 缓存目录是挂载点、不进镜像层，交付包内容与不加挂载时一致。
+RUN --mount=type=cache,id=decksmith-npm,target=/root/.npm \
+    npm ci ${NPM_REGISTRY:+--registry "$NPM_REGISTRY"}
 
 # ── 生成 + 构建层 ──
 ARG BASE_IMAGE
@@ -49,7 +52,8 @@ RUN set -eux; if [ -n "$APT_MIRROR" ]; then \
     fi
 
 # generate-types.sh 第二步要调 python3 跑 scripts/gen-engine-types.py；node 镜像不含 python3
-RUN apt-get update \
+RUN --mount=type=cache,id=decksmith-apt,target=/var/cache/apt/archives \
+    apt-get update \
     && apt-get install -y --no-install-recommends python3 \
     && rm -rf /var/lib/apt/lists/*
 

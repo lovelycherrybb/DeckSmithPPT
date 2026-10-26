@@ -82,7 +82,7 @@ docker compose logs app | grep runtime   # 应逐条输出「前置条件就绪�
 | `ANTHROPIC_DEFAULT_SONNET_MODEL`<br>`..._OPUS_MODEL` `..._HAIKU_MODEL` | `deploy/.env` | 第三方网关必填 | claude 内部还按 sonnet/opus/haiku 三档挑模型，默认值是官方 `claude-*` 名；网关上不存在这几档时，**填对 key 也会在后续调用失败**，需一并指到网关自己的模型名。实测这些变量名硬编码在 claude 原生二进制内，容器无需 settings.json |
 | `WEB_PORT` | `deploy/.env` | 否 | 对外端口，默认 3000 |
 | `BASE_IMAGE` | 构建参数 | 否 | 基础镜像地址，默认 `node:20-slim` |
-| `MIRROR`（等价写法 `--mirror`） | 构建参数 | 否 | 取包地址开关。不给或填 `official`＝走官方源，行为与该开关加入之前完全一致；填 `cn`＝apt 走清华、pip 走清华 PyPI 并保留官方源作备用索引、npm 走 npmmirror。**只改"从哪儿取包"，不改"取哪些包"**：依赖清单与钉住的版本一概不变。走没走过该开关记在镜像标签 `decksmith.build-mirror` 与 `MANIFEST.txt` 的"取包源"一行，事后可核对（依据 ADR-030） |
+| `MIRROR`（等价写法 `--mirror`） | 构建参数 | 否 | 取包地址开关。不给或填 `official`＝走官方源，行为与该开关加入之前完全一致；填 `cn`＝apt 走清华、pip 首选阿里（清华为备用索引）、npm 走 npmmirror。**只改"从哪儿取包"，不改"取哪些包"**：依赖清单与钉住的版本一概不变。走没走过该开关记在镜像标签 `decksmith.build-mirror` 与 `MANIFEST.txt` 的"取包源"一行，事后可核对（依据 ADR-030）。两个 Dockerfile 的 apt / pip / npm 三处取包都挂着 BuildKit 持久缓存，构建失败后重试不必从头重下依赖；缓存不进镜像层，交付包内容不受影响（`docker buildx prune -af` 会把这份缓存一起清掉，清完第一次构建会慢） |
 | `IMAGE_TAG` | `deploy/.env` | **是** | 镜像标签。**故意不给兜底默认值**——写死默认会把人引向旧版本，且标签所指镜像不存在时 compose 会转头构建（离线环境随即失败）。每次发版同步更新 |
 | `CLAUDE_VERSION` | `deploy/.env`／构建参数 | 否 | 钉住的 claude CLI 版本（默认 `2.1.197`，即端到端验证过的那个）。构建期会断言实际装到的版本，不符即失败 |
 | `HTTPS_PROXY` | `deploy/.env` | 否 | 仅能走代理出网的环境填写 |

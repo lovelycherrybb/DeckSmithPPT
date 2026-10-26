@@ -5,6 +5,9 @@
 #   bash scripts/upgrade.sh 0.3.0              # 从源码构建新镜像
 #   bash scripts/upgrade.sh 0.3.0 dist         # 从交付目录里的 *.tar.gz 离线导入
 #   bash scripts/upgrade.sh 0.3.0 dist --check # 只做到“镜像已备好”，不动在跑的服务
+#   bash scripts/upgrade.sh 0.3.0 dist --force-busy  # 明知有任务在跑仍强行升级（默认拒绝）
+#
+# 停服务前会先查一次「有没有任务在跑或排队」，查不到按「没能比」处理同样停下（见第 2 节）。
 #
 # 脚本按自身所在目录定位仓库根，所以在任何目录下用绝对路径调用都等价于在仓库根执行
 # （这点是被实测咬出来的：从别处调用也会真的往下走，所以才有 --check）。
@@ -19,12 +22,20 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-VERSION="${1:-}"
-TAR_DIR="${2:-}"
-CHECK_ONLY=0
-[ "${3:-}" = "--check" ] && CHECK_ONLY=1
-if [ -z "$VERSION" ] || [ "$VERSION" = "--check" ]; then
-  echo "用法：bash scripts/upgrade.sh <新版本号> [交付包目录] [--check]" >&2
+# 位置参数与开关可任意顺序：第 1 个非开关参数是版本号，第 2 个是交付包目录
+VERSION=""; TAR_DIR=""; CHECK_ONLY=0; FORCE_BUSY=0
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --check)       CHECK_ONLY=1 ;;
+    --force-busy)  FORCE_BUSY=1 ;;
+    *) if [ -z "$VERSION" ]; then VERSION="$1"
+       elif [ -z "$TAR_DIR" ]; then TAR_DIR="$1"
+       else echo "错误：多余参数 $1（用法见脚本头部注释）" >&2; exit 2; fi ;;
+  esac
+  shift
+done
+if [ -z "$VERSION" ]; then
+  echo "用法：bash scripts/upgrade.sh <新版本号> [交付包目录] [--check] [--force-busy]" >&2
   exit 2
 fi
 
@@ -84,11 +95,50 @@ if [ "$CHECK_ONLY" = "1" ]; then
   exit 0
 fi
 
-# ── 2. 停服务（数据保留）──────────────────────────────────────────
+# ── 2. 停服务前：确认没有在跑/排队的任务 ──────────────────────────
+# 终态集合与 packages/frontend/src/lib/jobStatus.ts 的 TERMINAL_STATUSES、契约里的
+# JobStatus 保持一致（queued/running 为未结束）。
+# 为什么加这道闸：2026-10-26 给生产实例升级时，动手前没查过「有没有人正在用」，
+# 是事后补查才发现空闲。停服务会当场打断在跑的生成任务，且不可恢复。
+# 查不到一律按「没能比」处理——绝不把"查不到"当成"没有在跑"。
+if [ "$FORCE_BUSY" = "1" ]; then
+  echo ">>> 已用 --force-busy 跳过在跑任务检查（若此刻真有任务，会被这次停服打断）" >&2
+else
+  echo ">>> 停服前检查：有没有正在跑或排队的任务"
+  BUSY_QUERY='select coalesce(group_concat(status || "=" || cnt, " "), "") from (select status, count(*) as cnt from jobs where status not in ("completed","failed","timeout","cancelled") group by status);'
+  # 赋值尾部挂 `|| QUERY_RC=$?`：本脚本开了 set -e，命令替换失败会直接把脚本掐死在
+  # 退出码 1（那是"有问题"），而"查不到"要报的是"没能比"(2)，两者必须分得开。
+  QUERY_RC=0
+  BUSY_JSON="$( ( IMAGE_TAG="${OLD_TAG:-$VERSION}" docker compose exec -T app python3 -c '
+import json, sqlite3, sys
+try:
+    con = sqlite3.connect("file:/data/db/decksmith.db?mode=ro", uri=True)
+    rows = con.execute(sys.argv[1]).fetchall()
+except Exception as exc:
+    print(json.dumps({"ok": False, "why": str(exc)}))
+    sys.exit(0)
+print(json.dumps({"ok": True, "busy": " ".join("%s=%s" % r for r in rows)}))
+' "$BUSY_QUERY" 2>/dev/null ) )" || QUERY_RC=$?
+  if [ "$QUERY_RC" -ne 0 ] || ! printf '%s' "$BUSY_JSON" | grep -q '"ok": *true'; then
+    echo "错误：查不到任务状态（服务没在跑、库读不到，或 app 镜像内无 python3）。" >&2
+    echo "      这按「没能比」处理，不等于「没有在跑」——服务未做任何改动。" >&2
+    echo "      请先自行确认没有任务在跑，再重跑本脚本；确实要强行升级时加 --force-busy。" >&2
+    exit 2
+  fi
+  BUSY="$(printf '%s' "$BUSY_JSON" | sed -n 's/.*"busy": *"\([^"]*\)".*/\1/p')"
+  if [ -n "$BUSY" ]; then
+    echo "错误：有任务未结束（${BUSY}），停止服务会打断它们。服务未做任何改动。" >&2
+    echo "      等任务跑完再升级；确实要强行打断时加 --force-busy。" >&2
+    exit 1
+  fi
+  echo "    OK：没有在跑或排队的任务"
+fi
+
+# ── 3. 停服务（数据保留）──────────────────────────────────────────
 echo ">>> 停止服务"
 IMAGE_TAG="${OLD_TAG:-$VERSION}" docker compose down
 
-# ── 3. 备份 data/（先停后包，避免 SQLite 处于写入中间态）──────────
+# ── 4. 备份 data/（先停后包，避免 SQLite 处于写入中间态）──────────
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 mkdir -p backups
 BACKUP="backups/data-$STAMP-before-v$VERSION.tar.gz"
@@ -103,7 +153,7 @@ else
   echo ">>> 尚无 deploy/data/，全新安装，跳过备份"
 fi
 
-# ── 4. 写 .env 的 IMAGE_TAG（原文件留 .env.bak，不碰其它内容）─────
+# ── 5. 写 .env 的 IMAGE_TAG（原文件留 .env.bak，不碰其它内容）─────
 cp -p .env ".env.bak-$STAMP"
 if grep -qE '^IMAGE_TAG=' .env; then
   sed "s|^IMAGE_TAG=.*|IMAGE_TAG=$VERSION|" .env > ".env.tmp-$STAMP"
@@ -113,7 +163,7 @@ fi
 mv ".env.tmp-$STAMP" .env
 echo ">>> .env 的 IMAGE_TAG 已置为 ${VERSION}（原文件备份 .env.bak-${STAMP}）"
 
-# ── 5. 启动并验健康 ───────────────────────────────────────────────
+# ── 6. 启动并验健康 ───────────────────────────────────────────────
 echo ">>> 启动"
 if [ "$NEED_BUILD" = "0" ]; then docker compose up -d --no-build; else docker compose up -d; fi
 

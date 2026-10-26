@@ -156,9 +156,16 @@ bash scripts/upgrade.sh 0.3.0 dist --check  # 只做到“镜像已备好”，�
 ```
 
 脚本按顺序做：预检 → 备好新镜像（导入失败或找不到匹配 tar 就**在不停服的前提下**直接退出）
-→ 停服务 → 打包 `deploy/data/` 到 `deploy/backups/` 并校验可读 → 幂等改写 `.env` 的
+→ **查有没有正在跑或排队的任务**（有则退出码 1、查不到则按「没能比」退出码 2，两种都不停服；
+明知有任务仍要强行升级时才加 `--force-busy`）→ 停服务 → 打包 `deploy/data/` 到
+`deploy/backups/` 并校验可读 → 幂等改写 `.env` 的
 `IMAGE_TAG`（原文件留 `.env.bak-<时间>`）→ 启动 → 轮询 web 就绪后打印容器清单。
 任一前置步骤失败即停下，**服务未停、数据未动**。
+
+停服前那道任务检查不是走过场：`docker compose down` 会当场打断正在生成的任务且不可恢复。
+判据与契约的 `JobStatus` 同源（`queued`/`running` 为未结束），由
+`tests/contract/upgrade_gate_test.py` 机器比对并配了破坏用例——把 `running` 写成终态、
+或把这道检查挪到停服之后，测试都会报红。
 
 离线交付包（`dist/`）里 `ops/` 与两张 tar 同级。就地升级时**不要**在 `ops/` 下直接起服务——
 那里的 `deploy/` 只有模板，会另起一套空数据、把你现有的 `deploy/data/` 甩在后面。正确做法是把
@@ -192,6 +199,8 @@ cd deploy && tar czf "backups/data-$(date +%FT%TZ).tar.gz" data/ \
 | 现象 | 定位方向 | 处置 |
 |---|---|---|
 | 容器启动即退出，日志含 `前置条件缺失` | 上游技能未取全，或 Claude Code 不可解析 | 按提示执行 `git submodule update --init --recursive`；确认构建未跳过工具安装层 |
+| 构建报 `failed to calculate checksum ...: not found`，但报的文件**确实在仓库里**（连 `deploy/`、`lib/` 整目录都说找不到） | 上一次失败构建留下的半截 buildkit 缓存在骗人，不是仓库缺文件（2026-10-21、10-26 各撞过一次） | `docker buildx prune -af` 清缓存后重跑；环境残留要排在代码嫌疑之前查 |
+| 构建中途报 `failed to receive status: rpc error: ... EOF`，看不出根因 | 传给 `--platform` 的是 `linux/x86_64` 这类非规范名（stock dockerd 的 `docker info` 就报 `x86_64`），构建器不认也不明说 | 显式传 `PLATFORMS=linux/amd64`；`release.sh` 已按本机 CPU 归一化，正常不再复现 |
 | 任务十几秒即 `failed`、`run.log` 几乎为空、`result_path` 为 null | 鉴权未通过：凭证没填、鉴权头类型不对（`x-api-key` 与 `Bearer` 二选一）、或改了 `.env` 没重建容器 | 看 `data/home/.claude/projects/<转义目录>/*.jsonl` 末条，若为 `authentication_failed` 即凭证问题；核对 `docker compose exec app env \| grep -c ANTHROPIC`，为 0 就 `--force-recreate app` |
 | 任务运行很久后失败、无产物 | 模型端点对超长输出中途掐断，流式结果仍可能报成功 | 查 `run.log` 与第五节第 3 项的会话记录；必要时更换模型或收敛单次输出规模 |
 | 界面能打开、接口全部失败 | 界面到后端的代理目标固化在构建期 | `docker compose build web && docker compose up -d` |

@@ -85,7 +85,26 @@ MIRROR_ARGS=(
 )
 
 SERVER_ARCH="$(docker info --format '{{.Architecture}}')"
-PLATFORMS="${PLATFORMS:-linux/${SERVER_ARCH}}"
+# stock dockerd 在 x86 机器上报的是 `x86_64`，而 OCI 只认规范名 `amd64`——直接拼进
+# --platform 会得到 `linux/x86_64`，构建器不报错、只在跑到中途甩一句
+# `failed to receive status: rpc error: ... EOF`，看不出根因（2026-10-26 出 0.6.3 时
+# 在那台 x86 构建机实测撞到；同一脚本在 29.4 上报 `x86_64` 之外还曾报过 `aarch64`，
+# 说明回报值随 Docker 版本而变，不能只按本机实测的一种写死）。
+# 显式传了 PLATFORMS 就照办，本函数只负责兜住默认推导这一条路。
+case "$(uname -m)" in
+  x86_64 | amd64) NATIVE_ARCH=amd64 ;;
+  aarch64 | arm64) NATIVE_ARCH=arm64 ;;
+  *) NATIVE_ARCH="$SERVER_ARCH" ;;
+esac
+case "$SERVER_ARCH" in
+  x86_64 | amd64) DOCKER_ARCH=amd64 ;;
+  aarch64 | arm64) DOCKER_ARCH=arm64 ;;
+  *) DOCKER_ARCH="$SERVER_ARCH" ;;
+esac
+if [ "$NATIVE_ARCH" != "$DOCKER_ARCH" ]; then
+  echo "提醒：本机 CPU 是 $NATIVE_ARCH，docker 回报 $SERVER_ARCH，默认平台按本机 CPU 归一化为 linux/$NATIVE_ARCH" >&2
+fi
+PLATFORMS="${PLATFORMS:-linux/${NATIVE_ARCH}}"
 BASE_IMAGE="${BASE_IMAGE:-node:20-slim}"
 # 与 packages/backend/Dockerfile 的 ARG 默认值保持一致；升版需重新端到端验证
 CLAUDE_VERSION="${CLAUDE_VERSION:-2.1.197}"
@@ -159,7 +178,7 @@ fi
   echo "版本      : $VERSION"
   echo "构建时间  : $(date -u +%Y-%m-%dT%H:%M:%SZ)"
   echo "git 提交  : $(git rev-parse --short HEAD)  分支: $(git rev-parse --abbrev-ref HEAD)"
-  echo "构建环境  : $(docker version --format '{{.Server.Version}}') / 本机架构 $SERVER_ARCH"
+  echo "构建环境  : $(docker version --format '{{.Server.Version}}') / 本机架构 ${NATIVE_ARCH}（docker 回报 ${SERVER_ARCH}）/ 目标平台 ${PLATFORMS}"
   echo "基础镜像  : $BASE_IMAGE"
   echo "取包源    : $MIRROR — $MIRROR_NOTE"
   echo
@@ -201,6 +220,9 @@ for platform in $PLATFORMS; do
       echo "    说明该架构的基础镜像在当前网络下拉不到。处置二选一：" >&2
       echo "      1) BASE_IMAGE=<内网加速器>/node:20-slim（须含 $arch 变体）后重跑" >&2
       echo "      2) 换到能访问镜像仓库的机器或 CI 上重跑本脚本" >&2
+      echo "    若报『failed to calculate checksum ...: not found』而文件确实在（连 deploy/、" >&2
+      echo "    lib/ 整目录都说找不到），那是上一次失败构建留下的半截 buildkit 缓存在骗人，" >&2
+      echo "    不是仓库缺文件——先 docker buildx prune -af 清缓存再重跑（2026-10-26 实测）。" >&2
       echo "    在该架构上真跑成功之前，不要把它写成已验证。" >&2
       exit 1
     fi

@@ -8,7 +8,9 @@
    （失败重试不必从头重下约 1.5GB 依赖）；
 2. 后端那份不得再出现 PIP_NO_CACHE_DIR=1 或 `npm cache clean`——这两句的作用正是
    把刚下好的缓存清掉，与挂载互相抵消（本次就是先加了挂载、后复核才发现它们同存）；
-3. `--mirror cn` 的 pip 首选地址是实测最快的阿里，清华降为备用索引。
+3. `--mirror cn` 的 pip 首选地址是实测最快的阿里，清华降为备用索引；
+4. 交付文档的"版本锚定"一行不许停在旧版本号上（0.6.3 上线后这一度还写着 v0.2.1，
+   运维照它装就会装错版本）。
 
 判据全是可机械核对的硬事实。退出码三态：0 比过且干净 / 1 比过有问题 / 2 没能比。
 --selftest 用故意改坏的文件证明每条判据都能报红（从没红过的检查不算检查）。
@@ -23,6 +25,7 @@ ROOT = Path(__file__).resolve().parents[2]
 BACKEND = ROOT / "packages" / "backend" / "Dockerfile"
 FRONTEND = ROOT / "packages" / "frontend" / "Dockerfile"
 RELEASE = ROOT / "scripts" / "release.sh"
+DEPLOYMENT = ROOT / "docs" / "DEPLOYMENT.md"
 
 # 三处取包步骤 → 必须挂持久缓存
 CACHE_TARGETS = {
@@ -102,11 +105,29 @@ def check_release(text: str) -> list[str]:
     return problems
 
 
+def check_docs(text: str) -> list[str]:
+    """交付文档的"版本锚定"一节不许停在旧版本号上。
+
+    0.6.3 上线后这一节一度还写着 v0.2.1——运维照它装就会装错版本。判据刻意只认
+    `**版本锚定**：` 开头的这一行（它是机器可读的锚），不认正文别处的版本号。
+    """
+    m = re.search(r"^\*\*版本锚定\*\*：.*$", text, re.M)
+    if not m:
+        return ["DEPLOYMENT.md：找不到 `**版本锚定**：` 开头的锚行，发版后无从核对写了哪个版本"]
+    line = m.group(0)
+    if "v0.2.1" in line:
+        return [f"DEPLOYMENT.md：版本锚定仍停在 v0.2.1，发版后必须更新：{line}"]
+    if not re.search(r"v\d+\.\d+\.\d+", line):
+        return ["DEPLOYMENT.md：版本锚定这一行里没有一个版本号，等于没锚"]
+    return []
+
+
 def run_checks() -> tuple[list[str], bool]:
     """返回（问题列表，是否没能比）。缺文件一律算没能比，绝不判通过。"""
     problems: list[str] = []
     incomparable = False
-    for path, fn in ((BACKEND, check_backend), (FRONTEND, check_frontend), (RELEASE, check_release)):
+    for path, fn in ((BACKEND, check_backend), (FRONTEND, check_frontend),
+                     (RELEASE, check_release), (DEPLOYMENT, check_docs)):
         try:
             text = _read(path)
         except FileNotFoundError as exc:
@@ -127,11 +148,14 @@ SABOTAGE = {
                                 'PIP_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple"')),
     "备用索引塞两个地址": (RELEASE, ('PIP_EXTRA_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple"',
                                     'PIP_EXTRA_INDEX_URL="a/simple b/simple"')),
+    "版本锚定停在旧版本号": (DEPLOYMENT, ("**版本锚定**：当前交付锚点为 **`v0.6.3`**",
+                                        "**版本锚定**：当前交付锚点为 **`v0.2.1`**")),
 }
 
 
 def _check_text(path: Path, text: str) -> list[str]:
-    return {BACKEND: check_backend, FRONTEND: check_frontend, RELEASE: check_release}[path](text)
+    return {BACKEND: check_backend, FRONTEND: check_frontend, RELEASE: check_release,
+            DEPLOYMENT: check_docs}[path](text)
 
 
 @pytest.mark.parametrize("label", list(SABOTAGE))
@@ -160,7 +184,7 @@ def main() -> int:
         for p in problems:
             print(f"  - {p}")
         return 1
-    print("OK：三处取包都挂着持久缓存，且没有互相抵消的写法；cn 模式首选阿里源")
+    print("OK：三处取包都挂着持久缓存且无互相抵消的写法；cn 模式首选阿里源；交付文档版本锚点已更新")
     return 0
 
 

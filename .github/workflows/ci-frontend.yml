@@ -59,6 +59,14 @@ jobs:
           grep -q '"/api/jobs"' packages/shared/types/api.d.ts || {
             echo "生成的类型里没有 /api/jobs，契约没被读进来"; exit 1; }
 
+      - name: 用户出参三处比对（本层补上"生成物"那一腿）
+        # 同一份检查文件：契约 CI 里没有生成类型，只比契约与后端；这里生成物刚产出，
+        # 就把第三处一起比了。少了这一腿，"改契约忘了重新生成类型"没人管——
+        # 而 tsc 不会报，因为前端用的就是那份旧的生成物。
+        run: |
+          python -m pip install --quiet pytest pyyaml
+          python -m pytest tests/contract/user_field_alignment_test.py -q
+
       - name: 类型检查
         run: npx tsc --noEmit
         working-directory: packages/frontend

@@ -63,5 +63,14 @@ jobs:
         # 同时比对对象层/必填字段/pattern/接口清单。改契约若漏同步任一处，这里当场红。
         run: python scripts/check-alignment.py
 
+      - name: 用户出参三处比对（本层只比契约与后端两处）
+        # 生成类型由前端 CI 产出，本层没有它。SKIP_GENERATED_CHECK=1 让那份检查
+        # 跳过"生成物"那一腿而不是判红；那一腿在 ci-frontend.yml 里跑同一份文件补上。
+        # 少了这一腿的话，"契约加了字段而后端 UserOut 漏加"（FastAPI 会静默不返回）
+        # 就只能等前端 CI 才发现，而前端 CI 根本不装后端依赖。
+        env:
+          SKIP_GENERATED_CHECK: "1"
+        run: python -m pytest tests/contract/user_field_alignment_test.py -q
+
       - name: 运行契约测试
         run: python -m pytest tests/contract/ -q

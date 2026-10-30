@@ -30,6 +30,11 @@ jobs:
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      # 本层不生成前端类型（那是 CI Frontend 的活），所以"三处一致"检查在这里只比
+      # 契约与后端两处。必须设在 job 级：上一版只挂在单独那一步上，结果最后那步
+      # `pytest tests/contract/` 又把这同一份文件跑了一遍、因缺生成物判红（实测红过一次）。
+      SKIP_GENERATED_CHECK: "1"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -64,12 +69,11 @@ jobs:
         run: python scripts/check-alignment.py
 
       - name: 用户出参三处比对（本层只比契约与后端两处）
-        # 生成类型由前端 CI 产出，本层没有它。SKIP_GENERATED_CHECK=1 让那份检查
-        # 跳过"生成物"那一腿而不是判红；那一腿在 ci-frontend.yml 里跑同一份文件补上。
-        # 少了这一腿的话，"契约加了字段而后端 UserOut 漏加"（FastAPI 会静默不返回）
-        # 就只能等前端 CI 才发现，而前端 CI 根本不装后端依赖。
-        env:
-          SKIP_GENERATED_CHECK: "1"
+        # 生成类型由前端 CI 产出，本层没有它。SKIP_GENERATED_CHECK 在 job 级设置，
+        # 所以下面那步"运行契约测试"跑同一份文件时也不会因缺生成物判红；
+        # 生成物那一腿在 ci-frontend.yml 里跑同一份文件补上。
+        # 少了契约与后端这一腿的话，"契约加了字段而后端 UserOut 漏加"（FastAPI 会
+        # 静默不返回）就只能等前端 CI 才发现，而前端 CI 根本不装后端依赖。
         run: python -m pytest tests/contract/user_field_alignment_test.py -q
 
       - name: 运行契约测试

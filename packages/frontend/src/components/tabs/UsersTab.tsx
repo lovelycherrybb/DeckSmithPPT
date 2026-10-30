@@ -15,6 +15,7 @@ import { KeyRound, Plus, Save } from 'lucide-react';
 import {
   createUser, listUsers, resetUserPassword, setUserStatus, updateUser, type User,
 } from '@/lib/api';
+import { timeOrDash } from '@/lib/time';
 
 const ROLE_LABEL: Record<string, string> = { manager: '管理员', vip: '高级用户', normal: '普通用户' };
 const ROLE_COLOR: Record<string, string> = { manager: 'gold', vip: 'purple', normal: 'default' };
@@ -103,7 +104,15 @@ export default function UsersTab() {
       render: (s: string) => <Tag color={s === 'enabled' ? 'green' : 'red'}>{s === 'enabled' ? '启用' : '禁用'}</Tag>,
     },
     {
-      title: '操作', key: 'actions',
+      // 口径：这是"最后一次登录"，不是"最近在线"。会话只在登录时新建、期间不续期，
+      // 挂着账号一直用也不会刷新它。文案与契约 User.last_login_at 的说明一致，别写成"最后访问"。
+      title: '最后登录', dataIndex: 'last_login_at', key: 'last_login_at', width: 110,
+      render: (v: string | null) => timeOrDash(v),
+    },
+    {
+      // 操作列一律钉在列尾（全站口径，与 HistoryTab 一致）：窄屏横向滚动时按钮不许被推出可视区。
+      // width 按内容实测算足（三个按钮 + 间距 + 单元格左右内边距），不靠试出来。
+      title: '操作', key: 'actions', width: 300, fixed: 'right' as const,
       render: (_: unknown, u: User) => {
         const isManager = u.role === 'manager';
         return (
@@ -133,7 +142,8 @@ export default function UsersTab() {
       extra={<Button type="primary" icon={<Plus size={14} />} onClick={openCreate}>新增用户</Button>}
     >
       {holder}
-      <Table rowKey="user_id" loading={loading} columns={columns} dataSource={users} pagination={false} size="middle" />
+      <Table rowKey="user_id" loading={loading} columns={columns} dataSource={users} pagination={false} size="middle"
+        scroll={{ x: 900 }} />
 
       <Modal
         title={creating ? '新增用户' : `编辑用户（${editing?.username ?? ''}）`}

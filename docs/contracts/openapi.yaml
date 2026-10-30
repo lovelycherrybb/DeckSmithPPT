@@ -2609,6 +2609,12 @@ components:
           $ref: '#/components/schemas/UserRole'
         status:
           $ref: '#/components/schemas/UserStatus'
+        last_login_at:
+          type: [string, "null"]
+          format: date-time
+          description: 最后一次登录时间（取该用户最近一条会话的创建时间）。
+            会话只在登录时新建、期间不续期，所以挂着账号一直用不会刷新此值——
+            它是"最近登录"，不是"最近访问"。从未登录过（或会话已清理）为 null。
         created_at:
           type: string
           format: date-time

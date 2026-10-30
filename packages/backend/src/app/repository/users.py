@@ -9,9 +9,9 @@ import json
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
-from ..models import User, UserSetting
+from ..models import User, UserSession, UserSetting
 from ..core.passwords import hash_password
 
 DEFAULT_PASSWORD = "234567"  # 新增用户 / 重置密码统一值
@@ -55,9 +55,28 @@ class UserRepo:
     def username_exists(self, db, username: str) -> bool:
         return self.get_raw_by_username(db, username) is not None
 
+    def last_login_map(self, db) -> dict[str, str]:
+        """user_id -> 最后一次登录时间（该用户最近一条会话的 created_at）。
+
+        会话只在登录时新建、期间不续期（见 core/auth.py 的 create_session），
+        所以这个值是"最近登录"而不是"最近访问"；契约 User.last_login_at 里已写明。
+        一条分组查询取全部，不在列表里逐人查。
+        """
+        rows = db.execute(
+            select(UserSession.user_id, func.max(UserSession.created_at))
+            .group_by(UserSession.user_id)
+        ).all()
+        return {uid: ts for uid, ts in rows}
+
     def list(self, db) -> list[dict]:
         rows = db.execute(select(User).order_by(User.created_at.desc(), User.id.desc())).scalars().all()
-        return [self.to_dict(o) for o in rows]
+        logins = self.last_login_map(db)
+        out = []
+        for o in rows:
+            d = self.to_dict(o)
+            d["last_login_at"] = logins.get(o.user_id)
+            out.append(d)
+        return out
 
     def create(self, db, *, username: str, nickname: str | None = None,
                phone: str | None = None, is_vip: bool = False,

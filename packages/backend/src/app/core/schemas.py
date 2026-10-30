@@ -31,6 +31,7 @@ class UserOut(BaseModel):
     phone: str | None = None
     role: str  # manager | vip | normal
     status: str  # enabled | disabled
+    last_login_at: str | None = None  # 最后一次登录（非"最近访问"，口径见契约 User.last_login_at）
     created_at: str
     updated_at: str
 

@@ -436,6 +436,94 @@ def test_divergence_presets_match_between_contract_and_doc() -> None:
     )
 
 
+def test_visible_params_carry_no_default() -> None:
+    """可见参数不得在契约里留 default。
+
+    留了 default 就等于系统替用户预选了一个值：界面上"没选"和"选了那个值"再也分不开，
+    规则 10 直接失效。隐藏的纯工程旋钮（x-hidden）不在此列——它们要的是每次显式给值、
+    无人值守可复现。
+    """
+    data = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    offenders = [
+        f"{name}.{key}（default={spec['default']!r}）"
+        for name in output_engine_names()
+        for key, spec in data["$defs"][name].get("properties", {}).items()
+        if not spec.get("x-hidden") and "default" in spec
+    ]
+    assert not offenders, f"这些可见参数还留着默认值，等于替用户做主：{offenders}"
+
+
+def test_sectioned_engine_labels_every_visible_param() -> None:
+    """用了分节渲染的引擎，每个可见参数都必须写明自己落在哪儿。
+
+    写明有两种标记，任一即可（**故意不要求两个都写**——同一件事存两处必然漂移）：
+    - `x-section`：进哪个常规小节；
+    - `x-group: "advanced"`：进「高级」折叠区。
+    都没写就会掉进兜底位置、界面上不好找，这条把它逼到明处。
+    """
+    data = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    _, base_dup = _frontend_label_tables()
+    offenders: list[str] = []
+    for name in output_engine_names():
+        props = {k: v for k, v in data["$defs"][name].get("properties", {}).items()
+                 if not v.get("x-hidden") and k not in base_dup}
+        placed = [k for k, v in props.items() if v.get("x-section") or v.get("x-group")]
+        if not placed:
+            continue  # 该引擎根本不用分节渲染，不考核
+        unplaced = sorted(set(props) - set(placed))
+        if unplaced:
+            offenders.append(f"{name}: {unplaced}")
+    assert not offenders, (
+        f"这些参数既没写落在哪个小节、也没标进高级区，界面上会掉进兜底位置不好找：{offenders}"
+    )
+
+
+def test_visible_param_descriptions_are_human_only() -> None:
+    """`description` 只许写给人看的一句话。
+
+    2026-11-02 龚成指出：界面上悬停提示原样印着「中文说明见 docs/contracts/style-guide.md」，
+    把开发者指路抛给了用户。根因是这个字段一人打四份工（标签名 / 选项中文 / 条件显隐 /
+    提示正文）。现已拆开：选项中文进 `x-value-labels`，条件进 `x-when`，这里守住
+    description 不许再退回混写。
+    """
+    offenders: list[str] = []
+    for name, key, spec in _checkable_params():
+        desc = spec.get("description") or ""
+        if re.search(r"docs/|\.md\b|openapi\.yaml|style-guide|机器看守", desc):
+            offenders.append(f"{name}.{key}: 说明里出现仓库内部指路")
+        if re.search(r"[a-zA-Z][\w-]*=", desc):
+            offenders.append(f"{name}.{key}: 说明里还塞着「值=中文名」对照（该写进 x-value-labels）")
+    assert not offenders, f"这些参数的说明不是纯人话：{offenders}"
+
+
+def test_enum_options_have_a_chinese_label_source() -> None:
+    """每个枚举值都得有中文名可显示，否则下拉框会露出 pyramid、ppt169 这种代号。
+
+    来源两种均可：契约 `x-value-labels`（首选，且必须覆盖全部取值），
+    或前端旧文案表 PARAM_ENUM_LABELS（视觉风格那 18 个还在它里面）。
+    """
+    ts = (REPO_ROOT / "packages" / "frontend" / "src" / "lib" / "engineParams.ts").read_text(encoding="utf-8")
+    legacy_block = ts.split("PARAM_ENUM_LABELS", 1)[1].split("\n};", 1)[0]
+    data = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    _, base_dup = _frontend_label_tables()
+    missing: list[str] = []
+    for name in output_engine_names():
+        for key, spec in data["$defs"][name].get("properties", {}).items():
+            if spec.get("x-hidden") or key in base_dup:
+                continue
+            values = spec.get("enum") or (spec.get("items") or {}).get("enum") or []
+            if not values:
+                continue
+            labels = spec.get("x-value-labels")
+            if labels is not None:
+                uncovered = sorted(set(map(str, values)) - set(labels))
+                if uncovered:
+                    missing.append(f"{name}.{key} 的 x-value-labels 缺 {uncovered}")
+            elif not re.search(rf"^  {re.escape(key)}:", legacy_block, re.MULTILINE):
+                missing.append(f"{name}.{key}（值 {values} 没有任何中文名来源）")
+    assert not missing, f"这些枚举参数会在下拉框里露出英文代号：{missing}"
+
+
 def test_adr031_params_are_actually_emitted_when_selected() -> None:
     """九项参数逐项验：选了就必须出现在 prompt 里；一个都不选时一行都不许出现。"""
     from engine.impl.ppt_master_v6.engine import PptMasterV6Engine as V6

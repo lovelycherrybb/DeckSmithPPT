@@ -57,51 +57,50 @@ export const PARAM_ENUM_LABELS: Record<string, Record<string, string>> = {
   animation: { none: '关', auto: '自动' },
 };
 
-/** 条件依赖说明片段，如「（仅 style=magazine 时有效）」——标签展示与枚举解析都要先剔除 */
-const DEPENDENCY_NOTE_RE = /（[^（）]*仅\s*[a-zA-Z_][\w.]*\s*=[^（）]+?时有效[^（）]*）/g;
+/**
+ * 引擎参数在契约里的声明（本文件只用到这些字段）。
+ *
+ * **一份说明只干一件事**：`description` 给人看，选项中文名在 `x-value-labels`，
+ * 条件显隐在 `x-when`。以前三件事全挤在 description 里，界面上就会把
+ * 「中文说明见 docs/contracts/style-guide.md」这种开发者指路原样抛给用户
+ * （2026-11-02 龚成指出）。
+ */
+export interface ParamSpec {
+  type?: string;
+  enum?: unknown[];
+  description?: string;
+  'x-hidden'?: boolean;
+  'x-group'?: string;
+  'x-section'?: string;
+  'x-wide'?: boolean;
+  'x-presets'?: unknown;
+  'x-when'?: Record<string, string[]>;
+  'x-value-labels'?: Record<string, string>;
+  items?: { enum?: unknown[] };
+}
 
-export function stripDependencyNote(description: string): string {
-  return description.replace(DEPENDENCY_NOTE_RE, '').trim();
+/** 参数名中文标签：固定表 → 描述去掉括号注释后按句/冒号截断 → 原始 key */
+export function paramLabel(key: string, spec?: ParamSpec): string {
+  if (PARAM_LABELS[key]) return PARAM_LABELS[key];
+  const desc = spec?.description || '';
+  // 去掉括号说明（如目标页数里的「粗略参考：15 分钟约 10 页」），否则会截出半截标签
+  const cleaned = desc
+    .replace(/（[^）]*）/g, '')
+    .split('。')[0]
+    .split('：')[0]
+    .trim();
+  return cleaned || key;
 }
 
 /**
- * 从描述里解析「值=中文名」枚举对照表，如
- * "视觉风格：magazine=电子杂志风，swiss=瑞士国际主义" → { magazine:'电子杂志风', swiss:'瑞士国际主义' }
- * 引擎只要在契约描述里按此约定写，前端零改动显示中文选项。
+ * 参数值中文标签：契约 x-value-labels → 前端旧文案表（视觉风格那 18 个还在它里面）→ 原样。
+ * 布尔转开启/关闭。
  */
-export function descEnumNames(description?: string): Record<string, string> {
-  if (!description) return {};
-  const text = stripDependencyNote(description);
-  const map: Record<string, string> = {};
-  const re = /([a-zA-Z][\w-]*)=([^，,。\s）]+)/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(text))) map[m[1]] = m[2];
-  return map;
-}
-
-/** 参数名中文标签：映射表 → 描述清洗（去条件说明/值列表/括号注释）→ 原始 key */
-export function paramLabel(key: string, description?: string): string {
-  if (PARAM_LABELS[key]) return PARAM_LABELS[key];
-  if (description) {
-    // 先去掉括号说明（含条件依赖与「参考：…」这类内含冒号的注释），再按句/冒号截断，
-    // 否则会出现「目标页数（默认根据内容自动，参考」这种半截标签
-    const cleaned = stripDependencyNote(description)
-      .replace(/（[^）]*）/g, '')
-      .split('。')[0]
-      .split('：')[0]
-      .trim();
-    if (cleaned) return cleaned;
-  }
-  return key;
-}
-
-/** 参数值中文标签：固定映射 → 引擎描述里的「值=中文名」→ 原样；布尔转开启/关闭 */
-export function paramValueLabel(key: string, value: unknown, description?: string): string {
+export function paramValueLabel(key: string, value: unknown, spec?: ParamSpec): string {
   if (typeof value === 'boolean') return value ? '开启' : '关闭';
+  const text = String(value);
   return (
-    PARAM_ENUM_LABELS[key]?.[String(value)] ??
-    descEnumNames(description)[String(value)] ??
-    String(value)
+    spec?.['x-value-labels']?.[text] ?? PARAM_ENUM_LABELS[key]?.[text] ?? text
   );
 }
 
@@ -114,44 +113,59 @@ export function engineParamEntries(
   params: Record<string, unknown> | undefined | null
 ): Array<{ key: string; label: string; value: string }> {
   if (!params || typeof params !== 'object') return [];
-  const props = (engine?.params_schema?.properties || {}) as Record<
-    string,
-    { description?: string }
-  >;
+  const props = (engine?.params_schema?.properties || {}) as Record<string, ParamSpec>;
   return Object.entries(params).map(([key, value]) => ({
     key,
-    label: paramLabel(key, props[key]?.description),
-    value: paramValueLabel(key, value, props[key]?.description),
+    label: paramLabel(key, props[key]),
+    value: paramValueLabel(key, value, props[key]),
   }));
 }
 
 /**
- * 解析参数条件依赖：描述里写「仅 style=magazine 时有效」→ 只有 style 选中该值才渲染。
- * 允许写值集合「仅 format=ppt169|ppt43 时有效」——竖线分隔，命中任一即成立（阅读模式
- * 这种"只对 PPT 类画布存在"的参数要用）。
- * 通用机制：新引擎的条件参数只要在 schema 描述里按此格式声明，前端零改动跟随。
+ * 参数条件依赖：契约 `x-when` 写明"依赖哪个参数、它取哪些值时本项才成立"，
+ * 如 `{"format": ["ppt169","ppt43"]}`——命中任一值即成立，多个键之间是"且"。
+ * 以前这条藏在 description 的「仅 X=Y 时有效」里，人话和机器约定挤在同一字段，
+ * 界面上就把开发者指路抛给了用户。
  */
-export function paramDependency(
-  description?: string
-): { dependsOn: string; equals: string[] } | null {
-  const m = /仅\s*([a-zA-Z_][\w.]*)\s*=\s*([^\s时]+)\s*时有效/.exec(description || '');
-  if (!m) return null;
-  return { dependsOn: m[1], equals: m[2].split('|') };
-}
-
-/** 条件依赖是否成立（未选依赖项时不成立——依附它的参数不该冒出来） */
 export function dependencySatisfied(
-  description: string | undefined,
+  spec: ParamSpec | undefined,
   current: Record<string, unknown>
 ): boolean {
-  const dep = paramDependency(description);
-  if (!dep) return true;
-  return dep.equals.includes(String(current[dep.dependsOn] ?? ''));
+  const when = spec?.['x-when'];
+  if (!when) return true;
+  return Object.entries(when).every(([dependsOn, equals]) =>
+    equals.map(String).includes(String(current[dependsOn] ?? ''))
+  );
 }
 
 /** 参数分组：契约里 `x-group: "advanced"` 的进「高级」折叠区，其余进常规区 */
 export function paramGroup(value: { 'x-group'?: string }): 'advanced' | 'normal' {
   return value['x-group'] === 'advanced' ? 'advanced' : 'normal';
+}
+
+/** 参数所属小节名（契约 `x-section`）；没标的归到兜底小节，绝不因漏标而不渲染 */
+export const FALLBACK_SECTION = '其它参数';
+export function paramSection(value: { 'x-section'?: string }): string {
+  return value['x-section'] || FALLBACK_SECTION;
+}
+
+/** 是否占整行（契约 `x-wide`）——要写字的长文本项用，避免挤在三列里 */
+export function paramIsWide(value: { 'x-wide'?: boolean }): boolean {
+  return value['x-wide'] === true;
+}
+
+/** 按契约声明顺序把参数切成小节，顺序完全由契约决定，前端不重排 */
+export function groupBySection<T extends { 'x-section'?: string }>(
+  entries: Array<[string, T]>
+): Array<{ title: string; items: Array<[string, T]> }> {
+  const out: Array<{ title: string; items: Array<[string, T]> }> = [];
+  for (const e of entries) {
+    const title = paramSection(e[1]);
+    const last = out[out.length - 1];
+    if (last && last.title === title) last.items.push(e);
+    else out.push({ title, items: [e] });
+  }
+  return out;
 }
 
 /** 预设句（自由文本参数的候选写法，供输入框给下拉建议） */

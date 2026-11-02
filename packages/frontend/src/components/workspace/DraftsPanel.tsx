@@ -72,11 +72,23 @@ import { useAuth } from '@/components/AuthProvider';
 import { formatDate } from '@/lib/formatDate';
 import {
   paramLabel, paramValueLabel, dependencySatisfied, paramGroup, paramPresets,
-  paramItemEnum, BASE_DUP_PARAM_KEYS,
+  paramItemEnum, paramIsWide, groupBySection, FALLBACK_SECTION, BASE_DUP_PARAM_KEYS,
+  type ParamSpec,
 } from '@/lib/engineParams';
 import { stylePreviewFor, stylePreviewModalStyles } from '@/lib/stylePreview';
 import { tokenUsagePartRows, tokenUsageSummary, tokenUsageTotal } from '@/lib/tokenUsage';
 
+
+/**
+ * 生成弹窗的网格布局。三列等宽，`minmax(0,1fr)` 里那个 0 是必需的：
+ * 不写它，网格列的最小宽度会等于内容宽度，长文案或长下拉会把列撑破、
+ * 右列直接顶出弹窗边缘（560 宽那版就是这么露馅的）。
+ */
+const GEN_GRID_STYLE = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+  gap: '0 16px',
+} as const;
 
 interface Props {
   /**
@@ -425,7 +437,7 @@ export default function DraftsPanel({
       for (const [key, value] of Object.entries(rawParams)) {
         if (value === undefined || value === null || value === '') continue;
         if (Array.isArray(value) && value.length === 0) continue; // 多选清空＝没选，不下发空数组
-        if (!dependencySatisfied(genEngineProps[key]?.description, rawParams)) continue;
+        if (!dependencySatisfied(genEngineProps[key], rawParams)) continue;
         engineParams[key] = value;
       }
       if (genEngineProps.pages && values.pages != null) engineParams.pages = values.pages;
@@ -469,25 +481,22 @@ export default function DraftsPanel({
   // 引擎参数（动态 schema 渲染）
   const selectedGenEngine = Form.useWatch('engine', genForm) || outputEngines[0]?.name || '';
   const genEngineInfo = outputEngines.find((e) => e.name === selectedGenEngine);
-  const genEngineProps = (genEngineInfo?.params_schema?.properties || {}) as Record<string, {
-    enum?: unknown[];
-    type?: string;
-    description?: string;
-    'x-hidden'?: boolean;
-    'x-group'?: string;
-    'x-presets'?: unknown;
-    items?: { enum?: unknown[] };
-  }>;
+  const genEngineProps = (genEngineInfo?.params_schema?.properties || {}) as Record<
+    string,
+    ParamSpec
+  >;
   // 引擎参数当前值（驱动条件参数显隐，如「仅 style=magazine 时有效」的主题色）
   const watchedEngineParams = (Form.useWatch('engine_params', genForm) || {}) as Record<string, unknown>;
   const genParamEntries = Object.entries(genEngineProps).filter(([key, value]) => {
     if (value['x-hidden']) return false; // 契约标记为隐藏的纯工程旋钮（如 route_profile）不进表单
     if (BASE_DUP_PARAM_KEYS.includes(key)) return false; // 目标页数等已有基础字段，不重复渲染
-    return dependencySatisfied(value.description, watchedEngineParams);
+    return dependencySatisfied(value, watchedEngineParams);
   });
   // 契约里标了 x-group=advanced 的（自由文本那几项）收进「高级」折叠区，别在常规区吓人
   const genNormalEntries = genParamEntries.filter(([, v]) => paramGroup(v) === 'normal');
   const genAdvancedEntries = genParamEntries.filter(([, v]) => paramGroup(v) === 'advanced');
+  // 常规项按契约 x-section 切节；漏标的进「其它参数」兜底节，保证一项都不会不渲染
+  const genParamSections = groupBySection(genNormalEntries);
 
   /**
    * 单个引擎参数控件。常规区与「高级」折叠区共用同一个渲染器——两处形状必须一致，
@@ -496,14 +505,22 @@ export default function DraftsPanel({
    * "可选可写"、枚举走单选、布尔走开关，其余落到文本框。
    */
   const renderEngineParam = ([key, value]: [string, (typeof genEngineProps)[string]]) => {
-    const label = paramLabel(key, value.description);
+    const label = paramLabel(key, value);
     /* 这个枚举参数里有没有配了外观的值（目前只有视觉风格那三个）。按值查外观表，
        不按参数名判断，所以别的枚举参数不受影响、以后加风格也不用改这里。 */
     const previewableEnum = !!value.enum?.length && value.enum.some((v) => stylePreviewFor(v));
     const presets = paramPresets(value);
     const itemEnum = paramItemEnum(value);
     return (
-      <Form.Item key={key} name={['engine_params', key]} label={label}>
+      <Form.Item
+        key={key}
+        name={['engine_params', key]}
+        label={label}
+        /* 长说明挂到标签后面的问号上：说明文字平铺在框里会把弹窗撑得老长，
+           而它本来就是"给用户看的解释"，不该占版面。 */
+        tooltip={value.description}
+        style={paramIsWide(value) ? { gridColumn: '1 / -1' } : undefined}
+      >
         {itemEnum.length ? (
           <Select
             mode="multiple"
@@ -511,7 +528,7 @@ export default function DraftsPanel({
             allowClear
             options={itemEnum.map((v) => ({
               value: v,
-              label: paramValueLabel(key, v, value.description),
+              label: paramValueLabel(key, v, value),
             }))}
             placeholder={`选择${label}（可多选）`}
           />
@@ -522,7 +539,7 @@ export default function DraftsPanel({
             disabled={!canEditParams}
             allowClear
             options={presets.map((p) => ({ value: p, label: p }))}
-            placeholder={`留空=不指定；也可点选示例或自己写（${presets[0]}…）`}
+            placeholder="留空=不指定，可点示例或自己写"
           />
         ) : value.enum?.length ? (
           <Select
@@ -530,7 +547,7 @@ export default function DraftsPanel({
             allowClear
             options={value.enum.map((v) => ({
               value: v,
-              label: paramValueLabel(key, v, value.description),
+              label: paramValueLabel(key, v, value),
             }))}
             placeholder={`选择${label}`}
             onOpenChange={(open) => { if (!open) setPreviewValue(null); }}
@@ -918,40 +935,44 @@ export default function DraftsPanel({
         open={!!generateTarget}
         onCancel={closeGenerateModal}
         footer={null}
-        width={560}
+        width={920}
         /* 悬停某个风格时整弹窗换成那个风格的样子。变量挂在 content 上，弹窗内的标题、表单、
            控件都从它继承取色；关掉下拉即退回应用主题。 */
         styles={stylePreviewModalStyles(stylePreview)}
       >
         <Form form={genForm} layout="vertical">
-          <Form.Item name="engine" label="输出引擎" rules={[{ required: true }]}>
-            <Select
-              options={outputEngines.map((e) => ({
-                value: e.name,
-                label: e.display_name || e.name,
-              }))}
-            />
-          </Form.Item>
-          <Form.Item name="title" label="PPT 标题">
-            <Input placeholder="默认取项目标题" />
-          </Form.Item>
-          <Form.Item
-            name="pages"
-            label="目标页数"
-            extra={(() => {
-              const desc = genEngineProps.pages?.description || '';
-              const inner = /（([^）]*)）/.exec(desc)?.[1];
-              return inner ? `可留空。${inner}` : '可留空（由引擎决定），也可填任意页数';
-            })()}
-            rules={[{ type: 'integer', min: 1, message: '页数须为不小于 1 的整数' }]}
-          >
-            <InputNumber
-              min={1}
-              precision={0}
-              style={{ width: '100%' }}
-              placeholder="留空则由引擎决定"
-            />
-          </Form.Item>
+          {/* 基础三项一行放完。minmax(0,1fr) 是关键：不写这个 0，网格列会被长内容撑破，
+              右列控件就会顶出弹窗边缘（560 宽那版正是这么露馅的）。 */}
+          <div style={GEN_GRID_STYLE}>
+            <Form.Item name="engine" label="输出引擎" rules={[{ required: true }]}>
+              <Select
+                options={outputEngines.map((e) => ({
+                  value: e.name,
+                  label: e.display_name || e.name,
+                }))}
+              />
+            </Form.Item>
+            <Form.Item name="title" label="PPT 标题">
+              <Input placeholder="默认取项目标题" />
+            </Form.Item>
+            <Form.Item
+              name="pages"
+              label="目标页数"
+              extra={(() => {
+                const desc = genEngineProps.pages?.description || '';
+                const inner = /（([^）]*)）/.exec(desc)?.[1];
+                return inner ? `可留空。${inner}` : '可留空（由引擎决定），也可填任意页数';
+              })()}
+              rules={[{ type: 'integer', min: 1, message: '页数须为不小于 1 的整数' }]}
+            >
+              <InputNumber
+                min={1}
+                precision={0}
+                style={{ width: '100%' }}
+                placeholder="留空则由引擎决定"
+              />
+            </Form.Item>
+          </div>
           {genParamEntries.length > 0 && (
             <>
               <Divider orientation="left" plain>
@@ -965,18 +986,40 @@ export default function DraftsPanel({
                   message="当前账号按引擎默认参数生成；如需自定义参数，请联系管理员开通。"
                 />
               )}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                {genNormalEntries.map(renderEngineParam)}
-              </div>
+              {/* 小节标题与顺序全部来自契约 x-section，前端不重排、不改名。
+                  整份都没有小节声明的引擎（如 ppt_master）只渲染一个网格、不顶兜底标题，
+                  免得界面凭空多出一个"其它参数"。 */}
+              {genParamSections.map((section, idx) => (
+                <div key={section.title}>
+                  {/* 小节标题刻意**不用分隔条**：它和上层「引擎参数」那条线同权重时，
+                     人会误以为两者同级（2026-11-02 龚成指出）。约定成一句：
+                     有横线＝大分界，纯文字＝小节。 */}
+                  {!(genParamSections.length === 1 && section.title === FALLBACK_SECTION) && (
+                    <div
+                      style={{
+                        fontSize: 12,
+                        color: 'var(--text-muted)',
+                        letterSpacing: 0.5,
+                        margin: idx === 0 ? '0 0 10px' : '20px 0 10px',
+                      }}
+                    >
+                      {section.title}
+                    </div>
+                  )}
+                  <div style={GEN_GRID_STYLE}>
+                    {section.items.map(renderEngineParam)}
+                  </div>
+                </div>
+              ))}
               {genAdvancedEntries.length > 0 && (
                 <Collapse
                   ghost
                   items={[
                     {
                       key: 'advanced',
-                      label: '高级（都可以不填，留空就交给引擎自己判断）',
+                      label: '高级',
                       children: (
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                        <div style={GEN_GRID_STYLE}>
                           {genAdvancedEntries.map(renderEngineParam)}
                         </div>
                       ),

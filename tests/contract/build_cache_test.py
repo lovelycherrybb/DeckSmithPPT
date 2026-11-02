@@ -148,7 +148,7 @@ SABOTAGE = {
                                 'PIP_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple"')),
     "备用索引塞两个地址": (RELEASE, ('PIP_EXTRA_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple"',
                                     'PIP_EXTRA_INDEX_URL="a/simple b/simple"')),
-    "版本锚定停在旧版本号": (DEPLOYMENT, ("**版本锚定**：当前交付锚点为 **`v0.6.3`**",
+    "版本锚定停在旧版本号": (DEPLOYMENT, ("**版本锚定**：当前交付锚点为 **`v0.6.4`**",
                                         "**版本锚定**：当前交付锚点为 **`v0.2.1`**")),
 }
 

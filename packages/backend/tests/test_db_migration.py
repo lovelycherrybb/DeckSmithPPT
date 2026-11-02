@@ -211,3 +211,97 @@ def test_newer_db_than_program_is_left_alone(tmp_path):
     assert "name" in _cols(db, "projects")  # 结构未被改动
     assert _user_version(db) == 99
     assert not (tmp_path / "backup").exists()
+
+
+# 冻结的 v2 老库 jobs 表：content_style 当时是 NOT NULL 带默认值。
+# 故意不从模型生成——从模型生成的话，模型一变用例就跟着变，永远测不出"模型放宽了、库没跟上"。
+_V2_JOBS_DDL = """
+CREATE TABLE jobs (
+    id INTEGER NOT NULL,
+    job_id VARCHAR(64) NOT NULL,
+    project_id VARCHAR(64),
+    task_type VARCHAR(16) NOT NULL,
+    status VARCHAR(16) NOT NULL,
+    status_detail TEXT,
+    claimed_by VARCHAR(128),
+    claimed_at VARCHAR(32),
+    started_at VARCHAR(32),
+    engine_job_id VARCHAR(128),
+    title VARCHAR(255),
+    pages INTEGER,
+    engine VARCHAR(64) NOT NULL,
+    agent VARCHAR(32) NOT NULL,
+    content_style VARCHAR(64) NOT NULL,
+    engine_params TEXT NOT NULL,
+    content TEXT,
+    sources TEXT,
+    revise_meta TEXT,
+    draft_content TEXT,
+    draft_path VARCHAR(512),
+    draft_id VARCHAR(64),
+    draft_version VARCHAR(32),
+    result_path VARCHAR(512),
+    error TEXT,
+    token_usage TEXT,
+    created_by VARCHAR(64),
+    updated_by VARCHAR(64),
+    created_at VARCHAR(32) NOT NULL,
+    updated_at VARCHAR(32) NOT NULL,
+    PRIMARY KEY (id),
+    CONSTRAINT uq_jobs_job_id UNIQUE (job_id)
+);
+"""
+
+
+def _make_v2_jobs_db(path: Path) -> None:
+    conn = sqlite3.connect(path)
+    with conn:
+        conn.executescript(_V2_JOBS_DDL)
+        conn.execute(
+            "INSERT INTO jobs (job_id, task_type, status, engine, agent, content_style, "
+            "engine_params, created_at, updated_at) VALUES "
+            "('j-old','draft','completed','ppt_master','claude','marketing_promo','{}',"
+            "'2026-01-01','2026-01-01')"
+        )
+    conn.close()
+
+
+def _notnull_flags(path: Path, table: str) -> dict[str, bool]:
+    conn = sqlite3.connect(path)
+    try:
+        return {r[1]: bool(r[3]) for r in conn.execute(f"PRAGMA table_info({table})")}
+    finally:
+        conn.close()
+
+
+def test_relaxed_not_null_column_is_really_relaxed_on_upgrade(tmp_path):
+    """模型把列放宽成可空后，老库升级必须真的放宽——判据是"插不插得进 NULL"。
+
+    这条用例是 2026-11-02 那个 500 换来的：`jobs.content_style` 改成"可空＝用户没选"时
+    只改了模型，没动库。新建库（所有单测都建全新库）全绿，老库一插 NULL 就
+    `NOT NULL constraint failed`，草稿提交当场 500，生产上线即崩。
+    所以这里不看迁移"有没有跑"，直接验两件事：约束真的没了，且 NULL 真能写进去。
+    """
+    db = tmp_path / "decksmith.db"
+    _make_v2_jobs_db(db)
+    assert _notnull_flags(db, "jobs")["content_style"] is True, "前提：老库里这列确实是 NOT NULL"
+
+    result = run_startup_migrations(db)
+
+    assert result["version_to"] == SCHEMA_VERSION
+    assert _notnull_flags(db, "jobs")["content_style"] is False, (
+        "模型已放宽，但老库仍是 NOT NULL——迁移没把约束搬过来"
+    )
+
+    conn = sqlite3.connect(db)
+    with conn:
+        conn.execute(
+            "INSERT INTO jobs (job_id, task_type, status, engine, agent, content_style, "
+            "engine_params, created_at, updated_at) VALUES "
+            "('j-new','draft','queued','ppt_master','claude',NULL,'{}',"
+            "'2026-01-02','2026-01-02')"
+        )
+    rows = dict(conn.execute("SELECT job_id, content_style FROM jobs").fetchall())
+    conn.close()
+    assert rows["j-new"] is None, "用户没选（NULL）写不进去，规则 10 落不了地"
+    assert rows["j-old"] == "marketing_promo", "历史行的值搬家时丢了"

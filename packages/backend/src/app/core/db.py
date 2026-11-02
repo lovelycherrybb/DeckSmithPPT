@@ -27,9 +27,12 @@ SessionLocal = make_session_factory(ENGINE)
 JOBS_ROOT = get_jobs_root()
 
 # 当前模型对应的库结构版本。1 = 老列名形态（projects.name / presentations.filename…），
-# 2 = 现模型形态（project_name / file_name / file_format / file_path）。
+# 2 = 现模型形态（project_name / file_name / file_format / file_path），
+# 3 = jobs.content_style 由"必填带默认值"改为"可空＝用户没选"。
 # 只有改了表/列语义才升号；加可空列这类由 _MIGRATIONS 幂等兜住的改动不必升。
-SCHEMA_VERSION = 2
+# 注意：放宽 NOT NULL 属于"改列语义"——SQLite 改不了单列约束，必须整表搬家，故要升号，
+# 否则老库不会触发重建（2026-11-02 就是漏了这步，新库测试全绿、老库一插 None 就 500）。
+SCHEMA_VERSION = 3
 
 # 备份目录与库文件同级，整包 data/ 一起搬走时不会漏
 _BACKUP_SUBDIR = "backup"
@@ -106,6 +109,37 @@ def _column_names(conn: sqlite3.Connection, table: str) -> set[str]:
         return set()
 
 
+def _model_by_table() -> dict:
+    """表名 → 声明类。从注册表反查，不手写清单（新模型自动纳入，漏登记这种事故不再可能）。"""
+    return {m.tables[0].name: m.class_ for m in Base.registry.mappers}
+
+
+def _nullability_mismatches(conn: sqlite3.Connection) -> list[str]:
+    """模型说可空、库里却仍是 NOT NULL 的表。
+
+    成因（2026-11-02 全流程真跑撞出来的 500）：把 `jobs.content_style` 从"必填带默认值"
+    改成"可空＝用户没选"时，只改了模型。SQLAlchemy 不会替已存在的表放宽约束，SQLite 也
+    没有 ALTER COLUMN，于是新库正常、老库一插 None 就 `NOT NULL constraint failed`——
+    测试全绿（用例都建全新库），生产一上线就崩。
+
+    返回需要按模型搬家重建的表名。缺列不在这里管（由 _MIGRATIONS 的幂等 ALTER 负责）。
+    """
+    out: list[str] = []
+    for table in Base.metadata.sorted_tables:
+        if not _table_exists(conn, table.name):
+            continue
+        info = {r[1]: r for r in conn.execute(f"PRAGMA table_info({table.name})").fetchall()}
+        for col in table.columns:
+            db_col = info.get(col.name)
+            if db_col is None:
+                continue
+            # PRAGMA table_info 第 4 列是 notnull 标志
+            if col.nullable and bool(db_col[3]):
+                out.append(table.name)
+                break
+    return out
+
+
 def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
     return conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)
@@ -113,11 +147,16 @@ def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
 
 
 def _needs_rebuild(conn: sqlite3.Connection, table: str) -> bool:
-    """老表里是否还留着必须搬掉的旧列。"""
-    legacy = _LEGACY_TRIGGER.get(table)
-    if legacy is None or not _table_exists(conn, table):
+    """该表是否必须搬家重建：留着要搬掉的旧列，或有"模型已放宽、库里仍是 NOT NULL"的列。
+
+    两种都只能重建——SQLite 既去不掉旧列的约束，也改不了单列的可空性。
+    """
+    if not _table_exists(conn, table):
         return False
-    return legacy in _column_names(conn, table)
+    legacy = _LEGACY_TRIGGER.get(table)
+    if legacy is not None and legacy in _column_names(conn, table):
+        return True
+    return table in _nullability_mismatches(conn)
 
 
 def _current_version(conn: sqlite3.Connection) -> int:
@@ -132,9 +171,12 @@ def _pending_ddl(conn: sqlite3.Connection) -> list[str]:
             continue  # 新库由 create_all 直接建全
         existing = _column_names(conn, table)
         pending += [f"{table}.{col}" for col in columns if col not in existing]
-    for table in _LEGACY_TRIGGER:
+    # 重建候选 = 有遗留列要搬的表 ∪ 可空性与模型不符的表（后者只能全表扫，靠注册表枚举）
+    rebuild_candidates = set(_LEGACY_TRIGGER) | set(_nullability_mismatches(conn))
+    for table in sorted(rebuild_candidates):
         if _needs_rebuild(conn, table):
-            pending.append(f"{table} 按模型重建（移除旧列）")
+            reason = "移除旧列" if table in _LEGACY_TRIGGER else "放宽 NOT NULL 约束"
+            pending.append(f"{table} 按模型重建（{reason}）")
     return pending
 
 
@@ -164,13 +206,24 @@ def _backup_database(db_path: Path, from_version: int) -> Path:
     return target
 
 
+def _rebuild_spec_from_model(table: str) -> dict:
+    """没手写映射时的默认搬家方案：模型列与原列同名一一对应。
+
+    适用于"列名没变、只是约束变了"（如放宽 NOT NULL）。有改名需求的表仍走 _REBUILD
+    里的显式映射，别指望这里猜。
+    """
+    model = _model_by_table()[table]
+    cols = tuple(c.name for c in model.__table__.columns)
+    return {"model": model, "cols": cols, "select": cols}
+
+
 def _rebuild_table(conn: sqlite3.Connection, table: str) -> int:
     """按当前模型重建一张表并搬数据，全程在调用方的事务里，失败即整体回滚。
 
     不再用原来的「DROP 完再 CREATE」：那样一旦中途崩溃，DROP 已落盘，表结构在、数据没了。
     本函数的顺序保证任何一步失败时旧表都还是原样。
     """
-    spec = _REBUILD[table]
+    spec = _REBUILD.get(table) or _rebuild_spec_from_model(table)
     model, cols, selects = spec["model"], spec["cols"], spec["select"]
     tmp = f"{table}__new"
 
@@ -232,7 +285,9 @@ def _apply_migrations(
         if cur.rowcount:
             applied.append(f"回填 projects.project_name（{cur.rowcount} 行）")
 
-    for table in ("projects", "presentations"):
+    # 重建候选与 _pending_ddl 同源：写死表名的清单会静默漏掉新出现的表（这次差点又栽在这）
+    rebuild_candidates = set(_LEGACY_TRIGGER) | set(_nullability_mismatches(conn))
+    for table in sorted(rebuild_candidates):
         if _needs_rebuild(conn, table):
             n = _rebuild_table(conn, table)
             if fault:

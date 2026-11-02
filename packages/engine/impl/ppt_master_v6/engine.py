@@ -459,6 +459,44 @@ class PptMasterV6Engine(PptEngine):
             )
         if ep.get("content_style"):
             lines.append(f"- 内容风格：{ep['content_style']}")
+        # ── ADR-031 扩出来的九项：一律"用户真选了才写"，键名对齐技能 result.json ──
+        if ep.get("content_divergence"):
+            lines.append(
+                f"- content_divergence（材料发散度）：{ep['content_divergence']}"
+                "  # 这是用户自己的话，按它落在贴原文~自由重组的哪一档来判断"
+            )
+        if ep.get("delivery_purpose"):
+            lines.append(
+                f"- delivery_purpose（阅读模式）：{ep['delivery_purpose']}"
+                "  # 决定一页塞多少字：text=字多自读 / balanced=平衡 / presentation=字少靠讲"
+            )
+        if isinstance(ep.get("allow_web_research"), bool):
+            lines.append(
+                "- 外部补料：允许在素材不足时上网补料"
+                if ep["allow_web_research"]
+                else "- 外部补料：禁止——只用用户给的素材，素材不够也不发起 topic-research 补料，"
+                     "缺的部分如实留缺口，不许凭空补事实"
+            )
+        if ep.get("primary_language"):
+            lines.append(f"- primary_language（主语言）：{ep['primary_language']}  # BCP-47")
+        if ep.get("image_usage"):
+            usage = ep["image_usage"]
+            joined = "、".join(usage) if isinstance(usage, list) else str(usage)
+            lines.append(
+                f"- image_usage（配图来源）：{joined}"
+                "  # ai=AI 生成 / web=网络搜图 / provided=只用用户上传 / placeholder=允许占位符 / none=不用图"
+            )
+        if isinstance(ep.get("narration_audio"), bool):
+            lines.append(
+                f"- proactive_narration_audio（旁白音频）：{'true' if ep['narration_audio'] else 'false'}"
+            )
+        for key, label in (
+            ("audience", "受众"),
+            ("communication_intent", "沟通意图"),
+            ("core_message", "核心信息"),
+        ):
+            if ep.get(key):
+                lines.append(f"- {key}（{label}）：{ep[key]}")
         return f"""请根据以下内容生成 PPT（走 ppt-master v6.6.0 生成路线）：
 
 标题：{title}

@@ -127,13 +127,43 @@ export function engineParamEntries(
 
 /**
  * 解析参数条件依赖：描述里写「仅 style=magazine 时有效」→ 只有 style 选中该值才渲染。
+ * 允许写值集合「仅 format=ppt169|ppt43 时有效」——竖线分隔，命中任一即成立（阅读模式
+ * 这种"只对 PPT 类画布存在"的参数要用）。
  * 通用机制：新引擎的条件参数只要在 schema 描述里按此格式声明，前端零改动跟随。
  */
 export function paramDependency(
   description?: string
-): { dependsOn: string; equals: string } | null {
+): { dependsOn: string; equals: string[] } | null {
   const m = /仅\s*([a-zA-Z_][\w.]*)\s*=\s*([^\s时]+)\s*时有效/.exec(description || '');
-  return m ? { dependsOn: m[1], equals: m[2] } : null;
+  if (!m) return null;
+  return { dependsOn: m[1], equals: m[2].split('|') };
+}
+
+/** 条件依赖是否成立（未选依赖项时不成立——依附它的参数不该冒出来） */
+export function dependencySatisfied(
+  description: string | undefined,
+  current: Record<string, unknown>
+): boolean {
+  const dep = paramDependency(description);
+  if (!dep) return true;
+  return dep.equals.includes(String(current[dep.dependsOn] ?? ''));
+}
+
+/** 参数分组：契约里 `x-group: "advanced"` 的进「高级」折叠区，其余进常规区 */
+export function paramGroup(value: { 'x-group'?: string }): 'advanced' | 'normal' {
+  return value['x-group'] === 'advanced' ? 'advanced' : 'normal';
+}
+
+/** 预设句（自由文本参数的候选写法，供输入框给下拉建议） */
+export function paramPresets(value: { 'x-presets'?: unknown }): string[] {
+  return Array.isArray(value['x-presets'])
+    ? (value['x-presets'] as unknown[]).map((v) => String(v))
+    : [];
+}
+
+/** 数组型参数的候选值（如配图来源多选） */
+export function paramItemEnum(value: { items?: { enum?: unknown[] } }): unknown[] {
+  return value.items?.enum ?? [];
 }
 
 /** 与基础表单字段（目标页数等）重复、不该出现在「引擎参数」区的键 */

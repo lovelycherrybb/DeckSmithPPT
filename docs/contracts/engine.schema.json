@@ -707,6 +707,71 @@
           ],
           "description": "内容风格：marketing_promo=宣传材料，product_story=产品介绍，briefing=方案汇报，event_promo=活动推广，investment_pitch=招商介绍。取值集合以 openapi.yaml 的 DeckRequest.content_style 为准，本处必须逐项相等（机器看守）。留空=用户没选，引擎不下发这一项，由技能按内容自行判断"
         },
+        "content_divergence": {
+          "type": "string",
+          "description": "材料发散度：素材要贴多紧、可以多大程度重塑。留空=按平衡处理（会重排、提炼，并在素材范围内展开）",
+          "x-presets": [
+            "严格贴着素材来",
+            "结构可以重排但内容不增不减",
+            "在素材范围内自由重组并展开"
+          ]
+        },
+        "delivery_purpose": {
+          "type": "string",
+          "enum": [
+            "text",
+            "balanced",
+            "presentation"
+          ],
+          "description": "阅读模式：text=字多自读，balanced=平衡，presentation=字少靠讲。这一项决定一页塞多少字。仅 format=ppt169|ppt43 时有效——非 PPT 画布没有这个概念。留空=由技能判断"
+        },
+        "allow_web_research": {
+          "type": "boolean",
+          "description": "是否允许上网补素材：选关闭时只用你给的素材，素材不够也不去外部找，绝不凭空补事实。留空=由技能判断素材是否够"
+        },
+        "primary_language": {
+          "type": "string",
+          "enum": [
+            "zh-CN",
+            "zh-TW",
+            "en-US",
+            "ja-JP"
+          ],
+          "description": "主语言：zh-CN=简体中文，zh-TW=繁体中文，en-US=英文，ja-JP=日文。留空=由技能从素材推断"
+        },
+        "image_usage": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "ai",
+              "web",
+              "provided",
+              "placeholder",
+              "none"
+            ]
+          },
+          "description": "配图来源（可多选）：ai=AI生图，web=网络搜图，provided=只用我上传的，placeholder=允许占位符，none=不用图。留空=由技能判断"
+        },
+        "narration_audio": {
+          "type": "boolean",
+          "description": "旁白音频：选开启会额外生成配音，耗时更长、消耗更多额度。留空=按技能默认不做配音"
+        },
+        "audience": {
+          "type": "string",
+          "description": "受众：这份演示讲给谁听，用你自己的话写一句。留空=由技能判断",
+          "x-group": "advanced"
+        },
+        "communication_intent": {
+          "type": "string",
+          "description": "沟通意图：你要这场演示促成什么改变，用你自己的话写。留空=由技能判断",
+          "x-group": "advanced"
+        },
+        "core_message": {
+          "type": "string",
+          "description": "核心信息：一句话让人记住的那句结论。留空=由技能判断",
+          "x-group": "advanced"
+        },
         "route_profile": {
           "type": "string",
           "enum": [

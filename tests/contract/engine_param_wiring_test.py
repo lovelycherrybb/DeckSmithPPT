@@ -39,44 +39,82 @@ IMPL_ROOT = (REPO_ROOT / "packages" / "engine" / "impl").resolve()
 # ── 判据本体：纯函数，不碰文件系统，便于自证有牙 ─────────────────
 
 def read_param_keys(source: str) -> set[str]:
-    """一段 Python 源码里被真实引用到的键名。
+    """一段 Python 源码里被真实取值用到的键名。
 
-    两种写法都算数（缺一不可，否则换个写法就假红）：
+    只认三种形态，**不接受"键名作为普通字符串出现过"**——2026-11-02 做破坏验证时发现
+    那种宽松写法有洞：把 `if ep.get("primary_language")` 整行删掉、只留下 prompt 里那句
+    文案，检查照样绿，等于假接线糊弄过了真判据。
 
     1. **直接取值**：`ep.get("mode", ...)` 或 `ep["mode"]`。
-    2. **动态选键**：键名作为独立字符串常量出现，例如 guizang 的
+    2. **动态选键**：键名先赋给变量、该变量再被取值。例如 guizang 的
        `theme_key = "magazine_theme" if style == "magazine" else "swiss_theme"`
-       ——它先把键名存进变量再取值，AST 上并不构成形态 1，但确实是接了线的。
-
-    刻意**不算**的：注释（AST 根本看不见它）、以及把多个键名混进同一句话的字符串
-    （`label = "mode format notes animation"` 是一个常量，不等于其中任何一个键名）。
-    所以"写行注释糊弄过去"这条路是堵住的；代价是"凭空赋值一个没人用的同名常量"
-    糊得过去——那不是本检查要防的失败模式（历史上的 bug 是压根没写）。
+       后跟 `params.get(theme_key)`——它确实接了线，形态 1 抓不到，故单列。
+    3. 形态 2 的赋值只认"直接字符串"或"三元/或运算里的字符串"，避免把无关常量卷进来。
     """
-    keys: set[str] = set()
     try:
         tree = ast.parse(source)
     except SyntaxError:
-        return keys
+        return set()
+
+    direct: set[str] = set()
+    # 变量名 → 该变量可能携带的键名
+    keyed_vars: dict[str, set[str]] = {}
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+        ):
+            consts = {
+                c.value for c in ast.walk(node.value)
+                if isinstance(c, ast.Constant) and isinstance(c.value, str)
+            }
+            if consts and isinstance(
+                node.value, (ast.Constant, ast.IfExp, ast.BoolOp)
+            ):
+                keyed_vars.setdefault(node.targets[0].id, set()).update(consts)
+        # 循环取键：`for key, label in (("audience", "受众"), ...)` 或 `for key in ("a", "b")`
+        # ——不认这种写法就会对合法代码假红，而假红会让人去放宽判据，那才是真事故。
+        elif isinstance(node, ast.For):
+            consts: set[str] = set()
+            if isinstance(node.iter, (ast.Tuple, ast.List)):
+                for elt in node.iter.elts:
+                    if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
+                        consts.add(elt.value)
+                    elif isinstance(elt, (ast.Tuple, ast.List)) and elt.elts:
+                        first = elt.elts[0]
+                        if isinstance(first, ast.Constant) and isinstance(first.value, str):
+                            consts.add(first.value)
+            names: list[str] = []
+            if isinstance(node.target, ast.Name):
+                names = [node.target.id]
+            elif isinstance(node.target, ast.Tuple) and node.target.elts:
+                # 解包赋值时键在第一位（`for key, label in ...`），后面的标签位不算键
+                first_target = node.target.elts[0]
+                if isinstance(first_target, ast.Name):
+                    names = [first_target.id]
+            for n in names:
+                keyed_vars.setdefault(n, set()).update(consts)
+
     for node in ast.walk(tree):
         if (
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
             and node.func.attr == "get"
             and node.args
-            and isinstance(node.args[0], ast.Constant)
-            and isinstance(node.args[0].value, str)
         ):
-            keys.add(node.args[0].value)
-        elif (
-            isinstance(node, ast.Subscript)
-            and isinstance(node.slice, ast.Constant)
-            and isinstance(node.slice.value, str)
-        ):
-            keys.add(node.slice.value)
-        elif isinstance(node, ast.Constant) and isinstance(node.value, str):
-            keys.add(node.value)
-    return keys
+            arg = node.args[0]
+            if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                direct.add(arg.value)
+            elif isinstance(arg, ast.Name):
+                direct |= keyed_vars.get(arg.id, set())
+        elif isinstance(node, ast.Subscript):
+            sl = node.slice
+            if isinstance(sl, ast.Constant) and isinstance(sl.value, str):
+                direct.add(sl.value)
+            elif isinstance(sl, ast.Name):
+                direct |= keyed_vars.get(sl.id, set())
+    return direct
 
 
 def unwired(declared: list[str], read: set[str]) -> list[str]:
@@ -289,27 +327,150 @@ def test_engine_omits_unselected_params() -> None:
 # 等于这条规则只做了一半。判据取"参数区里 <Select 的个数 == allowClear 的个数"，
 # 与 tests/contract/table_actions_fixed_test.py 同一类源码看守。
 
+# 参数控件代码段的起止锚点。只此一处：生成弹窗按契约 schema 动态渲染参数，
+# （原先还有一个 EngineParamsForm.tsx，全仓无引用、且会把枚举首项与 false 当默认值
+#  预填进表单，违反"未选不下发"，2026-11-02 经龚成同意删除。）
 _PARAM_WIDGET_SOURCES = {
-    "packages/frontend/src/components/workspace/DraftsPanel.tsx": "genParamEntries.map(",
-    "packages/frontend/src/components/ui/EngineParamsForm.tsx": "entries.map(",
+    "packages/frontend/src/components/workspace/DraftsPanel.tsx": (
+        "const renderEngineParam = (", "\n  };\n",
+    ),
 }
 
 
 def test_engine_param_selects_are_all_clearable() -> None:
     offenders: list[str] = []
-    for rel, marker in _PARAM_WIDGET_SOURCES.items():
+    for rel, (start_marker, end_marker) in _PARAM_WIDGET_SOURCES.items():
         text = (REPO_ROOT / rel).read_text(encoding="utf-8")
-        start = text.index(marker)
-        # 只看参数渲染区，前面的「输出引擎」是必填项、本来就不该能清空
-        window = text[start:]
-        selects = window.count("<Select")
+        start = text.index(start_marker)
+        end = text.index(end_marker, start)
+        # 只截参数控件那一段：文件后面还有别的下拉（如弹窗底部的其它控件），算进来就是假红
+        window = text[start:end]
+        widgets = window.count("<Select") + window.count("<AutoComplete")
         clearable = window.count("allowClear")
-        if selects != clearable:
-            offenders.append(f"{rel}: 下拉 {selects} 个，可清空 {clearable} 个")
+        assert widgets > 0, f"{rel} 里没找到参数控件，检查锚点是否失效"
+        if widgets != clearable:
+            offenders.append(f"{rel}: 控件 {widgets} 个，可清空 {clearable} 个")
     assert not offenders, (
         f"引擎参数控件清不掉，用户回不到「没选」：{offenders}。"
-        "参数区的每个 Select 都必须带 allowClear。"
+        "参数区的每个控件（下拉与可写输入框）都必须带 allowClear。"
     )
+
+
+# ── ADR-031 扩面之后：新参数不许只改契约、文档与界面各漏一处 ────────
+
+def _visible_params(engine_name: str) -> dict:
+    data = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    props = data["$defs"][engine_name].get("properties", {})
+    return {k: v for k, v in props.items() if not v.get("x-hidden")}
+
+
+def _frontend_label_tables() -> tuple[dict[str, str], list[str]]:
+    """解析前端的中文名表与"已有基础字段"名单——判据必须跟界面同一口径。"""
+    ts = (REPO_ROOT / "packages" / "frontend" / "src" / "lib" / "engineParams.ts").read_text(encoding="utf-8")
+    block = ts.split("PARAM_LABELS", 1)[1].split("};", 1)[0]
+    labels = dict(re.findall(r"^  ([a-z_]+): '([^']+)',", block, re.MULTILINE))
+    base_dup = re.findall(r"'([a-z_]+)'", ts.split("BASE_DUP_PARAM_KEYS", 1)[1].split("]", 1)[0])
+    return labels, base_dup
+
+
+def _param_label(key: str, spec: dict, labels: dict[str, str]) -> str:
+    """复刻前端 paramLabel()：固定表优先 → 去条件说明 → 去括号注释 → 冒号句号截断。"""
+    if labels.get(key):
+        return labels[key]
+    desc = (spec.get("description") or "").strip()
+    desc = re.sub(r"（[^（）]*仅\s*[a-zA-Z_][\w.]*\s*=[^（）]+?时有效[^（）]*）", "", desc)
+    desc = re.sub(r"（[^）]*）", "", desc)
+    return desc.split("。")[0].split("：")[0].strip()
+
+
+def _checkable_params() -> list[tuple[str, str, dict]]:
+    """要对外露出的参数：隐藏旋钮与"已有基础字段"都不算。"""
+    _, base_dup = _frontend_label_tables()
+    return [
+        (name, key, spec)
+        for name in output_engine_names()
+        for key, spec in _visible_params(name).items()
+        if key not in base_dup
+    ]
+
+
+def test_visible_params_have_chinese_labels() -> None:
+    """界面标签拿得到中文，否则用户看到的是英文参数名。"""
+    labels, _ = _frontend_label_tables()
+    bare = [
+        f"{name}.{key}"
+        for name, key, spec in _checkable_params()
+        if not any("一" <= ch <= "鿿" for ch in _param_label(key, spec, labels))
+    ]
+    assert not bare, f"这些参数在界面上会显示成英文键名，用户读不懂：{bare}"
+
+
+def test_visible_params_are_documented() -> None:
+    """每个对外可见的参数都必须能在 style-guide.md 里按它的中文名查到。
+
+    查的是"界面实际显示的那个中文名"，不是英文键、也不是没清洗过的描述——判据跟用户
+    看到的东西对齐，才不会一边假红、一边真漏。
+    """
+    labels, _ = _frontend_label_tables()
+    guide = (REPO_ROOT / "docs" / "contracts" / "style-guide.md").read_text(encoding="utf-8")
+    missing = [
+        f"{name}.{key}（界面显示「{_param_label(key, spec, labels)}」）"
+        for name, key, spec in _checkable_params()
+        if _param_label(key, spec, labels) not in guide
+    ]
+    assert not missing, (
+        f"这些参数界面上有、说明文档里查不到：{missing}。"
+        "用户照着文档找不到这一项该怎么填（AGENTS 规则 9）。"
+    )
+
+
+def test_divergence_presets_match_between_contract_and_doc() -> None:
+    """发散度的三句示例：契约里给界面的预设与文档里写的必须是同一三句。"""
+    data = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    presets = [str(p) for p in data["$defs"]["ppt_master_v6"]["properties"]["content_divergence"]["x-presets"]]
+    guide = (REPO_ROOT / "docs" / "contracts" / "style-guide.md").read_text(encoding="utf-8")
+    section = guide.split("### 材料发散度的三句示例", 1)[1].split("留空＝", 1)[0]
+    documented = re.findall(r"^\d+\.\s*(.+)$", section, re.MULTILINE)
+    assert presets == documented, (
+        f"发散度预设句两处不一致：契约 {presets} / 文档 {documented}"
+    )
+
+
+def test_adr031_params_are_actually_emitted_when_selected() -> None:
+    """九项参数逐项验：选了就必须出现在 prompt 里；一个都不选时一行都不许出现。"""
+    from engine.impl.ppt_master_v6.engine import PptMasterV6Engine as V6
+
+    cases = {
+        "content_divergence": "严格贴着素材来",
+        "delivery_purpose": "presentation",
+        "allow_web_research": False,
+        "primary_language": "en-US",
+        "image_usage": ["provided", "placeholder"],
+        "narration_audio": True,
+        "audience": "业主方管理层",
+        "communication_intent": "推动立项决策",
+        "core_message": "现在投入成本最低",
+    }
+    prompt = V6._build_prompt("标题", 10, "内容", cases)
+    # 逐项验"选了必须落到 prompt 里"。布尔项落到的是翻译后的指令句，不是字面 true/false，
+    # 所以判据按每项该出现的那句话写，不按键名写。
+    expected = (
+        "content_divergence（材料发散度）：严格贴着素材来",
+        "delivery_purpose（阅读模式）：presentation",
+        "外部补料：禁止——只用用户给的素材",
+        "primary_language（主语言）：en-US",
+        "image_usage（配图来源）：provided、placeholder",
+        "proactive_narration_audio（旁白音频）：true",
+        "audience（受众）：业主方管理层",
+        "communication_intent（沟通意图）：推动立项决策",
+        "core_message（核心信息）：现在投入成本最低",
+    )
+    for token in expected:
+        assert token in prompt, f"选了却没进 prompt：{token}"
+
+    empty = V6._build_prompt("标题", 10, "内容", {})
+    for token in ("材料发散度", "阅读模式", "外部补料", "主语言", "配图来源", "旁白音频", "受众", "沟通意图", "核心信息"):
+        assert token not in empty, f"用户什么都没选，prompt 里却出现了「{token}」"
 
 
 # ── 通用层字段 → 引擎入参的合并本身要能红 ────────────────────────
@@ -400,6 +561,22 @@ def test_dynamic_key_selection_counts_as_reading() -> None:
     read = read_param_keys(_DYNAMIC_KEY_SOURCE)
     assert unwired(["magazine_theme", "swiss_theme"], read) == [], (
         "判据过硬：动态选键被误判为漏接"
+    )
+
+
+# 只在文案里提了一句键名、根本没从入参取值——2026-11-02 破坏验证时抓出来的假接线形状
+_MENTION_ONLY_SOURCE = '''
+class FakeWired:
+    def _build_prompt(self, ep):
+        return "- primary_language（主语言）：auto\\n- mode：pyramid"
+'''
+
+
+def test_mention_in_prompt_text_does_not_count_as_reading() -> None:
+    """键名只出现在发给技能的文案里，不算接线。"""
+    read = read_param_keys(_MENTION_ONLY_SOURCE)
+    assert unwired(["primary_language", "mode"], read) == ["primary_language", "mode"], (
+        f"守卫有洞：光在 prompt 里提一句就被判成已接线：{sorted(read)}"
     )
 
 

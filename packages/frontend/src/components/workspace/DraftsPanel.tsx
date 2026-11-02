@@ -14,8 +14,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  AutoComplete,
   Button,
   Card,
+  Collapse,
   Descriptions,
   Divider,
   Drawer,
@@ -68,7 +70,10 @@ import MarkdownView from '@/components/ui/MarkdownView';
 import MdEditor from '@/components/ui/MdEditor';
 import { useAuth } from '@/components/AuthProvider';
 import { formatDate } from '@/lib/formatDate';
-import { paramLabel, paramValueLabel, paramDependency, BASE_DUP_PARAM_KEYS } from '@/lib/engineParams';
+import {
+  paramLabel, paramValueLabel, dependencySatisfied, paramGroup, paramPresets,
+  paramItemEnum, BASE_DUP_PARAM_KEYS,
+} from '@/lib/engineParams';
 import { stylePreviewFor, stylePreviewModalStyles } from '@/lib/stylePreview';
 import { tokenUsagePartRows, tokenUsageSummary, tokenUsageTotal } from '@/lib/tokenUsage';
 
@@ -419,8 +424,8 @@ export default function DraftsPanel({
       const engineParams: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(rawParams)) {
         if (value === undefined || value === null || value === '') continue;
-        const dep = paramDependency(genEngineProps[key]?.description);
-        if (dep && String(rawParams[dep.dependsOn] ?? '') !== dep.equals) continue;
+        if (Array.isArray(value) && value.length === 0) continue; // 多选清空＝没选，不下发空数组
+        if (!dependencySatisfied(genEngineProps[key]?.description, rawParams)) continue;
         engineParams[key] = value;
       }
       if (genEngineProps.pages && values.pages != null) engineParams.pages = values.pages;
@@ -469,16 +474,100 @@ export default function DraftsPanel({
     type?: string;
     description?: string;
     'x-hidden'?: boolean;
+    'x-group'?: string;
+    'x-presets'?: unknown;
+    items?: { enum?: unknown[] };
   }>;
   // 引擎参数当前值（驱动条件参数显隐，如「仅 style=magazine 时有效」的主题色）
   const watchedEngineParams = (Form.useWatch('engine_params', genForm) || {}) as Record<string, unknown>;
   const genParamEntries = Object.entries(genEngineProps).filter(([key, value]) => {
     if (value['x-hidden']) return false; // 契约标记为隐藏的纯工程旋钮（如 route_profile）不进表单
     if (BASE_DUP_PARAM_KEYS.includes(key)) return false; // 目标页数等已有基础字段，不重复渲染
-    const dep = paramDependency(value.description);
-    if (dep) return String(watchedEngineParams[dep.dependsOn] ?? '') === dep.equals;
-    return true;
+    return dependencySatisfied(value.description, watchedEngineParams);
   });
+  // 契约里标了 x-group=advanced 的（自由文本那几项）收进「高级」折叠区，别在常规区吓人
+  const genNormalEntries = genParamEntries.filter(([, v]) => paramGroup(v) === 'normal');
+  const genAdvancedEntries = genParamEntries.filter(([, v]) => paramGroup(v) === 'advanced');
+
+  /**
+   * 单个引擎参数控件。常规区与「高级」折叠区共用同一个渲染器——两处形状必须一致，
+   * 复制一份就会漂移（以后新增控件类型只改这里）。
+   * 控件类型全部由契约决定，不按参数名硬编码：数组型走多选、带 x-presets 的走
+   * "可选可写"、枚举走单选、布尔走开关，其余落到文本框。
+   */
+  const renderEngineParam = ([key, value]: [string, (typeof genEngineProps)[string]]) => {
+    const label = paramLabel(key, value.description);
+    /* 这个枚举参数里有没有配了外观的值（目前只有视觉风格那三个）。按值查外观表，
+       不按参数名判断，所以别的枚举参数不受影响、以后加风格也不用改这里。 */
+    const previewableEnum = !!value.enum?.length && value.enum.some((v) => stylePreviewFor(v));
+    const presets = paramPresets(value);
+    const itemEnum = paramItemEnum(value);
+    return (
+      <Form.Item key={key} name={['engine_params', key]} label={label}>
+        {itemEnum.length ? (
+          <Select
+            mode="multiple"
+            disabled={!canEditParams}
+            allowClear
+            options={itemEnum.map((v) => ({
+              value: v,
+              label: paramValueLabel(key, v, value.description),
+            }))}
+            placeholder={`选择${label}（可多选）`}
+          />
+        ) : presets.length ? (
+          /* 预设句只是"点一下就替你写进去"的便利，不是把选择面锁死成三档：
+             输入框照样能自己写，写什么就原样下发什么。 */
+          <AutoComplete
+            disabled={!canEditParams}
+            allowClear
+            options={presets.map((p) => ({ value: p, label: p }))}
+            placeholder={`留空=不指定；也可点选示例或自己写（${presets[0]}…）`}
+          />
+        ) : value.enum?.length ? (
+          <Select
+            disabled={!canEditParams}
+            allowClear
+            options={value.enum.map((v) => ({
+              value: v,
+              label: paramValueLabel(key, v, value.description),
+            }))}
+            placeholder={`选择${label}`}
+            onOpenChange={(open) => { if (!open) setPreviewValue(null); }}
+            /* 鼠标划过哪个风格，就把整个弹窗换成那个风格的样子；悬停只是预览，
+               不改动已选中的值，关掉下拉就退回应用主题。 */
+            optionRender={
+              previewableEnum
+                ? (option) => (
+                    <div
+                      onMouseEnter={() =>
+                        setPreviewValue(stylePreviewFor(option.value) ? String(option.value) : null)
+                      }
+                    >
+                      {option.label}
+                    </div>
+                  )
+                : undefined
+            }
+          />
+        ) : value.type === 'boolean' ? (
+          <Select
+            disabled={!canEditParams}
+            allowClear
+            options={[
+              { value: true, label: '开启' },
+              { value: false, label: '关闭' },
+            ]}
+            placeholder={`选择${label}`}
+          />
+        ) : value.type === 'integer' ? (
+          <InputNumber disabled={!canEditParams} min={1} style={{ width: '100%' }} placeholder={`输入${label}`} />
+        ) : (
+          <Input disabled={!canEditParams} placeholder={`输入${label}`} />
+        )}
+      </Form.Item>
+    );
+  };
 
   return (
     <div>
@@ -877,62 +966,24 @@ export default function DraftsPanel({
                 />
               )}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                {genParamEntries.map(([key, value]) => {
-                  const label = paramLabel(key, value.description);
-                  /* 这个枚举参数里有没有配了外观的值（目前只有视觉风格那三个）。按值查外观表，
-                     不按参数名判断，所以别的枚举参数不受影响、以后加风格也不用改这里。 */
-                  const previewableEnum = !!value.enum?.length && value.enum.some((v) => stylePreviewFor(v));
-                  return (
-                    <Form.Item
-                      key={key}
-                      name={['engine_params', key]}
-                      label={label}
-                    >
-                      {value.enum?.length ? (
-                        <Select
-                          disabled={!canEditParams}
-                          allowClear
-                          options={value.enum.map((v) => ({
-                            value: v,
-                            label: paramValueLabel(key, v, value.description),
-                          }))}
-                          placeholder={`选择${label}`}
-                          onOpenChange={(open) => { if (!open) setPreviewValue(null); }}
-                          /* 鼠标划过哪个风格，就把整个弹窗换成那个风格的样子；悬停只是预览，
-                             不改动已选中的值，关掉下拉就退回应用主题。 */
-                          optionRender={
-                            previewableEnum
-                              ? (option) => (
-                                  <div
-                                    onMouseEnter={() =>
-                                      setPreviewValue(stylePreviewFor(option.value) ? String(option.value) : null)
-                                    }
-                                  >
-                                    {option.label}
-                                  </div>
-                                )
-                              : undefined
-                          }
-                        />
-                      ) : value.type === 'boolean' ? (
-                        <Select
-                          disabled={!canEditParams}
-                          allowClear
-                          options={[
-                            { value: true, label: '开启' },
-                            { value: false, label: '关闭' },
-                          ]}
-                          placeholder={`选择${label}`}
-                        />
-                      ) : value.type === 'integer' ? (
-                        <InputNumber disabled={!canEditParams} min={1} style={{ width: '100%' }} placeholder={`输入${label}`} />
-                      ) : (
-                        <Input disabled={!canEditParams} placeholder={`输入${label}`} />
-                      )}
-                    </Form.Item>
-                  );
-                })}
+                {genNormalEntries.map(renderEngineParam)}
               </div>
+              {genAdvancedEntries.length > 0 && (
+                <Collapse
+                  ghost
+                  items={[
+                    {
+                      key: 'advanced',
+                      label: '高级（都可以不填，留空就交给引擎自己判断）',
+                      children: (
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                          {genAdvancedEntries.map(renderEngineParam)}
+                        </div>
+                      ),
+                    },
+                  ]}
+                />
+              )}
             </>
           )}
           <Form.Item style={{ marginTop: 20 }}>

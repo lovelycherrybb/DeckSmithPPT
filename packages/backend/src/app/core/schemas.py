@@ -32,6 +32,7 @@ class UserOut(BaseModel):
     role: str  # manager | vip | normal
     status: str  # enabled | disabled
     last_login_at: str | None = None  # 最后一次登录（非"最近访问"，口径见契约 User.last_login_at）
+    last_access_at: str | None = None  # 最后访问（会话内每次请求刷新，60 秒节流，口径见契约）
     created_at: str
     updated_at: str
 

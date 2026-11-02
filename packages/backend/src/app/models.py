@@ -214,6 +214,9 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255))
     created_at: Mapped[str] = mapped_column(String(32))
     updated_at: Mapped[str] = mapped_column(String(32))
+    # 最后一次访问时间（该用户会话内每次请求刷新；落库有 60 秒节流，见 core/auth.py）。
+    # 可空：从未登录过为 NULL。与 last_login_at 的区别见契约 User 两字段说明。
+    last_access_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
 
 class UserSession(Base):

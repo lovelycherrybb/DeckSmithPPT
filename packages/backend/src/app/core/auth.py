@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import secrets
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -124,8 +125,32 @@ class Identity:
         return self.user is not None and self.user.role == "manager"
 
 
+# ── 最后访问时间（User.last_access_at）────────────────────────────
+# 每个带登录态的请求都会路过 get_identity，不节流就等于每个接口都写一次库。
+# 节流口径：同一用户 60 秒内最多落一次库——显示精度因此是分钟级，契约里写明了。
+# 计时用单调钟（不受校时回拨影响），落库的值仍用 UTC ISO，与全库其他时间戳同口径。
+ACCESS_STAMP_INTERVAL = 60.0
+_access_stamp_seen: dict[str, float] = {}
+
+
+def _stamp_last_access(db: Session, user: User) -> None:
+    now = time.monotonic()
+    last = _access_stamp_seen.get(user.user_id)
+    if last is not None and now - last < ACCESS_STAMP_INTERVAL:
+        return
+    _access_stamp_seen[user.user_id] = now
+    try:
+        user.last_access_at = _now().isoformat()
+        db.commit()
+    except Exception:
+        # 访问时间写失败不该拖垮业务请求：回滚并放行，下一次请求会再试
+        db.rollback()
+
+
 def get_identity(request: Request, db: Session = Depends(get_db)) -> Identity:
     user = resolve_session(db, request.cookies.get(SESSION_COOKIE))
+    if user is not None:
+        _stamp_last_access(db, user)
     return Identity(user=user, visitor_id=request.cookies.get(VISITOR_COOKIE))
 
 

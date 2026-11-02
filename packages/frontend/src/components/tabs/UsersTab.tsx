@@ -104,9 +104,10 @@ export default function UsersTab() {
       render: (s: string) => <Tag color={s === 'enabled' ? 'green' : 'red'}>{s === 'enabled' ? '启用' : '禁用'}</Tag>,
     },
     {
-      // 口径：这是"最后一次登录"，不是"最近在线"。会话只在登录时新建、期间不续期，
-      // 挂着账号一直用也不会刷新它。文案与契约 User.last_login_at 的说明一致，别写成"最后访问"。
-      title: '最后登录', dataIndex: 'last_login_at', key: 'last_login_at', width: 110,
+      // 口径：这是"最后访问"——该用户会话内每次请求都刷新（后端 60 秒落库节流，显示精度分钟级）。
+      // 上一版用"最后登录"是错的：登录只在进系统时发生一次，handong 当天跑着任务、
+      // 列却停在昨天，就是这么来的。文案与契约 User.last_access_at 的说明一致。
+      title: '最后访问', dataIndex: 'last_access_at', key: 'last_access_at', width: 110,
       render: (v: string | null) => timeOrDash(v),
     },
     {

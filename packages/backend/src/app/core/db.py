@@ -71,6 +71,11 @@ _MIGRATIONS = {
         "task_id": "ALTER TABLE draft_versions ADD COLUMN task_id VARCHAR(64)",
         "draft_path": "ALTER TABLE draft_versions ADD COLUMN draft_path VARCHAR(512)",
     },
+    "users": {
+        # 最后访问时间（0.6.5）：可空列，按本文件规矩不升 SCHEMA_VERSION。
+        # 0.6.2/0.6.3 建的 users 表没有它，靠这里的幂等 ALTER 补上。
+        "last_access_at": "ALTER TABLE users ADD COLUMN last_access_at VARCHAR(32)",
+    },
 }
 
 # 需要“按模型整张重建”的老表：SQLite 去不掉旧列的 NOT NULL 约束，只能搬家。

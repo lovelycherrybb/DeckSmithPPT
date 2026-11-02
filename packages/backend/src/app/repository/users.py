@@ -38,6 +38,7 @@ class UserRepo:
             "phone": obj.phone,
             "role": obj.role,
             "status": obj.status,
+            "last_access_at": obj.last_access_at,
             "created_at": obj.created_at,
             "updated_at": obj.updated_at,
         }

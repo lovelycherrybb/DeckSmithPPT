@@ -56,6 +56,26 @@ def _epoch_of(iso: str | None) -> float | None:
         return None
 
 
+def _params_for_engine(row: dict) -> dict:
+    """把 jobs 行上的通用字段并进 engine_params，再交给引擎。
+
+    成因（2026-10-31 实测）：引擎只从 `engine_params` 一个口子收参数（协议如此），
+    而 `content_style` 存在行的独立列上，认领时没人并进去——于是三个引擎里那行
+    `ep.get("content_style", ...)` 永远取到硬编码默认值，用户选什么都白选。
+    这条就是把这个断点接上，通用字段与引擎参数在此汇合。
+
+    口径：
+    - 值为空（NULL / 缺列）时**不写这个键**——"用户没选"要如实传成"没这个键"，
+      引擎才知道该不下发（而不是替用户选一个默认值）。
+    - `engine_params` 里已有同名键时以它为准，不被行上的值覆盖（提交期显式传参优先）。
+    """
+    params = dict(row.get("engine_params") or {})
+    style = row.get("content_style")
+    if style and "content_style" not in params:
+        params["content_style"] = style
+    return params
+
+
 #: 快通道每拍认领上限（ADR-024）。只是安全阀：防"一拍里 fork 出一堆子进程"，不是并发闸。
 #: 全局防灌水交给提交期 per-identity 未结束粗闸兜底，所以这里给足量。
 FAST_LANE_MAX_PER_SWEEP = 8
@@ -284,6 +304,7 @@ class Scheduler:
             stats["rejected"] += 1
             return
         try:
+            params = _params_for_engine(row)
             if row.get("task_type") == "revise":
                 # 逐页修改：靠 revise_meta 还原 engine.revise 入参（同 sources 之于 submit）
                 meta = row.get("revise_meta") or {}
@@ -293,7 +314,7 @@ class Scheduler:
                     pages=meta.get("pages") or None,
                     deck=meta.get("deck"),
                     instruction=meta.get("instruction"),
-                    engine_params=row.get("engine_params") or {},
+                    engine_params=params,
                 )
             else:
                 JobService.engine_submit(
@@ -301,7 +322,7 @@ class Scheduler:
                     content=row.get("content"),
                     title=row.get("title"),
                     pages=row.get("pages"),
-                    engine_params=row.get("engine_params") or {},
+                    engine_params=params,
                     sources=row.get("sources") or [],   # 搬家带来的硬前置：不入库就还原不出入参
                     job_id=job_id,
                     engine_type=row.get("task_type"),

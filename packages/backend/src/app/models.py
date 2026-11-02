@@ -72,7 +72,9 @@ class Job(Base):
     pages: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 可选，可由 AI 决定或使用默认值
     engine: Mapped[str] = mapped_column(String(64))
     agent: Mapped[str] = mapped_column(String(32), default="claude")
-    content_style: Mapped[str] = mapped_column(String(64), default="marketing_promo")
+    # 内容风格：可空。NULL = 用户没选（不是"选了默认值"），引擎据此决定要不要下发这一项。
+    # 历史行仍带建表时填的 marketing_promo，不回填、不改动。
+    content_style: Mapped[str | None] = mapped_column(String(64), nullable=True, default=None)
 
     # 引擎特定参数（style/mode/...），存为 JSON 文本
     engine_params: Mapped[str] = mapped_column(Text, default="{}")

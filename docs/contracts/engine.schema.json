@@ -612,6 +612,17 @@
           ],
           "default": "none",
           "description": "动画：none=关，auto=自动"
+        },
+        "content_style": {
+          "type": "string",
+          "enum": [
+            "marketing_promo",
+            "product_story",
+            "briefing",
+            "event_promo",
+            "investment_pitch"
+          ],
+          "description": "内容风格：marketing_promo=宣传材料，product_story=产品介绍，briefing=方案汇报，event_promo=活动推广，investment_pitch=招商介绍。取值集合以 openapi.yaml 的 DeckRequest.content_style 为准，本处必须逐项相等（机器看守）。留空=用户没选，引擎不下发这一项，由技能按内容自行判断"
         }
       }
     },
@@ -684,6 +695,17 @@
           ],
           "default": "none",
           "description": "动画：none=关，auto=自动"
+        },
+        "content_style": {
+          "type": "string",
+          "enum": [
+            "marketing_promo",
+            "product_story",
+            "briefing",
+            "event_promo",
+            "investment_pitch"
+          ],
+          "description": "内容风格：marketing_promo=宣传材料，product_story=产品介绍，briefing=方案汇报，event_promo=活动推广，investment_pitch=招商介绍。取值集合以 openapi.yaml 的 DeckRequest.content_style 为准，本处必须逐项相等（机器看守）。留空=用户没选，引擎不下发这一项，由技能按内容自行判断"
         },
         "route_profile": {
           "type": "string",

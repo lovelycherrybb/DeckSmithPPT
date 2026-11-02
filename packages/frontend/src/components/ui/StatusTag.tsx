@@ -19,7 +19,11 @@ export function StatusTag({ status }: { status?: JobStatus | string }) {
   return <Tag color={meta.color}>{meta.label}</Tag>;
 }
 
-const CONTENT_STYLE_LABELS: Record<string, string> = {
+/* 内容风格的中文文案。取值集合的唯一事实来源是 docs/contracts/openapi.yaml 的
+   DeckRequest.content_style enum——本表必须与它逐项相等，由
+   tests/contract/engine_param_wiring_test.py 机器看守（多一个少一个都报红）。
+   这里只承载"叫什么中文名"，不承载"有哪些值"。 */
+export const CONTENT_STYLE_LABELS: Record<string, string> = {
   marketing_promo: '宣传材料',
   product_story: '产品介绍',
   briefing: '方案汇报',

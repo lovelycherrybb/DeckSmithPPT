@@ -215,7 +215,8 @@ class JobRepo:
         }
 
     def create(self, db, **fields) -> dict:
-        fields.setdefault("content_style", "marketing_promo")
+        # 不替 content_style 填默认值：没选就存 NULL，"没选"本身是要如实记下的状态
+        # （填了默认值等于系统替用户做了选择，引擎再也分不清"用户要宣传材料"和"没人选"）。
         fields.setdefault("task_type", "draft")
         _encode_json_columns(fields)
         obj = Job(**fields)
@@ -254,8 +255,6 @@ class JobRepo:
         obj = db.execute(select(Job).where(Job.job_id == job_id)).scalar_one_or_none()
         if obj is None:
             return None
-        if "content_style" in fields and fields["content_style"] is None:
-            fields["content_style"] = "marketing_promo"
         _encode_json_columns(fields)
         for key, value in fields.items():
             setattr(obj, key, value)

@@ -277,7 +277,7 @@ class JobService:
             pages=req.pages,
             engine=req.engine,
             agent=req.agent,
-            content_style=req.content_style,
+            content_style=req.content_style or engine_params.get("content_style"),
             engine_params=engine_params,
             content=content,
             sources=sources,

@@ -3,7 +3,7 @@
 - 请求进来：用 *Request 模型校验前端发的 JSON
 - 响应回去：用 *Out / *Info 模型格式化后端回的 JSON
 """
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -193,7 +193,12 @@ class DeckRequest(BaseModel):
     content: str | None = None  # Markdown 内容。输出引擎任务可直接提供，或通过 draft_id + version 引用草稿实体
     draft_id: str | None = None  # 草稿标识（输出引擎任务可选）。提供后系统自动从草稿版本中获取 content
     version: str | None = None  # 草稿版本号（与 draft_id 配合使用）。不提供则使用草稿的当前版本
-    content_style: str = "marketing_promo"
+    # 内容风格：取值集合的唯一事实来源是 docs/contracts/openapi.yaml 的 DeckRequest，
+    # 两处不一致由 tests/contract/engine_param_wiring_test.py 判红。
+    # 省略 = 用户没选，后端不代填默认值（引擎侧未选即不下发）。
+    content_style: Literal[
+        "marketing_promo", "product_story", "briefing", "event_promo", "investment_pitch"
+    ] | None = None
     pages: int | None = Field(default=None, ge=1, description="目标页数（可选，可由 AI 决定或使用默认值）")
     agent: str = "claude"
     sources: list[SourceSpec] = Field(default_factory=list)  # 原始素材来源列表（提交时提供，用于生成草稿）。优先于 content。支持多文件上传

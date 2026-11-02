@@ -45,11 +45,13 @@ export default function EngineParamsForm({ schema, exclude = ['source', 'files',
         <Form.Item key={key} name={key} label={value.description?.split('。')[0] || key}>
           {value.enum?.length ? (
             <Select
+              allowClear
               options={value.enum.map((v) => ({ value: v, label: String(v) }))}
               placeholder={`选择 ${key}`}
             />
           ) : value.type === 'boolean' ? (
             <Select
+              allowClear
               options={[
                 { value: true, label: '开启' },
                 { value: false, label: '关闭' },
@@ -58,7 +60,7 @@ export default function EngineParamsForm({ schema, exclude = ['source', 'files',
           ) : value.type === 'integer' ? (
             <InputNumber min={1} style={{ width: '100%' }} placeholder={key} />
           ) : (
-            <Select placeholder={key} options={[]} disabled />
+            <Select allowClear placeholder={key} options={[]} disabled />
           )}
         </Form.Item>
       ))}

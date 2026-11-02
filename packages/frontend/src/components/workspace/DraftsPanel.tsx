@@ -63,7 +63,7 @@ import {
   type UserPreference,
 } from '@/lib/api';
 import { isPending, isRetryable, queueDetailLabel } from '@/lib/jobStatus';
-import { StatusTag } from '@/components/ui/StatusTag';
+import { StatusTag, CONTENT_STYLE_LABELS } from '@/components/ui/StatusTag';
 import MarkdownView from '@/components/ui/MarkdownView';
 import MdEditor from '@/components/ui/MdEditor';
 import { useAuth } from '@/components/AuthProvider';
@@ -412,10 +412,13 @@ export default function DraftsPanel({
     try {
       const values = await genForm.validateFields();
       setGenSubmitting(true);
-      // 清洗引擎参数：条件不成立的参数不下发；基础「目标页数」按引擎声明回填进 engine_params
+      // 清洗引擎参数：条件不成立的参数不下发；基础「目标页数」按引擎声明回填进 engine_params。
+      // 空值一律不下发（不是下发 null）——"没选"必须传成"这个键不存在"，引擎才知道该让技能自己判断；
+      // 下发 null 会被当成一次真实选择。
       const rawParams = (values.engine_params || {}) as Record<string, unknown>;
       const engineParams: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(rawParams)) {
+        if (value === undefined || value === null || value === '') continue;
         const dep = paramDependency(genEngineProps[key]?.description);
         if (dep && String(rawParams[dep.dependsOn] ?? '') !== dep.equals) continue;
         engineParams[key] = value;
@@ -888,6 +891,7 @@ export default function DraftsPanel({
                       {value.enum?.length ? (
                         <Select
                           disabled={!canEditParams}
+                          allowClear
                           options={value.enum.map((v) => ({
                             value: v,
                             label: paramValueLabel(key, v, value.description),
@@ -913,6 +917,7 @@ export default function DraftsPanel({
                       ) : value.type === 'boolean' ? (
                         <Select
                           disabled={!canEditParams}
+                          allowClear
                           options={[
                             { value: true, label: '开启' },
                             { value: false, label: '关闭' },

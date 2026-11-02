@@ -1704,8 +1704,16 @@ components:
           pattern: '^[0-9]{14}$'
         content_style:
           type: string
-          default: marketing_promo
-          description: 内容风格（先由 agent 对话式重写 Markdown，再交给引擎）
+          enum:
+          - marketing_promo
+          - product_story
+          - briefing
+          - event_promo
+          - investment_pitch
+          description: >-
+            内容风格（先由 agent 对话式重写 Markdown，再交给引擎）。
+            可省略——省略即"用户没选"，系统不代为填默认值，交由引擎按内容自行判断。
+            取值集合以本处为唯一事实来源，前端与引擎都不得另立一份。
         pages:
           type: integer
           minimum: 1

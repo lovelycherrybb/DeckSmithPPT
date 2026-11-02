@@ -64,13 +64,18 @@
 
 ## 内容风格（ContentStyle）
 
+取值集合的唯一事实来源是 `openapi.yaml` 的 `DeckRequest.content_style` enum，
+本表只是它的中文说明，两者不一致由 `tests/contract/engine_param_wiring_test.py` 判红。
+
 | 风格 ID | 中文名 | 说明 | 适合场景 |
 |---------|--------|------|---------|
-| marketing_promo | 营销推广 | 突出卖点、行动号召 | 产品发布、营销活动 |
-| business_report | 商务报告 | 数据驱动、逻辑清晰 | 年报、季度报告、汇报 |
-| educational | 教育培训 | 循序渐进、知识点明确 | 课程、培训、教程 |
-| creative_showcase | 创意展示 | 视觉冲击、创意表达 | 作品集、设计展示 |
-| technical_brief | 技术简报 | 专业准确、技术细节 | 技术文档、架构说明 |
+| marketing_promo | 宣传材料 | 突出卖点与行动号召 | 产品发布、营销活动 |
+| product_story | 产品介绍 | 讲清功能、场景与价值 | 产品说明、方案介绍 |
+| briefing | 方案汇报 | 结论先行、进展与风险并重 | 工作汇报、评审材料 |
+| event_promo | 活动推广 | 强调时间地点与参与收益 | 活动预热、招募召集 |
+| investment_pitch | 招商介绍 | 讲机会、模式与回报 | 招商路演、合作洽谈 |
+
+用户没选时不下发这一项，由引擎按内容自行判断（不是替他填 marketing_promo）。
 
 ---
 

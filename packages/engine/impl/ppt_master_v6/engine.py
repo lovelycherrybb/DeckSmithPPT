@@ -378,32 +378,52 @@ class PptMasterV6Engine(PptEngine):
         content: str,
         engine_params: dict | None = None,
     ) -> str:
-        """构建生成 prompt：把 v6.6 的全部可调参数显式喂给 agent（全量接线，不再悬空）。"""
+        """构建生成 prompt：契约声明的参数全部接线，且**用户没选的不下发**。
+
+        两类参数分开处理，口径不同：
+        - **用户可见参数**（style / mode / format / notes / animation / content_style）：
+          键缺席就不写这一行，由技能按自己的推荐判断。写默认值等于替用户做主，
+          界面上的"留空"就成了假选项。
+        - **`x-hidden` 工程参数**（route_profile / generation_mode / pptx_structure_mode）：
+          不在界面上，但必须每次显式给值——无人值守要的是可复现（ADR-015 决策 1）。
+        """
         ep = engine_params or {}
-        style = ep.get("style", "swiss-minimal")
-        content_style = ep.get("content_style", "marketing_promo")
-        mode = ep.get("mode", "auto")
-        fmt = ep.get("format", "ppt169")
-        route_profile = ep.get("route_profile", "quick-generate")
-        generation_mode = ep.get("generation_mode", "continuous")
-        structure_mode = ep.get("pptx_structure_mode", "flat")
-        notes = bool(ep.get("notes", False))
-        animation = ep.get("animation", "none")
+        lines: list[str] = [
+            f"- route_profile（生成路线）：{ep.get('route_profile', 'quick-generate')}"
+            "  # quick-generate=最少确认、快出片；default=完整多阶段流程",
+            f"- generation_mode（生成模式）：{ep.get('generation_mode', 'continuous')}"
+            "  # continuous=连续整篇；split=分页拆分",
+            f"- pptx_structure.mode（打包结构）：{ep.get('pptx_structure_mode', 'flat')}"
+            "  # flat=对象 Slide 本地；structured=声明 Master/Layout/slot",
+        ]
+        if ep.get("style"):
+            lines.append(f"- style（视觉风格）：{ep['style']}")
+        if ep.get("mode"):
+            lines.append(f"- mode（叙事模式）：{ep['mode']}  # auto=由你按内容自行决定")
+        if ep.get("format"):
+            fmt = ep["format"]
+            lines.append(f"- format（画布尺寸）：{fmt}")
+        # 备注是布尔：false 是用户真选了"关"，必须照样下发，所以判类型而非判真假
+        if isinstance(ep.get("notes"), bool):
+            lines.append(
+                f"- proactive_speaker_notes（演讲备注）："
+                f"{'true' if ep['notes'] else 'false'}  # 本项覆盖技能默认（技能默认为开）"
+            )
+        if ep.get("animation"):
+            animation = ep["animation"]
+            lines.append(
+                f"- proactive_custom_animations（动画）："
+                f"{'true' if animation == 'auto' else 'false'}  # animation={animation}"
+            )
+        if ep.get("content_style"):
+            lines.append(f"- 内容风格：{ep['content_style']}")
         return f"""请根据以下内容生成 PPT（走 ppt-master v6.6.0 生成路线）：
 
 标题：{title}
 页数：{pages}
 
-【生成参数·严格按此执行，不要自行改选路由】
-- route_profile（生成路线）：{route_profile}  # quick-generate=最少确认、快出片；default=完整多阶段流程
-- style（视觉风格）：{style}
-- mode（叙事模式）：{mode}  # auto=由你按内容自行决定
-- format（画布尺寸）：{fmt}
-- generation_mode（生成模式）：{generation_mode}  # continuous=连续整篇；split=分页拆分
-- pptx_structure.mode（打包结构）：{structure_mode}  # flat=对象 Slide 本地；structured=声明 Master/Layout/slot
-- notes（演讲备注）：{"需要" if notes else "不需要"}
-- animation（动画）：{animation}
-- 内容风格：{content_style}
+【生成参数·列出的严格按此执行，未列出的由你自行判断，不要自行改选路由】
+{chr(10).join(lines)}
 
 内容：
 {content}

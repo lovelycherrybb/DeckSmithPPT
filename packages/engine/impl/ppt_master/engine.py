@@ -389,10 +389,16 @@ class PptMasterEngine(PptEngine):
         if md:
             draft = f"# {effective_title}\n\n{md}\n\n---\n目标页数：{pages}"
         else:
+            # 无素材兜底：只列用户真选了的项，没选的不写（同 _build_prompt 的"未选不下发"，
+            # 不拿硬编码默认值冒充用户的选择）
+            ep = engine_params or {}
+            hints = [f"{label}：{ep[key]}" for key, label in (
+                ("style", "风格"), ("content_style", "内容风格"),
+            ) if ep.get(key)]
+            hint_line = f"> {' ｜ '.join(hints)} ｜ " if hints else "> "
             draft = (
                 f"# {effective_title}\n\n"
-                f"> 风格：{(engine_params or {}).get('style', 'swiss-minimal')} ｜ "
-                f"内容风格：{(engine_params or {}).get('content_style', 'marketing_promo')} ｜ 目标页数：{pages}\n\n"
+                f"{hint_line}目标页数：{pages}\n\n"
                 "（未提供可用素材，请在草稿基础上编辑补充内容）\n\n---\n目标页数：{pages}"
             )
         return draft, effective_title
@@ -400,16 +406,58 @@ class PptMasterEngine(PptEngine):
     @staticmethod
     def _build_prompt(
         title: str,
-        style: str,
         pages: int,
         content: str,
+        engine_params: dict | None = None,
     ) -> str:
-        """构建生成 prompt。"""
+        """构建生成 prompt：把用户真选了的参数显式喂给 agent（全量接线）。
+
+        两条口径同时守在这里：
+
+        1. **声明即接线**——凡 `docs/contracts/engine.schema.json` 的 `$defs.ppt_master`
+           对外承诺的参数，本函数必须有对应的取值点；漏一个即被
+           `tests/contract/engine_param_wiring_test.py` 判红。
+        2. **未选即不下发**——键缺席（用户没选）时**不写这一行**，让技能按它自己的推荐
+           判断。绝不用硬编码默认值替用户做主：写了默认值，技能就无法区分"要瑞士极简"
+           和"没表态"，界面上的"留空"也就成了假选项。
+
+        键名对齐技能自己的叫法（ppt-master v5 `scripts/docs/confirm_ui.md` 的
+        `result.json` 字段），免得 agent 要把我们的说法再翻译一遍。
+        """
+        ep = engine_params or {}
+        lines: list[str] = []
+        if ep.get("style"):
+            lines.append(f"- style（视觉风格）：{ep['style']}")
+        if ep.get("mode"):
+            lines.append(f"- mode（叙事模式）：{ep['mode']}  # 本次锁定，不要自行改选")
+        if ep.get("format"):
+            fmt = ep["format"]
+            lines.append(
+                f"- canvas / format（画布尺寸）：{fmt}  # 初始化项目时显式传 --format {fmt}"
+            )
+        # 备注是布尔：false 是用户真选了"关"，必须照样下发，所以判类型而非判真假
+        if isinstance(ep.get("notes"), bool):
+            lines.append(
+                f"- proactive_speaker_notes（演讲备注）："
+                f"{'true' if ep['notes'] else 'false'}  # 本项覆盖技能默认（技能默认为开）"
+            )
+        if ep.get("animation"):
+            animation = ep["animation"]
+            lines.append(
+                f"- proactive_custom_animations（动画）："
+                f"{'true' if animation == 'auto' else 'false'}  # animation={animation}"
+            )
+        if ep.get("content_style"):
+            lines.append(f"- 内容风格：{ep['content_style']}")
+
+        param_block = "\n".join(lines) if lines else "（本次用户未指定任何参数，全部按你自己的推荐判断）"
         return f"""请根据以下内容生成 PPT：
 
 标题：{title}
-风格：{style}
 页数：{pages}
+
+【生成参数·用户选了的严格按此执行，未列出的由你自行判断】
+{param_block}
 
 内容：
 {content}
@@ -495,9 +543,7 @@ class PptMasterEngine(PptEngine):
         # 运行前置条件走 prepare_runtime 钩子（与 guizang 同形状）：硬缺失直接抛出，
         # 让任务在拉起子进程之前就失败——宁可红一条记录，也不要 spawn 一个会
         # "静默做成无流程 PPT" 的子进程；可降级告警写进 run.log 留痕。
-        content_style = (engine_params or {}).get("content_style", "marketing_promo")
-        prompt = self._build_prompt(effective_title, style, int(effective_pages), draft)
-        prompt += f"\n- 内容风格：{content_style}\n"
+        prompt = self._build_prompt(effective_title, int(effective_pages), draft, engine_params)
         # ADR-012 决策 1：cwd 改为任务目录后，claude 不再位于技能仓库内，
         # 原先「cwd 落在 lib/ppt-master → 自动读到该目录 AGENTS.md」这条技能发现
         # 链路就此断开。故把运行锚点显式写进 prompt（与 guizang 引擎同构）：

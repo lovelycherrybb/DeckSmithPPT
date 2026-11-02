@@ -22,10 +22,12 @@ AGENTS.md 规则：本文件只实现 PptEngine 协议，不修改任何调用�
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import uuid
@@ -46,6 +48,19 @@ _PPT_MASTER_DIR = _REPO_ROOT / "lib" / "ppt-master"
 _SOURCE_TO_MD = _PPT_MASTER_DIR / "skills" / "ppt-master" / "scripts" / "source_to_md.py"
 _CLAUDE_BIN = "claude"
 _DEFAULT_TIMEOUT_SECONDS = 3600
+
+
+class _UnreadableJobRecord(dict):
+    """job.json 在盘上但内容读不出/解析不了的哨兵（2026-11-02 竞态修复）。
+
+    行为等同空字典（既有调用方照旧 `.get()` 不炸），但身份可判：`status()` 见到它
+    必须按「信息不明」处理，不得据此下失败结论、更不得改写文件。此前解析失败一律
+    吞成 `{}`，导致「读到半截」被当成「没记录」，进而用无关文案覆盖后台线程刚写入
+    的真实失败原因（tests/contract/job_state_file_atomic_test.py 看守）。
+    """
+
+
+_JOB_UNREADABLE = _UnreadableJobRecord()
 
 
 def _now() -> str:
@@ -190,19 +205,46 @@ class PptMasterEngine(PptEngine):
         return self.jobs_root / str(job_id)
 
     def _read_job(self, job_id: Any) -> dict:
+        """读任务记录，「没落过盘」与「内容读不成」两种结果可区分（2026-11-02 竞态修复）。
+
+        - 文件不存在 → `{}`：任务从未落盘；
+        - 文件在但读不出/解析不了（写侧竞态半截、文件损坏）→ `_JOB_UNREADABLE`；
+        - 其余 → 完整记录。
+        """
         p = self._job_dir(job_id) / "job.json"
         if not p.exists():
             return {}
         try:
-            return json.loads(p.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            return {}
+            raw = p.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            return {}  # exists 与 read 之间被摘走：按「没记录」算
+        except OSError:
+            return _JOB_UNREADABLE
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            return _JOB_UNREADABLE
 
     def _write_job(self, job_id: Any, **fields: Any) -> dict:
         p = self._job_dir(job_id) / "job.json"
-        data = self._read_job(job_id)
+        prev = self._read_job(job_id)
+        # 哨兵是模块级单例，不得原地 update（会污染它）；记录读不成就从当前字段重起
+        data = {} if prev is _JOB_UNREADABLE else prev
         data.update(fields)
-        p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        # 原子替换：写同目录临时文件后 os.replace，读者要么见旧全文要么见新全文，
+        # 永远撞不见半截（此前直接整文件覆盖写，并发读者会读到写了一半的内容）。
+        fd, tmp = tempfile.mkstemp(dir=str(p.parent), prefix=".job-", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(json.dumps(data, ensure_ascii=False, indent=2))
+            os.chmod(tmp, 0o644)  # mkstemp 落 0600，对齐此前 write_text 的可见性
+            os.replace(tmp, p)
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
         return data
 
     @staticmethod
@@ -838,6 +880,11 @@ class PptMasterEngine(PptEngine):
 
     def status(self, job_id: Any) -> EngineJobStatus:
         data = self._read_job(job_id)
+        if data is _JOB_UNREADABLE:
+            # 记录在盘但读不成（写侧竞态半截、文件损坏）：信息不明，没有资格下「失败」
+            # 结论，也不许据它改写文件——按还在跑处理，把落定留给真正写状态的那一方
+            # （2026-11-02，tests/contract/job_state_file_atomic_test.py）。
+            return EngineJobStatus.RUNNING
         status = data.get("status", "running")
         if status != "running":
             return EngineJobStatus(status)

@@ -43,6 +43,13 @@ os.environ["DECKSMITH_FORCE_STUB"] = "1"
 # 与"未注入"这一真实语义混在一起被误读
 os.environ["DECKSMITH_VERSION"] = "0.0.0-pytest"
 
+# CLI 配置目录也进沙箱。启用供应商档案会把模型名渲染进 ~/.claude/settings.json，
+# 不把它指走，跑测试就会改写开发机的真实供应商配置——2026-11-04 实测：跑完一轮
+# scripts/test.sh 之后，真实文件里的 ANTHROPIC_MODEL 变成测试常量 glm-4.6、地址变成
+# gw.example.com，随后的真实生成一直报"模型名称不认识"，排查时被误导成"有人在界面上
+# 乱点"。与上面几条同一个道理：必须早于任何 app 模块导入。
+os.environ["CLAUDE_CONFIG_DIR"] = str(_SANDBOX / "claude-config")
+
 for _p in (REPO / "packages", REPO / "packages" / "backend" / "src"):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))

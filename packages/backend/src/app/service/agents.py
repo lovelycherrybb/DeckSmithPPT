@@ -171,8 +171,13 @@ class AgentSettingsService:
         spec = self._spec_or_400(row.agent_id)
 
         values = decode_values(row.values)
-        self.repo.activate(db, provider_id, operator_id)
+        # 先写文件、后记状态。原先是反的：_apply_profile 一旦因现有文件不是合法 JSON 而
+        # 报错退出，repo.activate 已经落库，于是数据库说"这套生效"、配置文件里却还是
+        # 上一个供应商的值——AI 拿着一个不存在的模型名去请求，任务一直失败，而界面上
+        # 显示"使用中"，看不出任何异常（2026-11-04 排查逐页修改导出失败时实测撞到）。
+        # 现在写文件不成功，这件事整体不生效，状态与文件不可能各说一套。
         applied = self._apply_profile(spec, values)
+        self.repo.activate(db, provider_id, operator_id)
 
         gaps = [spec.field(k).label if spec.field(k) else k for k in spec.gaps(values)]
         return {

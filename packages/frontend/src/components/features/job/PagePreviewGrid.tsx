@@ -61,13 +61,13 @@ function SlideIframeCell({ page }: { page: PageItem }) {
       ref={ref}
       style={{ ...cellBase, border: '1px solid var(--border)', cursor: 'pointer' }}
       onClick={() => window.open(base, '_blank', 'noopener')}
-      title="点击在新标签放映"
+      title="点击在新标签页中放映"
     >
       <PageBadge index={page.index} />
       {seen ? (
         <iframe
           src={`${base}&static=1`}
-          title={page.name}
+          title={`第 ${page.index} 页`}
           style={{ width: '100%', height: '100%', border: 'none', pointerEvents: 'none' }}
           sandbox="allow-scripts"
           loading="lazy"
@@ -87,7 +87,7 @@ const CLEANED_FALLBACK_SRC =
   encodeURIComponent(
     `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180">
       <rect width="320" height="180" fill="#88888822"/>
-      <text x="160" y="96" font-size="16" text-anchor="middle" fill="#888888">产物已清理</text>
+      <text x="160" y="96" font-size="16" text-anchor="middle" fill="#888888">文件已不存在，无法显示</text>
     </svg>`
   );
 
@@ -127,12 +127,12 @@ function PageCard({ page }: { page: PageItem }) {
     return <SlideIframeCell page={page} />;
   }
   return (
-    <Tooltip title={page.name}>
+    <Tooltip title={`第 ${page.index} 页`}>
       <div style={{ ...cellBase, border: '1px solid var(--border)' }}>
         <PageBadge index={page.index} />
         <Image
           src={page.url}
-          alt={page.name}
+          alt={`第 ${page.index} 页`}
           fallback={CLEANED_FALLBACK_SRC}
           wrapperStyle={{ width: '100%', height: '100%' }}
           style={{ objectFit: 'contain', width: '100%', height: '100%', cursor: 'zoom-in' }}
@@ -159,7 +159,7 @@ function InProgressCell({ data }: { data: JobPages }) {
     >
       <Spin size="small" />
       <Text style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-        {exporting ? '正在导出成品' : `正在生成第 ${data.pages_generated + 1} 页`}
+        {exporting ? '正在生成文件' : `正在生成第 ${data.pages_generated + 1} 页`}
       </Text>
     </div>
   );
@@ -184,7 +184,7 @@ export default function PagePreviewGrid({ data, showHeader = true }: Props) {
           </Text>
           {running && (
             <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
-              （整页落盘后自动出现）
+              （每页生成完成后自动显示）
             </Text>
           )}
         </div>
@@ -205,7 +205,7 @@ export default function PagePreviewGrid({ data, showHeader = true }: Props) {
       </div>
       {data.supports_page_preview && data.pages.length === 0 && !running && (
         <Text type="secondary" style={{ fontSize: 12 }}>
-          暂无可查看的页面（产物目录可能已被清理）
+          暂无可查看的页面；若生成时间较久，文件可能已过期清除
         </Text>
       )}
     </div>

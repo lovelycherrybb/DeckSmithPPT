@@ -59,7 +59,7 @@ class GuardResult:
     @property
     def error_message(self) -> str:
         """写进 job.json error / DB error 的聚合文案（界面直接展示）。"""
-        return "产物结构不完整，无法正常使用：" + "；".join(d.message for d in self.defects)
+        return "结果文件结构不完整，无法正常使用：" + "。".join(d.message for d in self.defects)
 
 
 def _skeleton_defects(html_text: str) -> list[Defect]:
@@ -73,25 +73,25 @@ def _skeleton_defects(html_text: str) -> list[Defect]:
             if sid == "nav":
                 defects.append(Defect(
                     code="skeleton_missing:nav",
-                    message="缺少翻页导航容器（id=\"nav\" 被注入过程误删，页面无法翻页）",
+                    message="结果文件缺少翻页控件，无法翻页，请重新生成",
                     healable=True,
                 ))
             elif sid == "deck":
                 defects.append(Defect(
                     code="skeleton_missing:deck",
-                    message="缺少页面主容器（id=\"deck\" 缺失，翻页结构已破坏）",
+                    message="结果文件缺少页面主体，已损坏，请重新生成",
                     healable=False,
                 ))
             else:
                 defects.append(Defect(
                     code="skeleton_missing:hint",
-                    message="缺少操作提示条（id=\"hint\" 缺失，骨架不完整）",
+                    message="结果文件缺少操作提示，可能不完整，请重新生成",
                     healable=False,
                 ))
             continue
         defects.append(Defect(
             code=f"skeleton_duplicated:{sid}",
-            message=f"骨架元素被重复写入（id=\"{sid}\" 出现 {n} 次，应恰好 1 次）",
+            message="结果文件里有部件被重复写入，已损坏，请重新生成",
             healable=False,
         ))
     return defects
@@ -109,21 +109,21 @@ def validate(html_text: str, *, closed_pages: int) -> list[Defect]:
     if "</html>" not in html_text:
         defects.append(Defect(
             code="truncated",
-            message="产物文件不完整（没有 </html> 收尾，疑似写入中途被打断）",
+            message="结果文件写入被中断，不完整，请重新生成",
             healable=False,
         ))
     # R2 至少有一页能渲染
     if closed_pages < 1:
         defects.append(Defect(
             code="no_slides",
-            message=f"产物里没有完整写成的页面（{closed_pages} 页，可能只写了半截）",
+            message=f"只完成了 {closed_pages} 页，文件可能不完整，请重新生成",
             healable=False,
         ))
     # R3 注入占位必须被替换干净
     if SLIDES_HERE_MARKER in html_text:
         defects.append(Defect(
             code="slides_here_residue",
-            message="页面未注入完整（模板占位注释 SLIDES_HERE 仍残留在产物中）",
+            message="页面内容未被写入文件，请重新生成",
             healable=False,
         ))
     defects.extend(_skeleton_defects(html_text))

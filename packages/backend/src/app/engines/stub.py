@@ -207,7 +207,7 @@ class StubPptMasterEngine(PptEngine):
         
         return {
             "stage": "generating",
-            "stage_label": "正在生成 PPT（stub 模拟）",
+            "stage_label": "正在生成 PPT（演示模式）",
             "pages_generated": 2,
             "elapsed_seconds": elapsed,
             "current_page": "stub_page.pptx",

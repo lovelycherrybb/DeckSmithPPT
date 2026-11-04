@@ -548,7 +548,7 @@
       "properties": {
         "style": {
           "type": "string",
-          "description": "视觉风格：整套片子的外观基调，共 18 种。留空＝由引擎按内容选",
+          "description": "视觉风格：整份演示的外观基调，共 18 种。未选择时不作指定，由系统依据素材内容判定",
           "enum": [
             "swiss-minimal",
             "soft-rounded",
@@ -568,11 +568,31 @@
             "sketch-notes",
             "vintage-poster",
             "zine"
-          ]
+          ],
+          "x-value-labels": {
+            "swiss-minimal": "瑞士极简风",
+            "soft-rounded": "圆角柔和风",
+            "glassmorphism": "毛玻璃风（半透明磨砂质感）",
+            "dark-tech": "深色科技风",
+            "blueprint": "蓝底线稿风（工程制图感）",
+            "editorial": "杂志风（大图留白、讲究排版）",
+            "photo-editorial": "摄影杂志风（以照片为主）",
+            "data-journalism": "数据图表风（适合呈现数字与图表）",
+            "brutalist": "粗犷大字风（高对比、少装饰）",
+            "chalkboard": "黑板手绘风",
+            "ink-notes": "墨水笔记风",
+            "ink-wash": "水墨风",
+            "memphis": "彩色几何拼贴风（活泼撞色）",
+            "paper-cut": "剪纸风",
+            "pixel-art": "像素风",
+            "sketch-notes": "速写笔记风",
+            "vintage-poster": "复古海报风",
+            "zine": "独立小刊风（拼贴、手作感）"
+          }
         },
         "mode": {
           "type": "string",
-          "description": "叙事模式：这份演示按什么路子讲下去。留空＝由引擎按内容决定",
+          "description": "内容结构：这份演示按什么路子讲下去。未选择时不作指定，由系统依据素材内容判定",
           "enum": [
             "auto",
             "pyramid",
@@ -582,17 +602,17 @@
             "briefing"
           ],
           "x-value-labels": {
-            "auto": "自动",
-            "pyramid": "金字塔",
-            "narrative": "叙事",
-            "instructional": "教学",
-            "showcase": "展示",
-            "briefing": "简报"
+            "auto": "自动（依据内容判定）",
+            "pyramid": "金字塔（先给结论，再逐层展开）",
+            "narrative": "讲故事（按时间顺序推进）",
+            "instructional": "教学（分步骤讲解）",
+            "showcase": "展示（以图为主，文字精简）",
+            "briefing": "简报（要点概述）"
           }
         },
         "format": {
           "type": "string",
-          "description": "画布尺寸：成品的画面比例与大小。留空＝由引擎决定",
+          "description": "输出用途：成品投放在哪里、画面多大。未选择时不作指定",
           "enum": [
             "ppt169",
             "ppt43",
@@ -602,11 +622,21 @@
             "wechat",
             "banner",
             "a4"
-          ]
+          ],
+          "x-value-labels": {
+            "ppt169": "PPT 16:9",
+            "ppt43": "PPT 4:3",
+            "xiaohongshu": "小红书（竖版）",
+            "moments": "朋友圈（方形）",
+            "story": "手机竖屏（短视频）",
+            "wechat": "公众号头图",
+            "banner": "横版横幅",
+            "a4": "A4 打印"
+          }
         },
         "notes": {
           "type": "boolean",
-          "description": "演讲备注：要不要为每页生成讲稿。留空＝由引擎决定"
+          "description": "演讲备注：是否为每页生成讲稿。未选择时不作指定"
         },
         "animation": {
           "type": "string",
@@ -614,10 +644,10 @@
             "none",
             "auto"
           ],
-          "description": "动画：要不要自动配入场动画。留空＝由引擎决定",
+          "description": "动画：是否自动添加入场动画。未选择时不作指定",
           "x-value-labels": {
-            "none": "关",
-            "auto": "自动"
+            "none": "不加动画",
+            "auto": "自动添加动画"
           }
         },
         "content_style": {
@@ -629,7 +659,7 @@
             "event_promo",
             "investment_pitch"
           ],
-          "description": "内容风格：同一份素材按哪种行文路子改写。留空＝由引擎按内容判断",
+          "description": "内容类型：同一份素材按哪种行文路子改写。未选择时不作指定，由系统依据素材内容判定",
           "x-value-labels": {
             "marketing_promo": "宣传材料",
             "product_story": "产品介绍",
@@ -646,7 +676,7 @@
       "properties": {
         "style": {
           "type": "string",
-          "description": "视觉风格：整套片子的外观基调，共 18 种。留空＝由引擎按内容选",
+          "description": "视觉风格：整份演示的外观基调，共 18 种。未选择时不作指定，由系统依据素材内容判定",
           "enum": [
             "swiss-minimal",
             "soft-rounded",
@@ -667,11 +697,31 @@
             "vintage-poster",
             "zine"
           ],
+          "x-value-labels": {
+            "swiss-minimal": "瑞士极简风",
+            "soft-rounded": "圆角柔和风",
+            "glassmorphism": "毛玻璃风（半透明磨砂质感）",
+            "dark-tech": "深色科技风",
+            "blueprint": "蓝底线稿风（工程制图感）",
+            "editorial": "杂志风（大图留白、讲究排版）",
+            "photo-editorial": "摄影杂志风（以照片为主）",
+            "data-journalism": "数据图表风（适合呈现数字与图表）",
+            "brutalist": "粗犷大字风（高对比、少装饰）",
+            "chalkboard": "黑板手绘风",
+            "ink-notes": "墨水笔记风",
+            "ink-wash": "水墨风",
+            "memphis": "彩色几何拼贴风（活泼撞色）",
+            "paper-cut": "剪纸风",
+            "pixel-art": "像素风",
+            "sketch-notes": "速写笔记风",
+            "vintage-poster": "复古海报风",
+            "zine": "独立小刊风（拼贴、手作感）"
+          },
           "x-section": "外观与版式"
         },
         "mode": {
           "type": "string",
-          "description": "叙事模式：这份演示按什么路子讲下去。留空＝由引擎按内容决定",
+          "description": "内容结构：这份演示按什么路子讲下去。未选择时不作指定，由系统依据素材内容判定",
           "enum": [
             "auto",
             "pyramid",
@@ -682,17 +732,17 @@
           ],
           "x-section": "外观与版式",
           "x-value-labels": {
-            "auto": "自动",
-            "pyramid": "金字塔",
-            "narrative": "叙事",
-            "instructional": "教学",
-            "showcase": "展示",
-            "briefing": "简报"
+            "auto": "自动（依据内容判定）",
+            "pyramid": "金字塔（先给结论，再逐层展开）",
+            "narrative": "讲故事（按时间顺序推进）",
+            "instructional": "教学（分步骤讲解）",
+            "showcase": "展示（以图为主，文字精简）",
+            "briefing": "简报（要点概述）"
           }
         },
         "format": {
           "type": "string",
-          "description": "画布尺寸：成品的画面比例与大小。留空＝由引擎决定",
+          "description": "输出用途：成品投放在哪里、画面多大。未选择时不作指定",
           "enum": [
             "ppt169",
             "ppt43",
@@ -703,6 +753,16 @@
             "banner",
             "a4"
           ],
+          "x-value-labels": {
+            "ppt169": "PPT 16:9",
+            "ppt43": "PPT 4:3",
+            "xiaohongshu": "小红书（竖版）",
+            "moments": "朋友圈（方形）",
+            "story": "手机竖屏（短视频）",
+            "wechat": "公众号头图",
+            "banner": "横版横幅",
+            "a4": "A4 打印"
+          },
           "x-section": "外观与版式"
         },
         "content_style": {
@@ -714,7 +774,7 @@
             "event_promo",
             "investment_pitch"
           ],
-          "description": "内容风格：同一份素材按哪种行文路子改写。留空＝由引擎按内容判断",
+          "description": "内容类型：同一份素材按哪种行文路子改写。未选择时不作指定，由系统依据素材内容判定",
           "x-section": "外观与版式",
           "x-value-labels": {
             "marketing_promo": "宣传材料",
@@ -726,7 +786,7 @@
         },
         "content_divergence": {
           "type": "string",
-          "description": "材料发散度：素材要贴多紧、可以多大程度重塑。留空＝按平衡处理",
+          "description": "材料发散度：素材要贴多紧、可以多大程度重塑。未选择时按平衡处理：重排结构、提炼内容，并在素材范围内展开",
           "x-presets": [
             "严格贴着素材来",
             "结构可以重排但内容不增不减",
@@ -742,7 +802,7 @@
             "balanced",
             "presentation"
           ],
-          "description": "阅读模式：决定一页塞多少字——字多到能自己读，还是字少靠人讲。留空＝由引擎判断",
+          "description": "阅读模式：决定每页的文字量，供独立阅读或以讲解为主。未选择时不作指定",
           "x-section": "内容与读法",
           "x-value-labels": {
             "text": "字多自读",
@@ -768,7 +828,7 @@
               "none"
             ]
           },
-          "description": "配图来源：页面上的图从哪儿来，可多选。留空＝由引擎判断",
+          "description": "配图来源：页面上的图片从哪里获取，可多选。未选择时不作指定",
           "x-section": "内容与读法",
           "x-value-labels": {
             "ai": "AI生图",
@@ -776,11 +836,14 @@
             "provided": "只用我上传的",
             "placeholder": "允许占位符",
             "none": "不用图"
+          },
+          "x-unavailable-values": {
+            "ai": "当前没有接入图片生成服务，选择该项拿不到生成的图片；可改用网络搜图，或使用已上传的图片"
           }
         },
         "notes": {
           "type": "boolean",
-          "description": "演讲备注：要不要为每页生成讲稿。留空＝由引擎决定",
+          "description": "演讲备注：是否为每页生成讲稿。未选择时不作指定",
           "x-section": "产出选项"
         },
         "animation": {
@@ -789,11 +852,11 @@
             "none",
             "auto"
           ],
-          "description": "动画：要不要自动配入场动画。留空＝由引擎决定",
+          "description": "动画：是否自动添加入场动画。未选择时不作指定",
           "x-section": "产出选项",
           "x-value-labels": {
-            "none": "关",
-            "auto": "自动"
+            "none": "不加动画",
+            "auto": "自动添加动画"
           }
         },
         "primary_language": {
@@ -804,7 +867,7 @@
             "en-US",
             "ja-JP"
           ],
-          "description": "主语言：成品用什么语言写。留空＝从素材语言推断",
+          "description": "主语言：成品使用哪种语言。未选择时依据素材语言推断",
           "x-section": "产出选项",
           "x-value-labels": {
             "zh-CN": "简体中文",
@@ -815,17 +878,18 @@
         },
         "allow_web_research": {
           "type": "boolean",
-          "description": "是否允许上网补素材：关闭时只用你给的素材，不够也不去外部找、不凭空补事实。留空＝由引擎判断素材够不够",
+          "description": "是否允许上网补充素材：关闭后仅使用已上传的素材，内容不足也不从外部获取、不补充素材中没有的事实。未选择时由系统判断素材是否充足",
           "x-section": "产出选项"
         },
         "narration_audio": {
           "type": "boolean",
-          "description": "旁白音频：开启会额外生成配音，耗时更长、更耗额度。留空＝由引擎决定",
-          "x-section": "产出选项"
+          "description": "旁白音频：开启会额外生成配音，耗时更长、消耗的积分也更多。未选择时不作指定",
+          "x-section": "产出选项",
+          "x-unavailable": "当前运行环境缺少合成配音的处理工具，选择该项会在最后导出步骤失败"
         },
         "audience": {
           "type": "string",
-          "description": "受众：这份演示讲给谁听，用你自己的话写一句。留空＝由引擎判断",
+          "description": "受众：这份演示讲给谁听，用一句话描述。未选择时不作指定",
           "x-group": "advanced",
           "x-presets": [
             "公司管理层",
@@ -836,7 +900,7 @@
         },
         "communication_intent": {
           "type": "string",
-          "description": "沟通意图：你要这场演示促成什么改变。留空＝由引擎判断",
+          "description": "沟通意图：希望这场演示促成什么改变。未选择时不作指定",
           "x-group": "advanced",
           "x-presets": [
             "汇报进展并暴露风险",
@@ -848,7 +912,7 @@
         },
         "core_message": {
           "type": "string",
-          "description": "核心信息：一句话让人记住的那句结论。留空＝由引擎判断",
+          "description": "核心信息：希望让人记住的那一句结论。未选择时不作指定",
           "x-group": "advanced",
           "x-presets": [
             "现在投入最划算",
@@ -912,7 +976,7 @@
         },
         "prompt": {
           "type": "string",
-          "description": "草稿生成提示词（选填），指导生成风格或要求"
+          "description": "补充要求（选填），说明期望的风格或重点"
         }
       }
     },
@@ -939,7 +1003,7 @@
         },
         "prompt": {
           "type": "string",
-          "description": "草稿生成提示词（选填），指导 AI 理解和生成方向"
+          "description": "补充要求（选填），说明希望 AI 如何理解素材与组织内容"
         }
       }
     },
@@ -953,7 +1017,7 @@
             "magazine",
             "swiss"
           ],
-          "description": "视觉风格：整套片子的外观基调，共 18 种。留空＝由引擎按内容选",
+          "description": "视觉风格：整份演示的外观基调，共两种。未选择时不作指定，由系统依据素材内容判定",
           "x-value-labels": {
             "magazine": "电子杂志风",
             "swiss": "瑞士国际主义"
@@ -968,7 +1032,7 @@
             "kraft",
             "dune"
           ],
-          "description": "杂志风主题色：这套骨架换一组配色。",
+          "description": "杂志风主题色：为杂志风格换一组配色。",
           "x-value-labels": {
             "monocle": "墨水经典",
             "indigo": "靛蓝瓷",
@@ -990,7 +1054,7 @@
             "green",
             "orange"
           ],
-          "description": "瑞士风主题色：这套骨架换一组配色。",
+          "description": "瑞士风主题色：为瑞士风格换一组配色。",
           "x-value-labels": {
             "ikb": "克莱因蓝",
             "lemon": "柠檬黄",

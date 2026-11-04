@@ -116,7 +116,7 @@ def test_未知键被拒(db, svc):
     with pytest.raises(HTTPException) as exc:
         svc.save(db, {"max_concurrent_job": 3}, "admin-1")   # 少一个 s，拼错
     assert exc.value.status_code == 400
-    assert "未知设置项" in exc.value.detail
+    assert "不认识这些设置项" in exc.value.detail
 
 
 def test_空提交被拒(db, svc):

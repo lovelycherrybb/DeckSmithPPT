@@ -63,7 +63,7 @@ function StudioInner() {
           return (
             <GuestGate
               title="登录后查看历史项目"
-              description="历史项目面向注册用户开放，登录即可查看你创建过的项目与演示文件。"
+              description="登录后可查看已创建的项目与演示文件。"
             />
           );
         }
@@ -80,7 +80,7 @@ function StudioInner() {
           return (
             <GuestGate
               title="登录后查看个人设置"
-              description="个人设置面向注册用户开放，登录即可保存默认输出引擎、默认页数等偏好。"
+              description="登录后可设置默认页数、常用生成方式等偏好。"
             />
           );
         }

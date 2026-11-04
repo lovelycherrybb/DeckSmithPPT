@@ -21,7 +21,7 @@ def _get_non_admin_or_404(db, user_id: str):
     if obj is None:
         raise HTTPException(status_code=404, detail="用户不存在")
     if obj.role == "manager":
-        raise HTTPException(status_code=403, detail="管理员账号不可被修改/停用/重置")
+        raise HTTPException(status_code=403, detail="管理员账号不能修改、停用或重置密码")
     return obj
 
 
@@ -63,7 +63,7 @@ def reset_password(user_id: str, db: Session = Depends(get_db), admin=Depends(re
 def set_status(user_id: str, body: UserStatusUpdate, db: Session = Depends(get_db), admin=Depends(require_admin)):
     """启用/禁用；禁用只挡登录、保留数据。"""
     if body.status not in ("enabled", "disabled"):
-        raise HTTPException(status_code=400, detail="status 必须是 enabled 或 disabled")
+        raise HTTPException(status_code=400, detail="账号状态只能设为正常或停用")
     _get_non_admin_or_404(db, user_id)
     updated = UserRepo().set_status(db, user_id, body.status)
     if updated is None:

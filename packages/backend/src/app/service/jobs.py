@@ -29,7 +29,7 @@ from ..repository.jobs import (
 from ..core.schemas import (
     DeckRequest, JobOut, ProgressInfo, PageItem, JobPages, ReviseRequest,
 )
-from ..engines.registry import implements_hook
+from ..engines.registry import find_unavailable_usage, implements_hook, revise_accepts_deck
 
 # ── 状态集合（ADR-018 消费侧口径）──────────────────────────────────
 # 全仓库判"任务是否还在推进"一律走这两个集合，**不要写 status != 'running'**：
@@ -75,10 +75,10 @@ def _queued_status_detail(position: int | None, *, retry: bool = False,
     if position is None:
         return base
     if position > 0:
-        return f"{base} · 前方还有 {position} 个任务"
+        return f"{base}，前面还有 {position} 个"
     if running is not None and capacity is not None and running >= capacity:
-        return f"{base} · 等待空位（{running} 个正在生成）"
-    return f"{base} · 即将开始"
+        return f"{base}，正在生成的任务已满，需等待其中一个结束"
+    return f"{base}，即将开始"
 
 
 _VERSION_RE = re.compile(r"^[0-9]{14}$")
@@ -199,7 +199,7 @@ class JobService:
         """
         # 校验版本号格式（与契约 pattern 一致）
         if req.version and not _VERSION_RE.match(req.version):
-            raise HTTPException(status_code=400, detail="version 必须是 14 位数字（年月日时分秒）")
+            raise HTTPException(status_code=400, detail="草稿版本号格式不正确")
 
         # per-identity 粗闸（ADR-019 决策 7）：取代加权公平调度。
         # 本期真正的风险只是"一个人把队排到 50 个"，所以只数该身份的未完成任务。
@@ -214,8 +214,8 @@ class JobService:
             if unfinished >= limit:
                 raise HTTPException(
                     status_code=409,
-                    detail=f"你已有 {unfinished} 个任务未结束，达到上限 {limit}；"
-                           "请等待其中一个完成或先撤销")
+                    detail=f"进行中的任务已达上限（{unfinished}/{limit}），"
+                           "请等待其中一个完成后重新提交")
 
         # 如果提供了 draft_id，从草稿版本中获取 content
         content = req.content
@@ -228,7 +228,7 @@ class JobService:
 
             version = req.version or draft.get("current_version")
             if not version:
-                raise HTTPException(status_code=400, detail="草稿没有版本，请指定 version")
+                raise HTTPException(status_code=400, detail="这份草稿还没有可生成的版本，请先保存草稿")
 
             draft_version = self.draft_version_repo.get(db, req.draft_id, version)
             if draft_version is None:
@@ -262,6 +262,13 @@ class JobService:
             self._get_engine(req.engine)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
+
+        # 暂不支持的参数当场拒（ADR-033 决策 3）。界面置灰只挡得住从表单点的人，挡不住
+        # 直接调接口的请求；这里也**不静默剔除**——用户明确要了、系统悄悄不做，就是
+        # "以为生效了"，正是规则 9 禁止的形态。报错文案用契约里的人话，不拼技术名词。
+        blocked = find_unavailable_usage(req.engine, engine_params)
+        if blocked:
+            raise HTTPException(status_code=400, detail="\n".join(blocked))
 
         # 落库即排队。sources 必须一起入库：引擎提交已搬到调度器里执行，
         # 认领时要靠它还原入参（ADR-019 决策 2 的硬前置）。
@@ -301,7 +308,7 @@ class JobService:
         deck = [p.model_dump(exclude_none=True) for p in req.deck]
         instruction = (req.instruction or "").strip()
         if not pages and not deck and not instruction:
-            raise HTTPException(status_code=400, detail="pages、deck 与 instruction 至少给一个")
+            raise HTTPException(status_code=400, detail="请至少提供要修改的页面、完整页面清单或一句修改要求")
 
         # 定位修改起点（根演示文件 或 某个子文件）；二者必居其一
         if req.presentation_id:
@@ -311,7 +318,7 @@ class JobService:
             source = self.sub_repo.get(db, req.sub_presentation_id)
             is_root = False
         else:
-            raise HTTPException(status_code=400, detail="presentation_id 与 sub_presentation_id 必须二选一")
+            raise HTTPException(status_code=400, detail="请指明要修改的是哪一个版本")
         if source is None:
             raise HTTPException(status_code=404, detail="修改起点不存在")
 
@@ -331,14 +338,14 @@ class JobService:
             src_job = self.repo.get(db, source_task_id)
             engine_name = src_job.get("engine") if src_job else None
         if not engine_name:
-            raise HTTPException(status_code=400, detail="无法确定用于修改的引擎，请显式指定 engine")
+            raise HTTPException(status_code=400, detail="无法确定修改方式，请重新选择版本后重试")
         try:
             engine = self._get_engine(engine_name)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
         # 只有能逐页改（实现 revise → 点亮 svg_edit）的引擎才受理；不看引擎名，看钩子
-        if not implements_hook(engine, "revise"):
-            raise HTTPException(status_code=403, detail="该产物不支持逐页修改（引擎无 svg_edit 能力）")
+        if not revise_accepts_deck(engine):   # 只看有没有 revise 会放行接不住整页清单的引擎
+            raise HTTPException(status_code=403, detail="该文件不支持逐页修改")
 
         # per-identity 粗闸（与 submit 同一口径，防灌水；identity None 不门控）
         if identity is not None:
@@ -350,8 +357,8 @@ class JobService:
             if unfinished >= limit:
                 raise HTTPException(
                     status_code=409,
-                    detail=f"你已有 {unfinished} 个任务未结束，达到上限 {limit}；"
-                           "请等待其中一个完成或先撤销")
+                    detail=f"进行中的任务已达上限（{unfinished}/{limit}），"
+                           "请等待其中一个完成后重新提交")
 
         job_id = uuid.uuid4().hex
         now = _now()
@@ -580,19 +587,19 @@ class JobService:
             except Exception:
                 root = None
         if root is None:
-            raise HTTPException(status_code=404, detail="该任务无可预览产物（引擎不支持或已被清理）")
+            raise HTTPException(status_code=404, detail="该任务没有可预览的页面，可能生成方式不支持，或文件已删除")
 
         root_resolved = root.resolve()
         try:
             target = (root_resolved / rel_path).resolve()
         except (OSError, ValueError):
-            raise HTTPException(status_code=400, detail="非法预览路径")
+            raise HTTPException(status_code=400, detail="预览地址不正确，请刷新页面重试")
         if not target.is_relative_to(root_resolved):
-            raise HTTPException(status_code=400, detail="非法预览路径")
+            raise HTTPException(status_code=400, detail="预览地址不正确，请刷新页面重试")
 
         media_type = self._PREVIEW_MEDIA_TYPES.get(target.suffix.lower())
         if media_type is None:
-            raise HTTPException(status_code=415, detail="不支持的预览文件类型")
+            raise HTTPException(status_code=415, detail="该文件无法在页面中预览，请下载后打开")
         if not target.is_file():
             raise HTTPException(status_code=404, detail="预览文件不存在")
         return target, media_type
@@ -607,7 +614,7 @@ class JobService:
         if row["status"] not in RETRYABLE_STATUSES:
             raise HTTPException(
                 status_code=409,
-                detail=f"任务状态不允许重试（仅 {'/'.join(RETRYABLE_STATUSES)} 可重试）")
+                detail="该任务当前状态不支持重新生成，仅生成失败、超时或已取消的任务可以重试")
 
         # 创建新任务，复用原任务的参数（含 sources：契约的"参数复用"口径）
         new_job_id = uuid.uuid4().hex
@@ -662,7 +669,7 @@ class JobService:
             raise HTTPException(status_code=404, detail="任务不存在")
         status = row["status"]
         if is_terminal(status):
-            raise HTTPException(status_code=409, detail="任务已结束，无法撤销")
+            raise HTTPException(status_code=409, detail="任务已结束，无法取消")
 
         if status == "queued":
             if self.repo.cas_status(
@@ -673,19 +680,19 @@ class JobService:
             row = self.repo.get(db, job_id) or row     # 抢输了：调度器刚接手，重读再判
             status = row["status"]
             if is_terminal(status):
-                raise HTTPException(status_code=409, detail="任务已结束，无法撤销")
+                raise HTTPException(status_code=409, detail="任务已结束，无法取消")
 
         # 到这里一定是 running：必须引擎真的能停，才允许落 cancelled
         engine = self._get_engine_safe(row.get("engine"))
         if engine is None or not implements_hook(engine, "cancel"):
             raise HTTPException(
                 status_code=409,
-                detail="该引擎不支持中断运行中的任务，只能撤销还在排队的任务")
+                detail="正在生成的任务无法停止，仅可取消排队中的任务")
         if not self._terminate(engine, job_id):
-            raise HTTPException(status_code=409, detail="引擎进程终止失败，任务未撤销，请重试")
+            raise HTTPException(status_code=409, detail="停止未成功，任务仍在进行，请重试")
         if not self.repo.cas_status(
                 db, job_id, from_status="running", status="cancelled",
-                status_detail="已取消", error="用户取消，引擎子进程已终止"):
+                status_detail="已取消", error="已由用户取消，生成已停止"):
             # 我们杀进程的这段时间里调度器已把真实终态落了（比如它刚好跑完）。
             # 谁先落谁赢，这里如实返回当前状态，不覆盖别人的结论。
             pass

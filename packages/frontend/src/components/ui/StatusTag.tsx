@@ -7,15 +7,15 @@ import type { JobStatus } from '@/lib/api';
 
 const STATUS_META: Record<JobStatus, { color: string; label: string }> = {
   queued: { color: 'blue', label: '排队中' },
-  running: { color: 'gold', label: '生成中' },
+  running: { color: 'gold', label: '正在生成' },
   completed: { color: 'green', label: '已完成' },
-  failed: { color: 'red', label: '失败' },
-  timeout: { color: 'orange', label: '超时' },
+  failed: { color: 'red', label: '生成失败' },
+  timeout: { color: 'orange', label: '已超时' },
   cancelled: { color: 'default', label: '已取消' },
 };
 
 export function StatusTag({ status }: { status?: JobStatus | string }) {
-  const meta = STATUS_META[status as JobStatus] || { color: 'default', label: status || '-' };
+  const meta = STATUS_META[status as JobStatus] || { color: 'default', label: '状态未知' };
   return <Tag color={meta.color}>{meta.label}</Tag>;
 }
 
@@ -33,15 +33,4 @@ export const CONTENT_STYLE_LABELS: Record<string, string> = {
 
 export function contentStyleLabel(value?: string | null): string {
   return CONTENT_STYLE_LABELS[value || ''] || value || '未选择';
-}
-
-export function summarizeEngineParams(params: Record<string, unknown> | undefined): string {
-  if (!params) return '未选择';
-  const rows: string[] = [];
-  if (params.style) rows.push(`风格：${params.style}`);
-  if (params.mode) rows.push(`模式：${params.mode}`);
-  if (params.format) rows.push(`画布：${params.format}`);
-  if (typeof params.notes === 'boolean') rows.push(`备注：${params.notes ? '开启' : '关闭'}`);
-  if (params.animation) rows.push(`动画：${params.animation}`);
-  return rows.length ? rows.join(' / ') : '未选择';
 }

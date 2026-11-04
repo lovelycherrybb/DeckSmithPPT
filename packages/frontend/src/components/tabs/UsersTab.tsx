@@ -8,7 +8,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Button, Card, Form, Input, message, Modal, Popconfirm, Space, Switch, Table, Tag,
+  Button, Card, Form, Input, message, Modal, Popconfirm, Space, Switch, Table, Tag, Tooltip,
 } from 'antd';
 import { KeyRound, Plus, Save } from 'lucide-react';
 
@@ -35,7 +35,7 @@ export default function UsersTab() {
     try {
       setUsers(await listUsers());
     } catch (e) {
-      msg.error(e instanceof Error ? e.message : '加载用户失败');
+      msg.error(e instanceof Error ? e.message : '用户列表加载失败，请刷新页面重试');
     } finally {
       setLoading(false);
     }
@@ -56,10 +56,10 @@ export default function UsersTab() {
       setSaving(true);
       if (creating) {
         await createUser({ username: v.username, nickname: v.nickname, phone: v.phone, is_vip: v.is_vip });
-        msg.success('用户已创建，初始密码 234567');
+        msg.success('用户已创建，请通知本人使用初始密码登录后自行修改');
       } else if (editing) {
         await updateUser(editing.user_id, { nickname: v.nickname, phone: v.phone, is_vip: v.is_vip });
-        msg.success('已保存');
+        msg.success('已更新该用户');
       }
       closeModal();
       load();
@@ -74,7 +74,7 @@ export default function UsersTab() {
   const handleReset = async (u: User) => {
     try {
       await resetUserPassword(u.user_id);
-      msg.success(`已将 ${u.username} 的密码重置为 234567`);
+      msg.success(`已重置 ${u.username} 的登录密码，请通知本人登录后自行修改`);
     } catch (e) {
       msg.error(e instanceof Error ? e.message : '重置失败');
     }
@@ -84,10 +84,10 @@ export default function UsersTab() {
     const next = u.status === 'enabled' ? 'disabled' : 'enabled';
     try {
       await setUserStatus(u.user_id, next as 'enabled' | 'disabled');
-      msg.success(next === 'disabled' ? '已禁用（数据保留，禁止登录）' : '已启用');
+      msg.success(next === 'disabled' ? '已停用，该账号暂不能登录，资料仍保留' : '已恢复登录');
       load();
     } catch (e) {
-      msg.error(e instanceof Error ? e.message : '操作失败');
+      msg.error(e instanceof Error ? e.message : '修改未成功，请重试');
     }
   };
 
@@ -96,18 +96,18 @@ export default function UsersTab() {
     { title: '昵称', dataIndex: 'nickname', key: 'nickname' },
     { title: '手机号', dataIndex: 'phone', key: 'phone', render: (v: string | null) => v || '—' },
     {
-      title: '角色', dataIndex: 'role', key: 'role',
+      title: '权限', dataIndex: 'role', key: 'role',
       render: (r: string) => <Tag color={ROLE_COLOR[r]}>{ROLE_LABEL[r] || r}</Tag>,
     },
     {
-      title: '状态', dataIndex: 'status', key: 'status',
+      title: '账号状态', dataIndex: 'status', key: 'status',
       render: (s: string) => <Tag color={s === 'enabled' ? 'green' : 'red'}>{s === 'enabled' ? '启用' : '禁用'}</Tag>,
     },
     {
       // 口径：这是"最后访问"——该用户会话内每次请求都刷新（后端 60 秒落库节流，显示精度分钟级）。
       // 上一版用"最后登录"是错的：登录只在进系统时发生一次，handong 当天跑着任务、
       // 列却停在昨天，就是这么来的。文案与契约 User.last_access_at 的说明一致。
-      title: '最后访问', dataIndex: 'last_access_at', key: 'last_access_at', width: 110,
+      title: '上次使用时间', dataIndex: 'last_access_at', key: 'last_access_at', width: 110,
       render: (v: string | null) => timeOrDash(v),
     },
     {
@@ -118,19 +118,32 @@ export default function UsersTab() {
         const isManager = u.role === 'manager';
         return (
           <Space size="small">
-            <Button size="small" icon={<Save size={13} />} disabled={isManager} onClick={() => openEdit(u)}>编辑</Button>
-            <Popconfirm
-              title="重置该用户密码为 234567？"
-              disabled={isManager}
-              onConfirm={() => handleReset(u)}
-              okText="重置"
-              cancelText="取消"
-            >
-              <Button size="small" icon={<KeyRound size={13} />} disabled={isManager}>重置密码</Button>
-            </Popconfirm>
-            <Button size="small" disabled={isManager} onClick={() => handleToggleStatus(u)}>
-              {u.status === 'enabled' ? '禁用' : '启用'}
-            </Button>
+            <Tooltip title={isManager ? '内置管理员账号不可修改' : undefined}>
+              <span>
+                <Button size="small" icon={<Save size={13} />} disabled={isManager} onClick={() => openEdit(u)}>编辑</Button>
+              </span>
+            </Tooltip>
+            <Tooltip title={isManager ? '内置管理员账号不可重置密码' : undefined}>
+              <span>
+                <Popconfirm
+                  title={`重置 ${u.username} 的登录密码？`}
+                  description="重置后该用户需使用初始密码登录，登录后请通知其自行修改"
+                  disabled={isManager}
+                  onConfirm={() => handleReset(u)}
+                  okText="重置"
+                  cancelText="取消"
+                >
+                <Button size="small" icon={<KeyRound size={13} />} disabled={isManager}>重置密码</Button>
+                </Popconfirm>
+              </span>
+            </Tooltip>
+            <Tooltip title={isManager ? '内置管理员账号不可停用' : undefined}>
+              <span>
+                <Button size="small" disabled={isManager} onClick={() => handleToggleStatus(u)}>
+                  {u.status === 'enabled' ? '禁用' : '启用'}
+                </Button>
+              </span>
+            </Tooltip>
           </Space>
         );
       },
@@ -140,14 +153,14 @@ export default function UsersTab() {
   return (
     <Card
       title="用户管理"
-      extra={<Button type="primary" icon={<Plus size={14} />} onClick={openCreate}>新增用户</Button>}
+      extra={<Button type="primary" icon={<Plus size={14} />} onClick={openCreate}>新建用户</Button>}
     >
       {holder}
       <Table rowKey="user_id" loading={loading} columns={columns} dataSource={users} pagination={false} size="middle"
         scroll={{ x: 900 }} />
 
       <Modal
-        title={creating ? '新增用户' : `编辑用户（${editing?.username ?? ''}）`}
+        title={creating ? '新建用户' : '编辑用户'}
         open={creating || !!editing}
         onOk={handleSubmit}
         onCancel={closeModal}
@@ -160,13 +173,13 @@ export default function UsersTab() {
           <Form.Item
             name="username" label="用户名"
             rules={creating ? [{ required: true, message: '请输入用户名' }] : []}
-            extra={creating ? undefined : '用户名是登录凭据，不可修改'}
+            extra={creating ? undefined : '用户名用于登录，创建后不可修改'}
           >
             <Input disabled={!creating} placeholder="登录用户名" />
           </Form.Item>
-          <Form.Item name="nickname" label="昵称"><Input placeholder="展示名，缺省同用户名" /></Form.Item>
+          <Form.Item name="nickname" label="昵称"><Input placeholder="显示给他人看的名称，未填写时使用用户名" /></Form.Item>
           <Form.Item name="phone" label="手机号"><Input placeholder="选填" /></Form.Item>
-          <Form.Item name="is_vip" label="高级用户（Vip）" valuePropName="checked" extra="开启=高级用户（可调整引擎参数），关闭=普通用户">
+          <Form.Item name="is_vip" label="高级用户" valuePropName="checked" extra="开启后，该用户可使用更细致的生成设置；关闭则仅使用基础功能">
             <Switch />
           </Form.Item>
         </Form>

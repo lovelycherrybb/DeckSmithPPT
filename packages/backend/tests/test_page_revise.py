@@ -77,15 +77,15 @@ def test_默认只换第一处_replace_all才全换():
 
 def test_补丁失配与非法回传都抛错():
     src = [{"index": 1, "name": "01.svg", "content": "<svg><text>hi</text></svg>"}]
-    with pytest.raises(RuntimeError, match="没匹配上"):
+    with pytest.raises(RuntimeError, match="没有找到"):
         clean_pages('[{"index":1,"patches":[{"search":"不存在的东西","replace":"x"}]}]', src)
-    with pytest.raises(RuntimeError, match="不在待修改"):
+    with pytest.raises(RuntimeError, match="不存在的页码"):
         clean_pages('[{"index":9,"content":"<svg/>"}]', src)
     with pytest.raises(RuntimeError, match="多次"):
         clean_pages('[{"index":1,"content":"<svg/>"},{"index":1,"content":"<svg/>"}]', src)
     with pytest.raises(RuntimeError, match="为空"):
         clean_pages('[{"index":1,"content":"  "}]', src)
-    with pytest.raises(RuntimeError, match="既没有"):
+    with pytest.raises(RuntimeError, match="不完整"):
         clean_pages('[{"index":1}]', src)
 
 

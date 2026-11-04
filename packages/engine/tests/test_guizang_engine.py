@@ -257,7 +257,10 @@ def test_无产物则判失败(engine_factory, tmp_path):
     _wait_terminal(eng, job_id)
     assert eng.status(job_id).value == "failed"
     data = eng._read_job(job_id)  # noqa: SLF001
-    assert "error_during_execution" in data["error"] and "模型限流" in data["error"]
+    assert data["error"] == "生成未成功，请重试"
+    # 真实根因（subtype/result 原文）留在 claude_result 供运维核查
+    assert data["claude_result"]["subtype"] == "error_during_execution"
+    assert "模型限流" in data["claude_result"]["result"]
     with pytest.raises(FileNotFoundError):
         eng.result(job_id)
 
@@ -289,12 +292,12 @@ def test_超时置timeout(engine_factory, tmp_path):
     assert "超时" in eng._read_job(job_id)["error"]  # noqa: SLF001
 
 
-# ── claude 不存在：明确失败并提示装 Claude Code，不静默降级 ──
+# ── claude 不存在：明确失败并给出可做的动作，不静默降级 ──
 def test_缺claude_CLI时明确失败(engine_factory):
     eng = engine_factory(claude_bin="/nonexistent/claude")
     job_id = eng.submit(content="# x", title="t", pages=5, engine_params={})
     assert eng.status(job_id).value == "failed"
-    assert "claude" in eng._read_job(job_id)["error"]  # noqa: SLF001
+    assert eng._read_job(job_id)["error"] == "生成服务未就绪，请联系管理员"  # noqa: SLF001
 
 
 # ── get_progress：页数与页墙同源，且不预测、不编造 ──
@@ -305,7 +308,7 @@ def test_进度页数与页墙同源(engine_factory, tmp_path):
     job_id = eng.submit(content="# x", title="t", pages=5, engine_params={"style": "swiss"})
     prog = eng.get_progress(job_id)
     assert prog and prog["stage"] == "generating"
-    assert "swiss" in prog["stage_label"]
+    assert "瑞士国际主义" in prog["stage_label"]
     assert prog["last_log"]
     # 产物还没落盘：如实 0 页，不预测目标页数、不塞 pending 占位
     assert prog["pages_generated"] == 0 and prog["current_page"] is None
@@ -360,7 +363,13 @@ def test_网关断流不被成功假象掩盖(engine_factory, tmp_path):
 
     assert eng.status(job_id).value == "failed"
     data = eng._read_job(job_id)  # noqa: SLF001
-    assert "上游模型连接被中断" in data["error"] and "terminated" in data["error"]
+    # 断流属"连不上服务"类故障：句子要点明连接问题，并给出用户能照做的下一步。
+    # 不退化成万用的"生成中断，请重试"——那种写法让人对着配置问题反复提交（2026-11-04 实测）。
+    assert "无法连接 AI 服务" in data["error"]
+    assert "重试" in data["error"] or "联系管理员" in data["error"]
+    # 断流原文（terminated）仍可在日志里取证，界面句子不带它
+    log = (eng._job_dir(job_id) / "run.log").read_text(encoding="utf-8")  # noqa: SLF001
+    assert "terminated" in log
     # 会话号与 result 原文都被留档，可供续跑与复盘
     assert data["claude_session_id"] == "sess-abc123"
     assert data["claude_result"]["num_turns"] == 31
@@ -442,7 +451,7 @@ def test_租约失效时status自行判失败(engine_factory, tmp_path):
     job_id = eng.submit(content="# x", title="t", pages=5, engine_params={})
     eng._write_job(job_id, pid=999999, supervisor_pid=999999, claude_session_id=None)  # noqa: SLF001
     assert eng.status(job_id).value == "failed"
-    assert "未写出有效产物" in eng._read_job(job_id)["error"]  # noqa: SLF001
+    assert "未得到结果文件" in eng._read_job(job_id)["error"]  # noqa: SLF001
 
 
 # ── 技能发现：软链到 CLAUDE_CONFIG_DIR/skills，且不写上游 ──

@@ -28,7 +28,7 @@ export default function SettingsTab() {
           auto_save: prefs.auto_save ?? true,
         });
       } catch (e) {
-        msg.error(e instanceof Error ? e.message : '加载偏好失败');
+        msg.error(e instanceof Error ? e.message : '偏好设置加载失败，请刷新页面重试');
       } finally {
         setLoading(false);
       }
@@ -61,14 +61,14 @@ export default function SettingsTab() {
           type="info"
           showIcon
           style={{ marginBottom: 16 }}
-          message="这些是你的个人默认值，仅作为新建任务时的初始值；不改变权限（引擎参数能否调整由角色决定）。"
+          message="以下为个人默认值，仅作为新建任务时的初始值，不改变权限（生成设置能否调整由账号权限决定）。"
         />
         <Form form={form} layout="vertical" disabled={loading}>
-          <Form.Item name="default_engine" label="默认输出引擎">
-            <Select allowClear options={engines} placeholder="不设置则使用默认引擎" />
+          <Form.Item name="default_engine" label="默认生成方式">
+            <Select allowClear options={engines} placeholder="未设置时使用默认生成方式" />
           </Form.Item>
           <Form.Item name="default_pages" label="默认页数">
-            <InputNumber min={1} precision={0} style={{ width: '100%' }} placeholder="不设置则由引擎决定" />
+            <InputNumber min={1} precision={0} style={{ width: '100%' }} placeholder="未设置时由系统决定页数" />
           </Form.Item>
 
           <Divider />

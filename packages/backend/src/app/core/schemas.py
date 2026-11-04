@@ -265,7 +265,7 @@ class JobOut(BaseModel):
     
     状态明细（status_detail）：
     - 仅在非终态（queued / running）下有意义
-    - queued：出参时现算成带排队位序的文案（如"排队中 · 前方还有 3 个任务"），
+    - queued：出参时现算成带排队位序的文案（如"排队中，前面还有 3 个"），
       与 Job.queue_position 同一口径；不落库，位序每次读取都可能变
     - running：随执行进度变化（如"正在生成第3页..."）
     - 前端通过轮询获取最新状态
@@ -531,3 +531,132 @@ class SecurityCheckResult(BaseModel):
     passed: bool
     reason: str | None = None
     rules_checked: list[str] = Field(default_factory=list)
+
+
+# ── Agent 设置相关（ADR-032）──
+
+class AgentFieldOut(BaseModel):
+    """一个 agent 配置字段的元数据（对齐契约 AgentField）。
+
+    前端不知道具体某个模型变量叫什么名字，只知道"这里有一项 string、它写进哪个环境变量"——
+    与引擎参数表单、系统设置注册表同一套"描述即渲染"。
+    """
+    key: str
+    label: str
+    type: str  # string | secret
+    env_var: str
+    required_for_gateway: bool = False
+    secret: bool = False
+    description: str | None = None
+    restart_required: bool = False
+
+
+class SettingsFileMetaOut(BaseModel):
+    name: str
+    path: str | None = None
+    editable: bool
+    exists: bool = False
+
+
+class AgentInfoOut(BaseModel):
+    id: str
+    label: str
+    cli_version: str | None = None
+    active_provider_id: str | None = None
+    fields: list[AgentFieldOut] = Field(default_factory=list)
+    files: list[SettingsFileMetaOut] = Field(default_factory=list)
+
+
+class AgentListOut(BaseModel):
+    agents: list[AgentInfoOut] = Field(default_factory=list)
+
+
+class SettingsFileViewOut(BaseModel):
+    """配置文件视图。视图 ≠ 磁盘：凡被掩码的键都必须说清楚（masked/masked_keys）。"""
+    agent_id: str
+    name: str
+    path: str
+    exists: bool
+    raw: str | None = None
+    masked: bool = False
+    masked_keys: list[str] = Field(default_factory=list)
+    managed_keys: list[str] = Field(default_factory=list)
+    foreign_env_keys: list[str] = Field(default_factory=list)
+    shadow_env_keys: list[str] = Field(default_factory=list)
+    sha256: str | None = None
+    parse_error: str | None = None
+    editable: bool = False
+    note: str | None = None
+    backup: str | None = None  # 仅写回响应里出现：这次改动前的备份在哪
+
+
+class SettingsFileUpdateRequest(BaseModel):
+    raw: str
+    expected_sha256: str | None = None
+
+
+class SecretStateOut(BaseModel):
+    """只描述凭据类字段的状态（非凭据字段不出现在这张表里）。"""
+    configured: bool
+    masked: str | None = None
+
+
+class AgentProviderProfileOut(BaseModel):
+    id: str
+    agent_id: str
+    name: str
+    is_active: bool
+    #: secret 字段恒为 null —— 明文不出后端（ADR-020 决策 5 + ADR-032 决策 3）
+    values: dict[str, Any] = Field(default_factory=dict)
+    secret_states: dict[str, SecretStateOut] = Field(default_factory=dict)
+    gaps: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    created_at: str | None = None
+    updated_at: str | None = None
+    updated_by: str | None = None
+
+
+class AgentProviderProfileIn(BaseModel):
+    agent_id: str
+    name: str
+    #: 凭据在本请求里明文提交，这是唯一写入通道；响应一律脱敏
+    values: dict[str, Any] = Field(default_factory=dict)
+
+
+class AgentProviderListOut(BaseModel):
+    profiles: list[AgentProviderProfileOut] = Field(default_factory=list)
+    active_provider_id: str | None = None
+
+
+class WrittenFileOut(BaseModel):
+    agent_id: str
+    name: str
+    path: str
+    changed: bool
+    backup: str | None = None
+
+
+class ProviderActivateResultOut(BaseModel):
+    active_provider_id: str
+    written_files: list[WrittenFileOut] = Field(default_factory=list)
+    gaps: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    restart_required: bool = False
+
+
+class ProbeCheckOut(BaseModel):
+    key: str
+    label: str
+    pass_: bool = Field(alias="pass")
+    detail: str | None = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class ProviderProbeResultOut(BaseModel):
+    ok: bool
+    checks: list[ProbeCheckOut] = Field(default_factory=list)
+    http_status: int | None = None
+    elapsed_ms: int | None = None
+    note: str | None = None
+    consumed_quota: bool = True

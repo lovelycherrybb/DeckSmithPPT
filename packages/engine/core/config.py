@@ -55,3 +55,32 @@ def ensure_jobs_root() -> Path:
     root = get_jobs_root()
     root.mkdir(parents=True, exist_ok=True)
     return root
+
+
+# ── Agent CLI（Claude Code）的配置目录解析 ────────────────────────────
+# 官方口径：`CLAUDE_CONFIG_DIR` 一旦设置，设置文件、会话历史、技能都改存那里；
+# 未设置时用 `~/.claude`。这条知识原本只写在 guizang 引擎内部一处，
+# ADR-032 之后后端也要按同一个规则解析文件路径 —— 两个地方各写各的必然漂，
+# 故收敂到这里，成为唯一的解析入口。
+
+_CONFIG_DIR_ENV = "CLAUDE_CONFIG_DIR"
+
+
+def get_claude_config_dir() -> Path:
+    """Claude Code 的用户级配置目录（`settings.json` 与技能都在这里）。"""
+    env_value = os.environ.get(_CONFIG_DIR_ENV)
+    if env_value:
+        return Path(env_value).expanduser().resolve()
+    return Path.home() / ".claude"
+
+
+def get_claude_home_file() -> Path:
+    """Claude Code 自己写的状态文件 `~/.claude.json`（登录态、逐项目信任、个人 MCP）。
+
+    它与配置目录同一个解析规则：设了 `CLAUDE_CONFIG_DIR` 就跟着搬家。
+    本系统**只读**这个文件，不写（ADR-032）。
+    """
+    env_value = os.environ.get(_CONFIG_DIR_ENV)
+    if env_value:
+        return Path(env_value).expanduser().resolve() / ".claude.json"
+    return Path.home() / ".claude.json"

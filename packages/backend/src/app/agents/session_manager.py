@@ -120,7 +120,7 @@ class SessionManager:
         """流式输出会话内容。"""
         session = self._sessions.get(session_id)
         if not session:
-            yield f"data: {json.dumps({'type': 'error', 'data': '会话不存在'})}\n\n"
+            yield f"data: {json.dumps({'type': 'error', 'data': '任务不存在或已结束，请重新发起'})}\n\n"
             return
         
         # 等待一小段时间，让输出缓冲区有内容
@@ -151,7 +151,7 @@ class SessionManager:
                 yield f"data: {json.dumps({'type': 'result', 'data': session.result})}\n\n"
             yield f"data: {json.dumps({'type': 'done', 'data': '完成'})}\n\n"
         elif session.status == "failed":
-            yield f"data: {json.dumps({'type': 'error', 'data': session.error or '未知错误'})}\n\n"
+            yield f"data: {json.dumps({'type': 'error', 'data': session.error or 'AI 处理未成功，请重试'})}\n\n"
     
     def cleanup_session(self, session_id: str):
         """清理会话（可选，用于释放资源）。"""

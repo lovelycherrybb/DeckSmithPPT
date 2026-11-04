@@ -9,6 +9,7 @@ kind 白名单（与契约 AgentExecuteRequest.kind 枚举一致）：
 """
 from __future__ import annotations
 
+import logging
 import threading
 from pathlib import Path
 
@@ -21,6 +22,8 @@ from ..core.schemas import (
     AgentSessionResponse, AgentSessionStatus, AgentSessionStreamEvent,
 )
 from ..repository.jobs import DraftRepo, DraftVersionRepo
+
+logger = logging.getLogger("decksmith.api.agent")
 
 router = APIRouter()
 
@@ -42,7 +45,8 @@ def _read_uploaded_text(path: str) -> str:
     """读上传文件内容并剥控制字符（docx/pdf 等二进制的 null byte 会让 subprocess 报错）。"""
     p = Path(path)
     if not p.resolve().is_relative_to((JOBS_ROOT / "uploads").resolve()):
-        raise HTTPException(status_code=400, detail=f"非法文件路径：{p.name}")
+        logger.warning("Agent 请求引用了上传区之外的文件：%r", path)
+        raise HTTPException(status_code=400, detail="该文件不在本次上传范围内，请重新上传")
     if not p.exists():
         return ""
     try:
@@ -58,9 +62,9 @@ def _read_uploaded_text(path: str) -> str:
 def _handle_modify_draft(req: AgentExecuteRequest, db: Session) -> tuple[str, str, list[tuple[str, str]]]:
     """草稿修改：返回 (修改指令, 草稿内容, 安全检查对)"""
     if not req.draft_id:
-        raise HTTPException(status_code=400, detail="modify_draft 需要 draft_id")
+        raise HTTPException(status_code=400, detail="缺少要修改的草稿")
     if not (req.prompt or "").strip():
-        raise HTTPException(status_code=400, detail="modify_draft 需要 prompt")
+        raise HTTPException(status_code=400, detail="请填写修改要求")
 
     draft = draft_repo.get(db, req.draft_id)
     if draft is None:
@@ -72,7 +76,7 @@ def _handle_modify_draft(req: AgentExecuteRequest, db: Session) -> tuple[str, st
 
     content = draft_version.get("content") or ""
     # 安全检查对：(文本, 标签)
-    checks = [(content, "草稿内容"), ((req.prompt or ""), "修改指令")]
+    checks = [(content, "草稿内容"), ((req.prompt or ""), "修改要求")]
     return req.prompt, content, checks
 
 
@@ -80,7 +84,7 @@ def _handle_suggest_title(req: AgentExecuteRequest, db: Session) -> tuple[str, s
     """拟题：多文件返回 (指令, 组装上下文, 检查对)；单文件在路由层直接短路。"""
     files = req.files or []
     if not files:
-        raise HTTPException(status_code=400, detail="suggest_title 需要 files")
+        raise HTTPException(status_code=400, detail="请先上传文件")
 
     contents = []
     checks: list[tuple[str, str]] = []
@@ -105,16 +109,16 @@ def _handle_revise_pages(req: AgentExecuteRequest, db: Session) -> tuple[str, st
     pages = [p.model_dump() for p in req.pages]
     instruction = (req.instruction or "").strip()
     if not pages:
-        raise HTTPException(status_code=400, detail="revise_pages 需要 pages")
+        raise HTTPException(status_code=400, detail="请先选择要修改的页面")
     if not instruction:
-        raise HTTPException(status_code=400, detail="revise_pages 需要 instruction")
+        raise HTTPException(status_code=400, detail="请填写修改要求")
     for p in pages:
         # 空页拦在门外：前端取不到源码时不该把空页丢给 AI（它会原样回传空页，
         # 一旦并入草稿就把整页清空）。曾发生：预览页签下 baseSvg 未加载即发指令。
         if not (p.get("content") or "").strip():
             raise HTTPException(
                 status_code=400,
-                detail=f"第 {p.get('index')} 页内容为空（页面源码未加载），已拦截",
+                detail=f"第 {p.get('index')} 页尚未加载完成，请稍后重试",
             )
     checks: list[tuple[str, str]] = [(instruction, "改稿指令")] + [
         (p.get("content") or "", f"第 {p.get('index')} 页内容") for p in pages
@@ -134,13 +138,13 @@ def api_agent_execute(req: AgentExecuteRequest, db: Session = Depends(_get_db)):
     """Agent 文本处理统一入口。"""
     handler = _KINDS.get(req.kind)
     if handler is None:
-        raise HTTPException(status_code=400, detail=f"未知任务类型：{req.kind}（已注册：{', '.join(_KINDS)}）")
+        raise HTTPException(status_code=400, detail="不支持的操作类型")
 
     # suggest_title 单文件短路：文件名即标题，不调 Agent（与 vc_design 规则一致）
     if req.kind == "suggest_title" and req.files and len(req.files) == 1:
         stem = Path(req.files[0].filename).stem.strip()
         if not stem:
-            raise HTTPException(status_code=400, detail="文件名无效")
+            raise HTTPException(status_code=400, detail="文件名无法使用，请重命名后重新上传")
         return AgentExecuteResult(text=stem[:60], kind=req.kind)
 
     instruction, context, checks = handler(req, db)
@@ -150,7 +154,8 @@ def api_agent_execute(req: AgentExecuteRequest, db: Session = Depends(_get_db)):
     for text, label in checks:
         passed, reason = check_draft_content(text)
         if not passed:
-            raise HTTPException(status_code=400, detail=f"{label}安全检查不通过：{reason}")
+            logger.info("Agent 安全检查未通过（%s）：%s", label, reason)
+            raise HTTPException(status_code=400, detail=f"{label}疑似包含{reason}，请修改后重新提交")
 
     # Agent 调用：按 kind 选模板
     import json as _json
@@ -167,9 +172,10 @@ def api_agent_execute(req: AgentExecuteRequest, db: Session = Depends(_get_db)):
         elif req.kind == "revise_pages":
             text = revise_pages_with_claude(_json.loads(context), instruction)
         else:
-            raise HTTPException(status_code=400, detail=f"任务类型未实现：{req.kind}")
+            raise HTTPException(status_code=400, detail="该操作尚未上线")
     except (RuntimeError, ValueError) as exc:
-        raise HTTPException(status_code=502, detail=f"Agent 调用失败：{exc}")
+        logger.warning("Agent 处理失败（kind=%s）：%s", req.kind, exc, exc_info=True)
+        raise HTTPException(status_code=502, detail="AI 处理未成功，请重试")
 
     return AgentExecuteResult(text=text, kind=req.kind)
 
@@ -184,13 +190,13 @@ async def api_agent_execute_async(req: AgentExecuteRequest, db: Session = Depend
 
     handler = _KINDS.get(req.kind)
     if handler is None:
-        raise HTTPException(status_code=400, detail=f"未知任务类型：{req.kind}（已注册：{', '.join(_KINDS)}）")
+        raise HTTPException(status_code=400, detail="不支持的操作类型")
     
     # suggest_title 单文件短路
     if req.kind == "suggest_title" and req.files and len(req.files) == 1:
         stem = Path(req.files[0].filename).stem.strip()
         if not stem:
-            raise HTTPException(status_code=400, detail="文件名无效")
+            raise HTTPException(status_code=400, detail="文件名无法使用，请重命名后重新上传")
         # 直接返回结果，不创建异步会话
         session = session_manager.create_session("claude", req.kind)
         session_manager.set_result(session.session_id, stem[:60])
@@ -204,7 +210,8 @@ async def api_agent_execute_async(req: AgentExecuteRequest, db: Session = Depend
     for text, label in checks:
         passed, reason = check_draft_content(text)
         if not passed:
-            raise HTTPException(status_code=400, detail=f"{label}安全检查不通过：{reason}")
+            logger.info("Agent 安全检查未通过（%s）：%s", label, reason)
+            raise HTTPException(status_code=400, detail=f"{label}疑似包含{reason}，请修改后重新提交")
     
     # 创建会话
     session = session_manager.create_session("claude", req.kind)
@@ -262,7 +269,7 @@ async def api_agent_execute_async(req: AgentExecuteRequest, db: Session = Depend
                 contents = [_read_uploaded_text(f.path) if f.path else "" for f in (req.files or [])]
                 prompt = title_prompt(filenames, contents)
             else:
-                raise RuntimeError(f"任务类型未实现：{req.kind}")
+                raise RuntimeError("该操作尚未上线")
 
             acc: list[str] = []
             payload: str | None = None
@@ -298,7 +305,9 @@ async def api_agent_execute_async(req: AgentExecuteRequest, db: Session = Depend
     def _watchdog():
         s = session_manager.get_session(session.session_id)
         if s and s.status == "running":
-            session_manager.update_session_status(session.session_id, "failed", "任务超时（15 分钟未完成）")
+            session_manager.update_session_status(
+                session.session_id, "failed",
+                "任务超时（超过 15 分钟未完成），请重试或将要求描述得更简短")
 
     watchdog = threading.Timer(900, _watchdog)
     watchdog.daemon = True
@@ -316,7 +325,7 @@ async def api_get_agent_session(session_id: str):
     
     session = session_manager.get_session(session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="会话不存在")
+        raise HTTPException(status_code=404, detail="找不到这次处理记录，请重新发起")
     
     return AgentSessionStatus(
         session_id=session.session_id,
@@ -334,7 +343,7 @@ async def api_cancel_agent_session(session_id: str):
     from ..agents.session_manager import session_manager
 
     if not session_manager.request_cancel(session_id):
-        raise HTTPException(status_code=404, detail="会话不存在")
+        raise HTTPException(status_code=404, detail="找不到这次处理记录，请重新发起")
     return {"ok": True}
 
 
@@ -347,7 +356,7 @@ async def api_get_agent_session_stream(session_id: str):
     
     session = session_manager.get_session(session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="会话不存在")
+        raise HTTPException(status_code=404, detail="找不到这次处理记录，请重新发起")
     
     async def event_generator():
         async for chunk in session_manager.stream_output(session_id):

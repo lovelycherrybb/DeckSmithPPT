@@ -1,14 +1,14 @@
 openapi: 3.1.0
 info:
   title: DeckSmithPPT API
-  version: 0.10.0
+  version: 0.11.0
   description: '前后端契约（唯一来源）。后端实现本契约，前端从本文件生成类型。
 
     与 engine.schema.json 保持一致：通用层（DeckRequest/Job）。引擎参数层已移至 engine.schema.json 定义。
 
     生成流程：草稿引擎任务和输出引擎任务各自独立提交，提交即入队（queued），由调度侧认领后转 running。
     草稿引擎任务：queued → running → completed（生成草稿）。输出引擎任务：queued → running → completed/failed/timeout。
-    未进入终态的任务可撤销（queued/running → cancelled），详见 components.schemas.JobStatus 的状态机说明。
+    未进入终态的任务可取消（queued/running → cancelled），详见 components.schemas.JobStatus 的状态机说明。
 
     与 vc_design 保持一致：接口定义来自 docs/vc_design/interfaces/01-系统接口-SystemAPI.md。
 
@@ -414,6 +414,427 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+  # ===== Agent CLI 与供应商档案（ADR-032，草案：待批示后实现）=====
+  /api/admin/agents:
+    get:
+      summary: 列出已注册的 agent CLI 及其配置说明书
+      description: '仅管理员。清单来自**后端 agent 注册表遍历**，不是写死的名字表——
+        接入第二个 agent（Codex / Hermes，见 docs/vc_design/interfaces/02-AgentCLI-AgentCLI.md）
+        时本接口自动多一项，契约不改形状。
+
+        每项自带 `fields[]`（该 agent 认哪些配置字段、各映射到哪个环境变量）与
+        `files[]`（它有哪些原始配置文件可展示/编辑）。前端按 `type` 通用渲染，
+        **不写死任何一个键名**——与引擎参数表单、系统设置注册表同一套"描述即渲染"。
+
+        '
+      operationId: listAgents
+      security:
+      - sessionCookie: []
+      responses:
+        '200':
+          description: agent 注册表全貌
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentList'
+        '401':
+          description: 未登录
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: 非管理员
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/admin/agents/{agent_id}/settings-file:
+    get:
+      summary: 读取 agent 的原始配置文件（凭据脱敏）
+      description: '仅管理员。返回文件原文 + 三类键的归属说明：
+        `managed_keys`（本系统托管、只能在档案里改）、`foreign_env_keys`
+        （文件里出现、会影响生效但本系统没声明的变量——**必须让管理员看见**，
+        不许静默生效）、`shadow_env_keys`（由部署环境变量继承而来的同名键，
+        文件一旦声明就压过它）。
+
+        secret 值不回明文：`env` 块里命中凭据的键以掩码替换，`masked=true` 如实标注。
+        文件不存在时 `exists=false`、`raw=null`，不是 404——"还没有这个文件"是合法状态。
+
+        '
+      operationId: getAgentSettingsFile
+      security:
+      - sessionCookie: []
+      parameters:
+      - name: agent_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: agent 注册名（须存在于注册表，否则 400）
+      - name: name
+        in: query
+        required: true
+        schema:
+          type: string
+        description: 文件名，取值来自 GET /api/admin/agents 的 `files[].name`
+      responses:
+        '200':
+          description: 文件视图
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SettingsFileView'
+        '400':
+          description: agent_id 或 name 不在注册表里
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: 未登录
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: 非管理员
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    put:
+      summary: 写回原始配置文件（校验 → 备份 → 原子替换）
+      description: '仅管理员。**只允许改非托管键**：提交的内容若改动了 `managed_keys`
+        里的任何一个值，整次 400——凭据与模型名只能经档案接口改，两个入口写同一个值必然漂移。
+
+        三道护栏，缺任一即整次失败、磁盘上的原文件字节不变：
+        1. JSON 语法校验（不合法不写，绝不"尽力写一半"）；
+        2. `expected_sha256` 与磁盘当前内容不符 → 409，说明有人（界面或运维手工）已经改过；
+        3. 写前先落带时间戳备份，再临时文件 + rename 原子替换。
+
+        '
+      operationId: saveAgentSettingsFile
+      security:
+      - sessionCookie: []
+      parameters:
+      - name: agent_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: name
+        in: query
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SettingsFileUpdate'
+      responses:
+        '200':
+          description: 写入后的文件视图（含新 sha256）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SettingsFileView'
+        '400':
+          description: JSON 不合法、改动了托管键、或目标文件不可编辑
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: expected_sha256 与磁盘内容不一致（并发修改）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: 未登录
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: 非管理员
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/admin/providers:
+    get:
+      summary: 列出供应商档案（凭据脱敏）
+      description: '仅管理员。档案是**可复用的配置记录**，不是生效中的配置本身：
+        同一时刻只有一套档案被激活（`active_provider_id`），激活即渲染成 agent 的配置文件。
+
+        凭据不回明文：值恒为 null，只回 `configured` 与 `masked`（ADR-020 决策 5 原样继承）。
+
+        '
+      operationId: listProviders
+      security:
+      - sessionCookie: []
+      responses:
+        '200':
+          description: 档案清单
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentProviderList'
+        '401':
+          description: 未登录
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: 非管理员
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      summary: 新建供应商档案
+      description: '仅管理员。允许存**残缺草稿**（缺模型档位映射也能存），但激活时必须
+        先补齐——缺键不允许静默生效（ADR-032 决策 5）。
+
+        凭据在本请求里是明文入参，这是唯一的写入通道；落库后 GET 一律脱敏。
+        凭据**绝不进命令行参数**（`ps` 与 `run.log` 都会露出来）。
+
+        '
+      operationId: createProvider
+      security:
+      - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentProviderProfileIn'
+      responses:
+        '201':
+          description: 已创建（脱敏回显）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentProviderProfile'
+        '400':
+          description: 校验失败（逐项列出原因，不做部分成功）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: 未登录
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: 非管理员
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/admin/providers/{provider_id}:
+    put:
+      summary: 修改供应商档案
+      description: '仅管理员。部分提交：`values` 里出现的键才改，未出现的不改（与系统设置同一口径）。
+        修改**生效中的档案**会立即重渲染配置文件，对下一个任务生效、不需要重启容器；
+        界面必须如实提示这一点。凭据传 null 或不传 = 保持原值，清空凭据需显式动作。
+
+        '
+      operationId: updateProvider
+      security:
+      - sessionCookie: []
+      parameters:
+      - name: provider_id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentProviderProfileIn'
+      responses:
+        '200':
+          description: 修改后的档案（脱敏回显）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentProviderProfile'
+        '400':
+          description: 校验失败（逐项列出原因）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: 档案不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: 未登录
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: 非管理员
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      summary: 删除供应商档案
+      description: '仅管理员。**生效中的档案一律拒删**（409）并给出人话原因——
+        删掉正在用的那套等于把系统推到无配置状态，那不是管理员想要的"删一条记录"。
+        要先激活别的档案，再删。
+
+        '
+      operationId: deleteProvider
+      security:
+      - sessionCookie: []
+      parameters:
+      - name: provider_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '204':
+          description: 已删除
+        '404':
+          description: 档案不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: 该档案正在生效，拒绝删除
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: 未登录
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: 非管理员
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/admin/providers/{provider_id}/activate:
+    post:
+      summary: 把该档案切为当前生效（并渲染进 agent 配置文件）
+      description: '仅管理员。这是"替换 token 供应商"的唯一动作入口：
+        改 `agent.provider_active` 设置项 + 把该档案渲染成配置文件（写前备份、原子替换）。
+
+        **不阻止带缺口激活**，但必须如实回报 `gaps[]`（缺哪些必填档位映射）与 `warnings[]`
+        （例如文件里存在本系统没声明的同名变量、`.env` 仍留着同名兜底值）。
+        返回即生效，对下一个任务起作用、不需要重启容器；正在跑的任务不受打扰。
+
+        '
+      operationId: activateProvider
+      security:
+      - sessionCookie: []
+      parameters:
+      - name: provider_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 切换结果（含生效档案、写了哪些文件、缺口与告警）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderActivateResult'
+        '404':
+          description: 档案不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: 未登录
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: 非管理员
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/admin/providers/{provider_id}/probe:
+    post:
+      summary: 对该档案做一次网关连通探测
+      description: '仅管理员。**显式动作，不在保存/激活时自动跑**——它会向模型端点发一次
+        真实请求、消耗付费积分（与"验收必须真跑出一个成片"同源，跑前单独确认）。
+
+        探测打的是网关，不是我们的引擎：它只能证明"地址可达、凭据被认、模型名存在"，
+        **不能证明能出片**。回逐项检查结果而不是一个笼统的成功/失败，
+        因为最常见的原因是"凭据种类与认证头不匹配"（API_KEY 发 x-api-key，
+        AUTH_TOKEN 发 Authorization: Bearer），要能指名道姓地说出来。
+
+        任何响应与日志都不得回显凭据明文。
+
+        '
+      operationId: probeProvider
+      security:
+      - sessionCookie: []
+      parameters:
+      - name: provider_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 探测结果（失败也回 200，用 checks 说明失败在哪一项）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderProbeResult'
+        '404':
+          description: 档案不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: 未登录
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: 非管理员
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /api/settings/capacity:
     get:
       summary: 读取并发容量与排队情况（任意身份只读）
@@ -523,7 +944,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/AgentExecuteResult'
         '400':
-          description: kind 未注册、参数不合法或安全检查不通过
+          description: 操作类型不支持、参数格式不正确，或内容未通过安全检查
           content:
             application/json:
               schema:
@@ -569,7 +990,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/AgentSessionResponse'
         '400':
-          description: kind 未注册、参数不合法或安全检查不通过
+          description: 操作类型不支持、参数格式不正确，或内容未通过安全检查
           content:
             application/json:
               schema:
@@ -723,7 +1144,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/SuggestTitleResult'
         '400':
-          description: 输入不合法或安全检查不通过
+          description: 输入格式不正确，或内容未通过安全检查
           content:
             application/json:
               schema:
@@ -915,7 +1336,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '409':
-          description: 该身份未完成任务数（queued + running）已达上限 DECKSMITH_MAX_UNFINISHED_PER_IDENTITY，先等一个结束或撤销一个再提交（ADR-019 决策 7）
+          description: 进行中的任务已达上限，请等待其中一个完成后重新提交（上限为系统设置项，未完成任务含排队中与生成中）
           content:
             application/json:
               schema:
@@ -1040,7 +1461,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '409':
-          description: 任务状态不允许重试（仅 failed/timeout/cancelled 可重试）
+          description: 该任务当前状态不支持重新生成，仅生成失败、超时或已取消的任务可以重试
           content:
             application/json:
               schema:
@@ -1048,21 +1469,21 @@ paths:
 
   /api/jobs/{job_id}/cancel:
     post:
-      summary: 撤销任务（排队中或运行中）
-      description: '撤销一个尚未进入终态的任务，状态 → cancelled。
+      summary: 取消任务（排队中或运行中）
+      description: '取消一个尚未进入终态的任务，状态 → cancelled。
 
-        两种非终态的撤销语义不同：
+        两种非终态的取消语义不同：
 
         - queued：调度侧尚未认领、引擎子进程还没拉起，直接从队列摘掉；
 
         - running：请求引擎终止其子进程。**是否支持取决于引擎能力位**——
           EngineInfo.capabilities 含 cancel 的引擎才会真正中断，
-          不含的引擎对 running 任务返回 409，**绝不静默返回"已撤销"而让子进程继续跑**。
+          不含的引擎对 running 任务返回 409，**绝不静默返回"已取消"而让子进程继续跑**。
 
         终态不可逆：已 completed / failed / timeout / cancelled 的任务返回 409。
 
-        撤销只改变任务状态，不删除磁盘上已写出的中间产物或成品（文件保护口径，
-        重跑与审计可能还要用）；已撤销任务已消耗的 token 仍如实保留（ADR-016 口径）。
+        取消只改变任务状态，不删除磁盘上已写出的中间产物或成品（文件保护口径，
+        重跑与审计可能还要用）；已取消任务已消耗的 token 仍如实保留（ADR-016 口径）。
 
         '
       operationId: cancelJob
@@ -1074,7 +1495,7 @@ paths:
           type: string
       responses:
         '202':
-          description: 撤销已受理，返回置为 cancelled 的任务
+          description: 取消已受理，返回置为 cancelled 的任务
           content:
             application/json:
               schema:
@@ -1841,9 +2262,9 @@ components:
 
         状态明细（status_detail）：
         - 仅在非终态（queued / running）下有意义
-        - queued：出参时按 queue_position 现算成排队文案（如"排队中 · 前方还有 3 个任务"），
+        - queued：出参时按 queue_position 现算成排队文案（如"排队中，前面还有 3 个"），
             不入库、每次轮询都可能变，不构成承诺。队首（前面没有排队者）分两种说法：
-            并发闸尚有空位时是"即将开始"，槽位已被占满时是"等待空位（N 个正在生成）"——
+            并发闸尚有空位时是"即将开始"，占满时是"正在生成的任务已满，需等待其中一个结束"。
             因为"前面没人排队"不等于"马上开始"，它还要等一个 running 让出槽位
         - running：内容随执行进度变化（如"正在生成第3页..."）
         - 前端通过轮询获取最新状态
@@ -2766,6 +3187,366 @@ components:
           type: boolean
 
     # ===== 系统设置（ADR-020）=====
+    # ===== Agent CLI 与供应商档案（ADR-032，草案）=====
+    AgentList:
+      type: object
+      required:
+      - agents
+      properties:
+        agents:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentInfo'
+    AgentInfo:
+      type: object
+      description: '一个已注册的 agent CLI。清单来自注册表遍历，**禁止写死 agent 名字或枚举**
+        （ADR-026：检查闸必须能遍历契约，漏一项就报红）。'
+      required:
+      - id
+      - label
+      - fields
+      - files
+      properties:
+        id:
+          type: string
+          description: 注册名，例如 `claude_code`
+        label:
+          type: string
+          description: 中文名，界面显示用
+        cli_version:
+          type: [string, "null"]
+          description: '实际探测到的 CLI 版本。**探不到就回 null，界面显示"未知"**——
+            不许回一个构建期参数里写的版本号冒充"当前生效的版本"。
+            换 CLI 版本需重建镜像，属 `restart_required=true` 的那类改动。'
+        fields:
+          type: array
+          description: 本 agent 认哪些配置字段、各映射到哪个环境变量；前端据此通用渲染档案表单
+          items:
+            $ref: '#/components/schemas/AgentField'
+        files:
+          type: array
+          description: 本 agent 的配置文件清单（哪些可展示、哪些允许界面编辑）
+          items:
+            $ref: '#/components/schemas/SettingsFileMeta'
+        active_provider_id:
+          type: [string, "null"]
+          description: 当前生效的档案 id；null = 还没有任何档案生效（系统不可用的如实状态）
+    AgentField:
+      type: object
+      description: 'agent 的一个配置字段。**描述即渲染**：界面不知道 `ANTHROPIC_MODEL` 是什么，
+        只知道"这里有一个 string 类型的项、它写进哪个环境变量"。
+        字段取值的唯一权威仍是本契约（与引擎参数同一口径，不许在别处另抄一份）。'
+      required:
+      - key
+      - label
+      - type
+      - env_var
+      properties:
+        key:
+          type: string
+          description: 档案内的字段名，例如 `base_url`
+        label:
+          type: string
+          description: 中文名
+        type:
+          type: string
+          enum:
+          - string
+          - secret
+          description: '控件类型；`secret` 受三项硬约束（GET 恒 null、只回 configured/masked、不落日志）。
+            枚举里**只准出现注册表真能发出的类型**——多一个成员就是契约在承诺实现没有的能力，
+            这条由 tests/contract/agent_settings_guard_test.py 双向比对守住。'
+        env_var:
+          type: string
+          description: 该字段渲染到配置文件 `env` 块时使用的变量名，例如 `ANTHROPIC_BASE_URL`
+        required_for_gateway:
+          type: boolean
+          default: false
+          description: '第三方网关下必填（缺了会命中官方模型名而报错）。档案可以存残缺草稿，
+            但**激活时必须把缺的这些项回报出来**，不许静默生效。'
+        secret:
+          type: boolean
+          default: false
+          description: 是否按凭据处理（等价于 type=secret，保留两个字段是因为界面要能分别决定控件与提交策略）
+        description:
+          type: string
+          description: 给管理员看的说明，包含踩过的坑（例如两种凭据发的是不同的头）
+        restart_required:
+          type: boolean
+          default: false
+          description: '改动是否需要重建镜像/容器才对**所有**任务生效。渲染进配置文件的字段为 false
+            （下一个子进程自然读新值）。这一项必须如实填。'
+    SettingsFileMeta:
+      type: object
+      description: 一个配置文件的存在性与可编辑性。路径由后端解析 `HOME` 得出，界面只展示不拼接。
+      required:
+      - name
+      - editable
+      properties:
+        name:
+          type: string
+          description: 文件名，作为接口入参取值，例如 `settings.json`
+        path:
+          type: string
+          description: 后端解析出的绝对路径，供运维核对（不是给人拼路径用的模板）
+        editable:
+          type: boolean
+          description: '本文件是否允许界面写。`settings.json` 为 true；
+            `settings.local.json` 视部署而定；`~/.claude.json` **必须为 false**——
+            它是 CLI 自己写的状态文件（登录态、逐项目信任、UI 开关、个人 MCP），
+            解析失败时 `-p` 模式直接报错退出，让 Web 界面改它风险不对等。'
+        exists:
+          type: boolean
+          description: 文件当前是否存在。不存在不是错误状态。
+    SettingsFileView:
+      type: object
+      description: '原始配置文件的读取结果。**凭据明文永不出接口**：`env` 里命中 secret 字段的值
+        以掩码替换，并由 `masked` 如实标注。因此本视图**不等于**磁盘字节，
+        保存时必须回传 `expected_sha256` 之外的完整原文，后端负责把掩码还原成原值再落盘。'
+      required:
+      - agent_id
+      - name
+      - exists
+      - masked
+      - managed_keys
+      - foreign_env_keys
+      - shadow_env_keys
+      properties:
+        agent_id:
+          type: string
+        name:
+          type: string
+        path:
+          type: string
+        exists:
+          type: boolean
+        raw:
+          type: [string, "null"]
+          description: 文件文本（secret 值已掩码）；文件不存在时为 null
+        masked:
+          type: boolean
+          description: 本视图是否含掩码。为 true 时界面必须提示"这不是文件全文"
+        masked_keys:
+          type: array
+          items:
+            type: string
+          description: 被掩码的变量名列表
+        managed_keys:
+          type: array
+          items:
+            type: string
+          description: 本系统托管的 env 键——只能在档案里改，本视图只读
+        foreign_env_keys:
+          type: array
+          items:
+            type: string
+          description: '文件里出现、但本系统没有声明的变量（尤其 `ANTHROPIC_*`）。
+            它们会真实影响生效值，**必须让管理员看见并处置**，不许静默生效。'
+        shadow_env_keys:
+          type: array
+          items:
+            type: string
+          description: '部署环境变量里存在同名值的键。文件里声明了则文件赢（官方优先级）；
+            文件里没声明则这个值仍在用——界面要指出它来自 `.env` 而不是档案。'
+        sha256:
+          type: [string, "null"]
+          description: 磁盘当前内容的指纹，保存时原样回传做并发检查
+        parse_error:
+          type: [string, "null"]
+          description: '磁盘上的现有文件解析失败时的人话原因。此时 `raw` 为 null
+            （坏文件里同样躺着凭据明文，不能回原文），且写回接口会拒绝在这份坏文件上做增量改写。'
+        editable:
+          type: boolean
+          description: 本文件是否允许界面写（与 GET /api/admin/agents 的 files[].editable 同源）
+        note:
+          type: [string, "null"]
+          description: 为什么允许/禁止编辑，直接给管理员看（例如 `.claude.json` 是 CLI 自己写的状态文件）
+        backup:
+          type: [string, "null"]
+          description: 仅写回响应出现：本次改动前的备份文件路径
+    SettingsFileUpdate:
+      type: object
+      description: 写回文件。只允许改非托管键；改动托管键整次 400（两个入口写同一个值必然漂移）。
+      required:
+      - raw
+      - expected_sha256
+      properties:
+        raw:
+          type: string
+          description: 新的完整文件文本
+        expected_sha256:
+          type: [string, "null"]
+          description: 读取时拿到的指纹；与磁盘不符即 409，不覆盖别人的修改；
+            文件当时不存在时为 null（没有可比对的前像）
+    AgentProviderProfile:
+      type: object
+      description: '一套供应商档案（回显视图，凭据脱敏）。档案是**可复用的记录**，
+        不是生效本身：同一时刻只有一套被激活，激活即渲染成配置文件。
+        存多套、切一套，正是"方便切换"的落点。'
+      required:
+      - id
+      - agent_id
+      - name
+      - is_active
+      - values
+      properties:
+        id:
+          type: string
+        agent_id:
+          type: string
+        name:
+          type: string
+          description: 人起的名字，用于切换时认（例如「公司网关」「本地模型」）
+        is_active:
+          type: boolean
+        values:
+          type: object
+          additionalProperties: true
+          description: 各字段的值；`secret` 字段**恒为 null**，明文不出后端
+        secret_states:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              configured:
+                type: boolean
+              masked:
+                type: [string, "null"]
+                description: 形如 `sk-…3f9a`，只用于确认"是不是这一个"
+          description: 凭据字段的状态（ADR-020 决策 5 原样继承）
+        gaps:
+          type: array
+          items:
+            type: string
+          description: 缺哪些 `required_for_gateway` 字段；非空即激活会有风险
+        warnings:
+          type: array
+          items:
+            type: string
+          description: '仅"修改的正是生效中那套档案"时出现：那次重渲染带回的告警
+            （例如某项仍由部署环境变量提供）。只读列表时为空数组。'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        updated_by:
+          type: [string, "null"]
+    AgentProviderProfileIn:
+      type: object
+      description: 新建或修改档案。修改为部分提交：`values` 里出现的键才改。
+      required:
+      - agent_id
+      - name
+      - values
+      properties:
+        agent_id:
+          type: string
+        name:
+          type: string
+        values:
+          type: object
+          additionalProperties: true
+          description: 字段名 → 值；凭据在此**明文提交**，这是唯一的写入通道
+    AgentProviderList:
+      type: object
+      required:
+      - profiles
+      - active_provider_id
+      properties:
+        profiles:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentProviderProfile'
+        active_provider_id:
+          type: [string, "null"]
+    ProviderActivateResult:
+      type: object
+      description: 切换结果。**回报缺口与告警，而不是假装一切正常**：管理员改完看到"已生效"
+        却在失败，比看到"有缺口"更破坏信任（ADR-020 决策 2 的同一条纪律）。
+      required:
+      - active_provider_id
+      - written_files
+      - gaps
+      - warnings
+      - restart_required
+      properties:
+        active_provider_id:
+          type: string
+        written_files:
+          type: array
+          items:
+            type: object
+            properties:
+              agent_id:
+                type: string
+              name:
+                type: string
+              path:
+                type: string
+              changed:
+                type: boolean
+                description: 相对上一份内容是否真的变了
+              backup:
+                type: [string, "null"]
+                description: 写入前备份文件的路径；没写过就为 null
+        gaps:
+          type: array
+          items:
+            type: string
+          description: 必填档位映射缺哪些（非空时界目标红）
+        warnings:
+          type: array
+          items:
+            type: string
+          description: 例如「文件里存在本系统没声明的同名变量」「.env 仍留有同名兜底值」
+        restart_required:
+          type: boolean
+          description: '渲染进配置文件的路径下应为 false：下一个任务即生效、不需要重启容器。
+            若某 agent 的某项必须重启才生效，这里必须如实为 true。'
+    ProviderProbeResult:
+      type: object
+      description: '一次网关连通探测的逐项结果。**只证明网关侧活着**，
+        不代替"真实上传材料跑出一个成片"那条验收硬标准。'
+      required:
+      - ok
+      - checks
+      - consumed_quota
+      properties:
+        ok:
+          type: boolean
+        checks:
+          type: array
+          items:
+            type: object
+            required:
+            - key
+            - label
+            - pass
+            properties:
+              key:
+                type: string
+                description: 例如 `endpoint_reachable` / `credential_accepted` / `model_exists`
+              label:
+                type: string
+              pass:
+                type: boolean
+              detail:
+                type: [string, "null"]
+                description: 人话原因，含状态码；**绝不回显凭据**
+        http_status:
+          type: [integer, "null"]
+        elapsed_ms:
+          type: [integer, "null"]
+        consumed_quota:
+          type: boolean
+          description: '是否真的打到了网关并拿到响应（只有这种情况才可能产生费用）。
+            凭据/模型名缺失而没发请求、或连不上网关（DNS、拒连、超时）时为 false——
+            把"没连上"报成"花了额度"，管理员会以为白烧了一次钱。'
+        note:
+          type: [string, "null"]
+          description: 探针能力边界的一句提醒：只证明网关与凭据，不代替真实生成
     SystemSettingsField:
       type: object
       description: '一个系统设置项的**元数据 + 当前生效值**。前端按本对象通用渲染，
@@ -2807,12 +3588,10 @@ components:
           type: string
           description: 单位（秒 / 个），仅用于显示
         min:
-          type: integer
-          nullable: true
+          type: [integer, "null"]
           description: 取值下限（int 有效）
         max:
-          type: integer
-          nullable: true
+          type: [integer, "null"]
           description: 取值上限（int 有效）
         default:
           description: 回落值——来自部署环境变量或内置默认，不是"当前生效值"
@@ -2833,8 +3612,7 @@ components:
           type: boolean
           description: 仅 type=secret：该密钥是否已配置过（不告诉调用方是什么）
         masked:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: '仅 type=secret：掩码形式（如 sk-…3f9a），供管理员确认"是不是这一个"。
             任何接口都不得回显明文，也不得把明文写进日志与错误信息。'
         overridden:

@@ -173,7 +173,7 @@ export default function GenerationJobsPanel({
       }
     >
       {filtered.length === 0 ? (
-        <Empty description={outputJobs.length === 0 ? '暂无生成任务，从「草稿任务」去生成' : '没有符合条件的任务'} />
+        <Empty description={outputJobs.length === 0 ? '暂无生成记录。回到「草稿任务」，选择一版点击「生成演示文件」' : '没有符合条件的任务'} />
       ) : (
         <List
           dataSource={filtered}
@@ -193,7 +193,7 @@ export default function GenerationJobsPanel({
                         <Popconfirm
                           key="cancel"
                           title="停止这次生成？"
-                          description="停止后本次生成不会保存已完成的部分，已消耗的额度也不退回。"
+                          description="停止后本次生成不会保存已完成的部分，已消耗的积分也不退回。"
                           okText="停止生成"
                           cancelText="继续等"
                           onConfirm={() => onCancel(job.job_id)}
@@ -205,7 +205,7 @@ export default function GenerationJobsPanel({
                 ...(!readOnly && isRetryable(job.status)
                   ? [
                       <Button key="retry" size="small" icon={<RotateCcw size={13} />} onClick={() => onRetry(job.job_id)}>
-                        重试
+                        重新生成
                       </Button>,
                     ]
                   : []),
@@ -240,20 +240,20 @@ export default function GenerationJobsPanel({
                     {job.status === 'running' && (
                       <Tag color="gold" style={{ fontSize: 12 }}>
                         {pagePreviewEngines.has(job.engine || '') &&
-                          `${job.progress?.pages_generated ?? 0} 页 · `}
+                          `${job.progress?.pages_generated ?? 0} 页｜`}
                         {job.progress?.elapsed_seconds != null
                           ? `${Math.floor((job.progress.elapsed_seconds || 0) / 60)}分${(job.progress.elapsed_seconds || 0) % 60}秒`
-                          : '执行中'}
+                          : '正在生成'}
                       </Tag>
                     )}
                   </Space>
                 }
                 description={
                   <>
-                    {`${job.engine || '-'} · ${contentStyleLabel(job.content_style)} · ${formatDate(job.created_at)}`}
+                    {`${outputEngines.find((e) => e.name === job.engine)?.display_name || '-'}｜${contentStyleLabel(job.content_style)}｜${formatDate(job.created_at)}`}
                     {/* 只有终态才显示消耗：用量要到结束才落库，「未记录」对跑完仍无数据的
                         任务才有信息量；排队中显示它会让人以为已经花过钱 */}
-                    {isTerminal(job.status) && ` · ${tokenUsageSummary(job.token_usage)}`}
+                    {isTerminal(job.status) && `｜${tokenUsageSummary(job.token_usage)}`}
                   </>
                 }
               />
@@ -278,7 +278,7 @@ export default function GenerationJobsPanel({
               ) : (
                 <Popconfirm
                   title="停止这次生成？"
-                  description="停止后本次生成不会保存已完成的部分，已消耗的额度也不退回。"
+                  description="停止后本次生成不会保存已完成的部分，已消耗的积分也不退回。"
                   okText="停止生成"
                   cancelText="继续等"
                   onConfirm={() => onCancel(drawer.job_id)}
@@ -289,7 +289,7 @@ export default function GenerationJobsPanel({
             )}
             {drawer && isRetryable(drawer.status) && (
               <Button size="small" onClick={() => onRetry(drawer.job_id)}>
-                重试
+                重新生成
               </Button>
             )}
             {drawer?.status === 'completed' && (
@@ -309,13 +309,12 @@ export default function GenerationJobsPanel({
         {drawer && (
           <>
             <Descriptions column={1} size="small" style={{ marginBottom: 16 }}>
-              <Descriptions.Item label="任务 ID">
-                <span style={{ fontFamily: 'monospace' }}>{drawer.job_id}</span>
-              </Descriptions.Item>
               <Descriptions.Item label="状态">
                 <StatusTag status={drawer.status} />
               </Descriptions.Item>
-              <Descriptions.Item label="引擎">{drawer.engine || '-'}</Descriptions.Item>
+              <Descriptions.Item label="生成方式">
+                {outputEngines.find((e) => e.name === drawer.engine)?.display_name || '-'}
+              </Descriptions.Item>
               <Descriptions.Item label="创建时间">{formatDate(drawer.created_at)}</Descriptions.Item>
               {isTerminal(drawer.status) && (
                 <Descriptions.Item label="消耗">
@@ -329,7 +328,7 @@ export default function GenerationJobsPanel({
                   </Descriptions.Item>
                 ))}
               {drawer.status_detail && (
-                <Descriptions.Item label="状态明细">{drawer.status_detail}</Descriptions.Item>
+                <Descriptions.Item label="当前状态">{drawer.status_detail}</Descriptions.Item>
               )}
             </Descriptions>
             {(() => {
@@ -338,7 +337,7 @@ export default function GenerationJobsPanel({
               return (
                 <>
                   <Divider orientation="left" plain style={{ margin: '8px 0 12px' }}>
-                    生成参数（{engine?.display_name || drawer.engine || '-'}）
+                    生成参数（{engine?.display_name || '-'}）
                   </Divider>
                   <Descriptions column={2} size="small" style={{ marginBottom: 16 }}>
                     {drawer.pages != null && (
@@ -358,7 +357,7 @@ export default function GenerationJobsPanel({
               // 位置信息不在这里重复一遍：上方「状态明细」已经带了后端现算的那句完整话，
               // 这里再拼一次就成了同一事实的两个作者。
               <span style={{ fontSize: 13, color: 'rgba(0,0,0,0.45)' }}>
-                任务在排队，尚未开始生成。
+                任务正在排队，轮到后开始生成。
               </span>
             )}
             {drawer.status === 'running' && <ProgressDisplay progress={drawer.progress} jobId={drawer.job_id} />}

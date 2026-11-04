@@ -34,6 +34,15 @@ export type SystemSettingsView = components['schemas']['SystemSettings'];
 export type SystemSettingsField = components['schemas']['SystemSettingsField'];
 export type CapacityInfo = components['schemas']['CapacityInfo'];
 
+// Agent 设置与供应商档案（ADR-032）——形状同样来自契约，本文件不手写共享类型
+export type AgentInfo = components['schemas']['AgentInfo'];
+export type AgentField = components['schemas']['AgentField'];
+export type AgentProviderProfile = components['schemas']['AgentProviderProfile'];
+export type AgentProviderList = components['schemas']['AgentProviderList'];
+export type SettingsFileView = components['schemas']['SettingsFileView'];
+export type ProviderActivateResult = components['schemas']['ProviderActivateResult'];
+export type ProviderProbeResult = components['schemas']['ProviderProbeResult'];
+
 /** 后端 JobOut 的超集字段（进度信息，运行中任务附带） */
 export interface ProgressInfo {
   stage: string;
@@ -183,6 +192,74 @@ export function saveSystemSettings(
 /** 只读容量提示（任意身份）：并发上限 + 当前在跑/排队数 */
 export function getCapacity(): Promise<CapacityInfo> {
   return requestJson('/api/settings/capacity');
+}
+
+// ── Agent 设置与供应商档案（仅管理员，ADR-032）──
+// 与系统设置同一套"描述即渲染"：字段清单、环境变量落点、可编辑文件都由后端注册表下发，
+// 前端不写死 agent 名，也不写死任何 ANTHROPIC_* 变量名。
+
+export function listAgents(): Promise<{ agents: AgentInfo[] }> {
+  return requestJson('/api/admin/agents');
+}
+
+export function listProviders(): Promise<AgentProviderList> {
+  return requestJson('/api/admin/providers');
+}
+
+export function createProvider(body: {
+  agent_id: string; name: string; values: Record<string, string>;
+}): Promise<AgentProviderProfile> {
+  return requestJson('/api/admin/providers', { method: 'POST', body: JSON.stringify(body) });
+}
+
+/**
+ * 修改档案（部分提交：values 里出现的键才动）。
+ * 清空某项要显式传空串——不传等于"我没改这一项"，删掉凭据必须说出来。
+ * 改的正是生效中那套时会立刻重写配置文件，响应里的 warnings 要原样给管理员看。
+ */
+export function updateProvider(
+  providerId: string,
+  body: { agent_id: string; name: string; values: Record<string, string> }
+): Promise<AgentProviderProfile> {
+  return requestJson(`/api/admin/providers/${providerId}`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  });
+}
+
+/** 删除档案。生效中的那套后端会拒（409），前端不要先删再启用别的。 */
+export function deleteProvider(providerId: string): Promise<null> {
+  return requestJson(`/api/admin/providers/${providerId}`, { method: 'DELETE' });
+}
+
+/** 切为生效：写配置文件，对下一个任务即生效、不需要重启容器。 */
+export function activateProvider(providerId: string): Promise<ProviderActivateResult> {
+  return requestJson(`/api/admin/providers/${providerId}/activate`, { method: 'POST' });
+}
+
+/**
+ * 网关连通探针。**会真发一次请求、消耗付费额度**，只在管理员明确点击时调用；
+ * 它只证明网关与凭据活着，不能当成"能出片"。
+ */
+export function probeProvider(providerId: string): Promise<ProviderProbeResult> {
+  return requestJson(`/api/admin/providers/${providerId}/probe`, { method: 'POST' });
+}
+
+export function getSettingsFile(agentId: string, name: string): Promise<SettingsFileView> {
+  return requestJson(`/api/admin/agents/${agentId}/settings-file?name=${encodeURIComponent(name)}`);
+}
+
+/**
+ * 写回配置文件。`expectedSha256` 必须来自上一次读取，磁盘被别人改过时会 409，
+ * 这是"不覆盖别人的修改"的机制，不是可选参数。
+ */
+export function saveSettingsFile(
+  agentId: string, name: string, raw: string, expectedSha256: string | null
+): Promise<SettingsFileView> {
+  return requestJson(`/api/admin/agents/${agentId}/settings-file?name=${encodeURIComponent(name)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ raw, expected_sha256: expectedSha256 }),
+  });
 }
 
 // ── 上传 ──

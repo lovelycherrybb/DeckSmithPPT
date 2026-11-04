@@ -73,7 +73,7 @@ export default function HistoryTab({ onOpenInWorkspace }: Props) {
     try {
       setProjects(await listProjects(100));
     } catch (e) {
-      if (!silent) messageApi.error(e instanceof Error ? e.message : '获取项目列表失败');
+      if (!silent) messageApi.error(e instanceof Error ? e.message : '项目列表加载失败，请刷新页面重试');
     } finally {
       if (!silent) setLoading(false);
     }
@@ -94,7 +94,7 @@ export default function HistoryTab({ onOpenInWorkspace }: Props) {
         setPresentations(pres);
         setEngines(eng);
       } catch (e) {
-        if (!silent) messageApi.error(e instanceof Error ? e.message : '获取项目数据失败');
+        if (!silent) messageApi.error(e instanceof Error ? e.message : '该项目的内容加载失败，请刷新页面重试');
       } finally {
         if (!silent) setViewLoading(false);
       }
@@ -171,15 +171,6 @@ export default function HistoryTab({ onOpenInWorkspace }: Props) {
   );
 
   const columns = [
-    {
-      title: '项目编号',
-      dataIndex: 'project_id',
-      width: 110,
-      fixed: 'left' as const,
-      render: (id: string) => (
-        <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{id.slice(0, 8)}</span>
-      ),
-    },
     { title: '项目名称', dataIndex: 'project_name', ellipsis: true },
     // 归属用户列：仅管理员视角出现（普通/高级用户列表里全是自己的项目，无需此列）
     ...(isAdmin
@@ -203,7 +194,7 @@ export default function HistoryTab({ onOpenInWorkspace }: Props) {
       // 后端口径是"未结束 = 排队中 + 生成中"（契约 running_task_count 描述），
       // 所以列名不能说"运行中"——那会把只在排队的任务也算进来却让人以为在跑
       render: (n: number) =>
-        n > 0 ? <Tag color="gold">{n} 个进行中</Tag> : <span style={{ color: 'var(--text-muted)' }}>0</span>,
+        n > 0 ? <Tag color="gold">{n} 个任务排队或生成中</Tag> : <span style={{ color: 'var(--text-muted)' }}>0</span>,
     },
     { title: '创建时间', dataIndex: 'created_at', width: 150, render: (t: string) => formatDate(t) },
     { title: '更新时间', dataIndex: 'updated_at', width: 150, render: (t: string) => formatDate(t) },
@@ -230,7 +221,7 @@ export default function HistoryTab({ onOpenInWorkspace }: Props) {
             icon={<Pencil size={13} />}
             onClick={() => onOpenInWorkspace?.(p.project_id)}
           >
-            操作
+            去编辑
           </Button>
         </Space>
       ),
@@ -258,7 +249,7 @@ export default function HistoryTab({ onOpenInWorkspace }: Props) {
           // 固定列（项目编号左 / 操作右）依赖 scroll.x；窄窗口时在卡片内横向滚动，
           // 而不是让整张表冲出卡片边界
           scroll={{ x: 1000 }}
-          locale={{ emptyText: <Empty description="暂无项目，提交草稿任务后自动创建" /> }}
+          locale={{ emptyText: <Empty description="暂无项目。在「工作台」新建并提交后，项目会自动出现在此处" /> }}
           onRow={(p) => ({
             // 高亮走 class 而不是 tr 内联样式：固定列（项目编号/操作）单元格有自己不透明背景，
             // 内联在 tr 上的底色会被这两格盖出接缝
@@ -275,7 +266,7 @@ export default function HistoryTab({ onOpenInWorkspace }: Props) {
             <Space>
               <FolderOpen size={15} color="#8b5cf6" />
               <span>
-                {viewProject?.project_name || viewProjectId.slice(0, 8)}
+                {viewProject?.project_name || '未命名项目'}
                 <Tag color="default" style={{ marginLeft: 8 }}>
                   只读
                 </Tag>

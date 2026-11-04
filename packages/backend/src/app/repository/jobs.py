@@ -335,7 +335,7 @@ class JobRepo:
         res = db.execute(
             update(Job)
             .where(Job.job_id == job_id, Job.status == "queued", Job.claimed_by == claimant)
-            .values(status="running", started_at=_now(), status_detail="引擎执行中",
+            .values(status="running", started_at=_now(), status_detail="正在生成",
                     updated_at=_now())
         )
         db.commit()

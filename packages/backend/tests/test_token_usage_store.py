@@ -244,4 +244,4 @@ def test_超时兜底也收割用量并杀进程(db, tmp_path, monkeypatch):
     assert row["status"] == "timeout"
     assert row["token_usage"] == _USAGE
     assert eng.cancelled == ["pj1"], "超时必须先杀进程再落终态"
-    assert "已终止引擎子进程" in row["error"]
+    assert "已停止" in row["error"]

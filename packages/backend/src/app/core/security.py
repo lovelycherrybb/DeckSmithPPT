@@ -14,7 +14,10 @@
 """
 from __future__ import annotations
 
+import logging
 import re
+
+logger = logging.getLogger("decksmith.security")
 
 # 代码剥离：fenced 代码块（含未闭合到文末的截断场景）+ 行内代码 span
 _FENCED_RE = re.compile(r"```[^\n]*\n.*?```", re.DOTALL)
@@ -79,11 +82,21 @@ _RULES: list[tuple[str, re.Pattern[str]]] = [
 ]
 
 
+# 规则人话名：界面只说这条，规则原名与命中位置只进日志
+_RULE_DISPLAY_NAMES = {
+    "系统指令注入": "让 AI 忽略规则的指令",
+    "代码执行指令": "要求执行命令的内容",
+    "未授权资源访问": "要求读取系统文件的内容",
+    "敏感内容标记": "密码或密钥内容",
+}
+
+
 def check_draft_content(content: str) -> tuple[bool, str | None]:
     """检查草稿内容是否安全。
 
     Returns:
-        (passed, reason)：通过时 reason 为 None；不通过时给出命中的规则名。
+        (passed, reason)：通过时 reason 为 None；不通过时给出规则的人话名，
+        由调用处拼成完整界面句子。不回显命中的正文片段。
     """
     if not content:
         return True, None
@@ -91,9 +104,8 @@ def check_draft_content(content: str) -> tuple[bool, str | None]:
     for rule_name, pattern in _RULES:
         m = pattern.search(content)
         if m:
-            # 截取命中上下文便于用户定位
-            ctx = content[max(0, m.start() - 20):m.end() + 20].replace("\n", " ")
-            return False, f"命中规则「{rule_name}」：…{ctx}…"
+            logger.info("草稿安全检查未通过：规则=%s，位置=%d", rule_name, m.start())
+            return False, _RULE_DISPLAY_NAMES.get(rule_name, "不合适的内容")
     return True, None
 
 

@@ -44,7 +44,7 @@ def stream_claude_text(
             text=True,
         )
     except FileNotFoundError:
-        yield {"error": f"未找到 claude CLI（{claude_bin}），请确认已安装 Claude Code"}
+        yield {"error": "生成服务未就绪，请联系管理员"}
         return
 
     stderr_lines: list[str] = []
@@ -81,18 +81,19 @@ def stream_claude_text(
                 if d.get("subtype") == "success":
                     full_result = str(d.get("result", ""))
                 else:
-                    error = str(d.get("result") or d.get("subtype") or "未知错误")
+                    # 原始 subtype/result 文本不外报（英文枚举值用户查不到），只说定档句
+                    error = "AI 处理未成功，请重试"
         proc.wait(timeout=timeout)
-    except Exception as exc:  # noqa: BLE001
-        error = f"流式调用异常：{exc}"
+    except Exception:  # noqa: BLE001
+        error = "AI 处理未成功，请重试"
     finally:
         if proc.poll() is None:
             proc.kill()
 
     if error:
-        stderr_tail = "".join(stderr_lines).strip()[-500:]
-        yield {"error": f"{error}（stderr 尾部：{stderr_tail}）" if stderr_tail else error}
+        # stderr 尾部等技术细节不再拼进界面句子（本模块无输出通道承载它们）
+        yield {"error": error}
     elif full_result is not None:
         yield {"done": True, "text": full_result}
     else:
-        yield {"error": "Claude 未返回结果"}
+        yield {"error": "AI 未返回内容，请重试"}

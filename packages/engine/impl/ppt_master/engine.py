@@ -22,6 +22,7 @@ AGENTS.md 规则：本文件只实现 PptEngine 协议，不修改任何调用�
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import shutil
@@ -36,6 +37,7 @@ from pathlib import Path
 from typing import Any
 
 from engine.core.config import get_jobs_root
+from engine.core.failure_message import no_result_reason
 from engine.core.models import Job, JobId, EngineJobStatus, EngineType
 from engine.core.proc import terminate_tree
 from engine.core.protocol import PptEngine
@@ -48,6 +50,9 @@ _PPT_MASTER_DIR = _REPO_ROOT / "lib" / "ppt-master"
 _SOURCE_TO_MD = _PPT_MASTER_DIR / "skills" / "ppt-master" / "scripts" / "source_to_md.py"
 _CLAUDE_BIN = "claude"
 _DEFAULT_TIMEOUT_SECONDS = 3600
+
+#: 运维日志用：界面句子只说结论，缺了什么组件由这里留痕（文案改造定档 2026-11-03）
+logger = logging.getLogger("decksmith.engine.ppt_master")
 
 
 class _UnreadableJobRecord(dict):
@@ -169,15 +174,18 @@ class PptMasterEngine(PptEngine):
         skill_md = _PPT_MASTER_DIR / "skills" / "ppt-master" / "SKILL.md"
         missing = [str(p) for p in (agents_md, skill_md) if not p.is_file()]
         if missing:
-            raise RuntimeError(
-                f"ppt_master 技能说明书缺失：{missing}。"
-                "请先执行 git submodule update --init --recursive。"
-                "cwd 归位任务目录后技能发现依赖这些绝对路径，缺失会静默降级为无流程生成。"
+            # 技术细节只进日志（运维可见）；界面统一说「生成服务未就绪」
+            logger.error(
+                "ppt_master 技能说明书缺失：%s。请先执行 git submodule update --init --recursive。"
+                "cwd 归位任务目录后技能发现依赖这些绝对路径，缺失会静默降级为无流程生成。",
+                missing,
             )
+            raise RuntimeError("生成服务未就绪，请联系管理员")
         if shutil.which(self.claude_bin) is None and not Path(self.claude_bin).is_file():
-            raise RuntimeError(
-                f"未找到可执行的 claude CLI（解析名 {self.claude_bin!r}）；本引擎无离线退路。"
+            logger.error(
+                "未找到可执行的 claude CLI（解析名 %r）；本引擎无离线退路。", self.claude_bin,
             )
+            raise RuntimeError("生成服务未就绪，请联系管理员")
 
         notices: list[str] = []
         py3 = shutil.which("python3")
@@ -641,7 +649,12 @@ class PptMasterEngine(PptEngine):
                 updated_at=_now(), error=None,
             )
         except Exception as exc:  # noqa: BLE001
-            self._write_job(job_id, status="failed", error=f"草稿提取失败：{exc}", updated_at=_now())
+            try:
+                (self._job_dir(job_id) / "run.log").write_text(
+                    f"[draft] 素材提取失败：{exc!r}\n", encoding="utf-8")
+            except OSError:
+                pass
+            self._write_job(job_id, status="failed", error="素材未能转换成草稿，请重试", updated_at=_now())
 
     # ── 逐页修改（协议可选钩子 revise，点亮 svg_edit；ADR-023）──
     def revise(
@@ -665,7 +678,7 @@ class PptMasterEngine(PptEngine):
 
         src_svg = self.resolve_svg_output_dir(source_task_id)
         if src_svg is None:
-            raise RuntimeError(f"找不到修改起点 {str(source_task_id)[:8]} 的逐页设计稿(svg_output)")
+            raise RuntimeError("找不到该版本的原始页面，无法修改")
         src_project = src_svg.parent
 
         dest_project = job_dir / "projects" / src_project.name  # 单层：与 _newest_export 的 projects/*/exports 发现约定对齐
@@ -752,7 +765,7 @@ class PptMasterEngine(PptEngine):
             lf.write(f"=== finalize_svg ===\n{out}\n"); lf.flush()
             if rc != 0:
                 self._write_job(job_id, status="failed",
-                                error=f"确定性重导出失败（finalize_svg）：{out[-300:]}", updated_at=_now())
+                                error="修改后的页面重新生成失败，请重试", updated_at=_now())
                 return
             # 刷新质量报告：svg_to_pptx 会拒绝陈旧报告，须先对改后 svg_output 跑 quality_checker。
             _run(quality, "--quick-generate", "--json")
@@ -761,12 +774,12 @@ class PptMasterEngine(PptEngine):
             lf.write(f"=== svg_to_pptx ===\n{out}\n"); lf.flush()
             if rc != 0:
                 self._write_job(job_id, status="failed",
-                                error=f"确定性重导出失败（svg_to_pptx）：{out[-300:]}", updated_at=_now())
+                                error="修改后的页面重新生成失败，请重试", updated_at=_now())
                 return
         result = self._newest_export(job_id, started)
         if result is None:
             self._write_job(job_id, status="failed",
-                            error="确定性重导出完成但未找到成品 pptx（详见 run.log）", updated_at=_now())
+                            error="重新生成完成但未找到结果文件，请重试", updated_at=_now())
             return
         self._write_job(job_id, status="completed", result_path=str(result), updated_at=_now())
 
@@ -901,15 +914,17 @@ class PptMasterEngine(PptEngine):
         if result is not None:
             self._write_job(job_id, status="completed", result_path=str(result), updated_at=_now())
             return EngineJobStatus.COMPLETED
-        # 无产物即失败；但若 pump 已捕获到 claude 的真实报错（断流/限流/is_error），
-        # 把它透出到失败原因，而不是笼统一句"未找到产物"（用户据此才看得懂是网络还是别的）。
-        cr = data.get("claude_result") or {}
-        if cr and not cr.get("ok", True):
-            err = f"claude 未产出产物，且返回失败：{cr.get('note') or cr.get('subtype') or '未知错误'}（详见 run.log）"
-        else:
-            err = "claude 子进程结束但未找到产物（详见 run.log）"
+        # 无产物即失败。能判出是连不上服务还是模型名不对，就当面说出来：
+        # 一律回"请重试"会把配置问题伪装成偶发失败，用户只会反复提交。
+        # （2026-11-04 实测：服务地址是占位值时任务失败，界面却提示"请重试"，重试无意义。）
+        # 真实报错原文仍完整留在 claude_result 与 run.log 里供运维追查。
+        err = self._no_result_reason(job_id)
         self._write_job(job_id, status="failed", error=err, updated_at=_now())
         return EngineJobStatus.FAILED
+
+    def _no_result_reason(self, job_id: Any) -> str:
+        """见 engine.core.failure_message：三个引擎共用同一套分流句子，不各写一份。"""
+        return no_result_reason(self._job_dir(job_id))
 
     def cancel(self, job_id: Any) -> bool:
         """终止本任务的 claude 进程树（协议可选钩子，见 PptEngine.cancel）。
@@ -925,7 +940,7 @@ class PptMasterEngine(PptEngine):
         if terminated and data.get("status") == "running":
             self._write_job(
                 job_id, status="failed",
-                error="引擎执行已被终止（cancel）", updated_at=_now(),
+                error="生成已停止", updated_at=_now(),
             )
         return terminated
 
@@ -938,7 +953,7 @@ class PptMasterEngine(PptEngine):
         r = self._newest_export(job_id, since)
         if r:
             return str(r)
-        raise FileNotFoundError(f"任务 {job_id} 尚未生成产物")
+        raise FileNotFoundError("该任务还没有结果文件，请等生成完成后下载")
 
     def resume(self, job_id: Any) -> Job:
         data = self._read_job(job_id)
@@ -1042,11 +1057,11 @@ class PptMasterEngine(PptEngine):
 
         return {
             "stage": "generating",
-            "stage_label": "正在生成 PPT（ppt-master）",
+            "stage_label": "正在生成 PPT",
             "pages_generated": len(pages),
             "elapsed_seconds": elapsed,
             "current_page": pages[-1]["name"] if pages else None,
-            "last_log": self._tail_run_log(job_id) or "引擎运行中，暂无输出日志",
+            "last_log": self._tail_run_log(job_id) or "正在生成，请稍候",
         }
 
 

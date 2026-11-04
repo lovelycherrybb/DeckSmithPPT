@@ -40,6 +40,9 @@ export default function GuestGate({ title, description }: { title: string; descr
         <Button type="primary" onClick={() => setLoginOpen(true)}>
           立即登录
         </Button>
+        <div style={{ marginTop: 12, fontSize: 13, color: 'var(--text-secondary)' }}>
+          还没有账号？请联系管理员开通
+        </div>
       </Card>
       <LoginModal open={loginOpen} onClose={() => setLoginOpen(false)} />
     </div>

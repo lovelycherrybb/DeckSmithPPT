@@ -85,7 +85,7 @@ export default function HomePageContent() {
             }}
             title="进入工作台"
           >
-            已登录 · {user.nickname || user.username}
+            已登录：{user.nickname || user.username}
           </Link>
         ) : (
           <button

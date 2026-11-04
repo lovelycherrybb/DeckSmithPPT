@@ -87,42 +87,40 @@ def apply_page_patches(src_pages: list[dict], data: list) -> list[dict]:
     out: list[dict] = []
     for i, item in enumerate(data, 1):
         if not isinstance(item, dict):
-            raise RuntimeError(f"回传第 {i} 项不是对象")
+            raise RuntimeError(f"AI 返回的第 {i} 项内容不完整，请重试")
         idx = item.get("index")
         base = base_by_index.get(idx)
         if base is None:
-            raise RuntimeError(f"回传第 {i} 项的 index={idx} 不在待修改的页面里")
+            raise RuntimeError("AI 返回了不存在的页码，请重试")
         if idx in seen:
-            raise RuntimeError(f"第 {idx} 页在回传里出现了多次")
+            raise RuntimeError(f"第 {idx} 页的内容被重复返回了多次，请重试")
         seen.add(idx)
         original = str(base.get("content") or "")
         if item.get("content") is not None:
             new = str(item["content"])
             if not new.strip():
-                raise RuntimeError(f"第 {idx} 页回传内容为空（空页会被拒绝）")
+                raise RuntimeError(f"第 {idx} 页修改后的内容为空，请重试")
         elif item.get("patches") is not None:
             patches = item["patches"]
             if not isinstance(patches, list):
-                raise RuntimeError(f"第 {idx} 页的 patches 不是数组")
+                raise RuntimeError("AI 返回的修改内容格式不正确，请重试或换一种说法")
             new = original
             for j, pt in enumerate(patches, 1):
                 if not isinstance(pt, dict):
-                    raise RuntimeError(f"第 {idx} 页第 {j} 处补丁不是对象")
+                    raise RuntimeError("AI 返回的修改内容格式不正确，请重试或换一种说法")
                 s = str(pt.get("search") or "")
                 r = str(pt.get("replace") or "")
                 if not s:
-                    raise RuntimeError(f"第 {idx} 页第 {j} 处补丁 search 为空")
+                    raise RuntimeError("AI 返回的修改内容格式不正确，请重试或换一种说法")
                 if s not in new:
                     raise RuntimeError(
-                        f"第 {idx} 页第 {j} 处补丁没匹配上（search 开头「{s[:40]}…」），"
-                        "请重试或把指令说得更具体"
-                    )
+                        f"第 {idx} 页要修改的内容在页面中没有找到，请将要求描述得更具体后重试")
                 new = new.replace(s, r) if pt.get("replace_all") else new.replace(s, r, 1)
         else:
-            raise RuntimeError(f"第 {idx} 页既没有 content 也没有 patches")
+            raise RuntimeError("AI 返回的修改内容不完整，请重试")
         out.append({"index": idx, "name": base.get("name"), "content": new})
     if not out:
-        raise RuntimeError("改稿返回的数组为空")
+        raise RuntimeError("AI 没有返回修改内容，请重试")
     return out
 
 
@@ -132,9 +130,10 @@ def clean_pages(raw: str, src_pages: list[dict]) -> str:
     try:
         data = json.loads(s)
     except json.JSONDecodeError as exc:
-        raise RuntimeError(f"改稿返回不是合法 JSON：{exc}") from exc
+        # 原文已写进 last-revise-pages.log，界面只说定档句
+        raise RuntimeError("AI 返回的内容无法解析，请重试") from exc
     if not isinstance(data, list):
-        raise RuntimeError("改稿返回的 JSON 结构不符（应为数组）")
+        raise RuntimeError("AI 返回的内容格式不正确，请重试")
     return json.dumps(apply_page_patches(src_pages, data), ensure_ascii=False)
 
 
@@ -187,7 +186,7 @@ def revise_pages_with_claude(
     Raises: ValueError 入参为空；RuntimeError 子进程失败/超时/补丁非法。
     """
     if not pages:
-        raise ValueError("pages 不能为空")
+        raise ValueError("没有收到要修改的页面，请重试")
     if not (instruction or "").strip():
         raise ValueError("修改指令不能为空")
 
@@ -199,7 +198,7 @@ def revise_pages_with_claude(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True,
         )
     except FileNotFoundError as exc:
-        raise RuntimeError(f"未找到 claude CLI（{claude_bin}）") from exc
+        raise RuntimeError("生成服务未就绪，请联系管理员") from exc
     if on_proc is not None:
         on_proc(proc)
 
@@ -228,7 +227,7 @@ def revise_pages_with_claude(
             encoding="utf-8",
         )
         proc.kill()
-        raise RuntimeError(f"改稿超时（>{timeout}s，详见 last-revise-pages.log）") from exc
+        raise RuntimeError("AI 修改超时，请重试或将要求描述得更简短") from exc
 
     stderr_text = "".join(stderr_parts)
     _LOG_DIR.joinpath("last-revise-pages.log").write_text(
@@ -236,6 +235,6 @@ def revise_pages_with_claude(
         encoding="utf-8",
     )
     if rc != 0:
-        detail = (stderr_text or stdout_text).strip()[:300]
-        raise RuntimeError(f"Claude 调用失败（exit={rc}）：{detail}")
+        # 失败原文已写进上方 last-revise-pages.log，界面只说定档句
+        raise RuntimeError("AI 处理未成功，请重试")
     return clean_pages(stdout_text, pages)

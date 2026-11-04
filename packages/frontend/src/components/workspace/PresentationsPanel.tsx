@@ -34,7 +34,7 @@ function PagesDrawer({ task, onClose }: { task: Presentation | null; onClose: ()
   const { data, loading } = useJobPages(task ? task.task_id : null, task?.presentation_id);
   return (
     <Drawer
-      title={task ? `逐页预览 · ${task.file_name}` : '逐页预览'}
+      title={task ? `逐页预览：${task.file_name}` : '逐页预览'}
       width={'70%'}
       open={!!task}
       onClose={onClose}
@@ -46,7 +46,7 @@ function PagesDrawer({ task, onClose }: { task: Presentation | null; onClose: ()
       ) : data && data.supports_page_preview ? (
         <PagePreviewGrid data={data} />
       ) : (
-        <Empty description="暂无可预览内容：该引擎不支持逐页预览，或产物/任务信息不可用" />
+        <Empty description="该文件暂不支持逐页预览（部分格式不支持此功能）" />
       )}
     </Drawer>
   );
@@ -75,7 +75,7 @@ export default function PresentationsPanel({
           <Spin />
         </div>
       ) : presentations.length === 0 ? (
-        <Empty description="当前项目暂无演示文件，生成任务完成后会出现在这里" />
+        <Empty description="当前项目暂无演示文件，生成完成后会自动显示在此处" />
       ) : (
         <div
           style={{
@@ -132,7 +132,7 @@ export default function PresentationsPanel({
                   </div>
                 </Tooltip>
                 <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                  {String(p.file_format).toUpperCase()} · {formatDate(p.created_at)}
+                  {String(p.file_format).toUpperCase()}｜{formatDate(p.created_at)}
                 </div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
                   {previewableTaskIds?.has(p.task_id) && (
@@ -142,7 +142,7 @@ export default function PresentationsPanel({
                   )}
                   {editableTaskIds?.has(p.task_id) && (
                     <Button size="small" icon={<Pencil size={13} />} onClick={() => setRevTask(p)}>
-                      修改
+                      逐页修改
                     </Button>
                   )}
                   <Button

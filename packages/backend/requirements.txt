@@ -21,3 +21,5 @@ python-pptx==1.0.2          # app/engines/stub.py:16 直接 from pptx import Pre
 # 引擎层（含上游技能依赖树）。后端经 sys.path 注入 import engine，与引擎同进程同解释器，
 # 故必须一起装 —— 这是"共用一个解释器"口径的落点，见 ADR-012。
 -r ../engine/requirements.txt
+# 探针等出网检查需要显式根证书库（macOS 的系统 Python 不接管钥匙串，见 service/agents.py）
+certifi>=2024.2.2

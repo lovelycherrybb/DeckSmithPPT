@@ -60,7 +60,7 @@ export const engineEditable = (capabilities?: string[] | null) =>
 export function queuePositionLabel(position?: number | null): string {
   if (position == null) return '排队中';
   if (position <= 0) return '即将开始';
-  return `前方还有 ${position} 个任务`;
+  return `前面还有 ${position} 个`;
 }
 
 /**
@@ -76,6 +76,6 @@ export function queueDetailLabel(
   statusDetail?: string | null,
   position?: number | null,
 ): string {
-  const tail = (statusDetail || '').split(' · ')[1]?.trim();
-  return tail || queuePositionLabel(position);
+  const stripped = (statusDetail || '').replace(/^排队中[，,]?\s*/, '').trim();
+  return stripped || queuePositionLabel(position);
 }

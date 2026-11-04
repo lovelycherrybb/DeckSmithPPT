@@ -12,9 +12,12 @@
 """
 from __future__ import annotations
 
+import logging
 import os
 import sys
 from pathlib import Path
+
+logger = logging.getLogger("decksmith.engines.factory")
 
 # engine 包的父目录是 packages/，加入 sys.path 后即可 `import engine`。
 _PACKAGES_DIR = Path(__file__).resolve().parents[4]
@@ -32,9 +35,8 @@ def _instantiate(name: str):
     try:
         cls = engine_class(name)
     except KeyError:
-        raise ValueError(
-            f"未知引擎：{name}（可用的引擎见 GET /api/engines）"
-        ) from None
+        logger.warning("请求了未注册的生成方式：%r", name)
+        raise ValueError("暂不支持该生成方式") from None
     return cls()
 
 

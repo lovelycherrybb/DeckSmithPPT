@@ -186,6 +186,6 @@ def test_修复前形状_半截吞成空字典会造出假失败(tmp_path):
 
     assert got.value == "failed", "对照组失效：修复前形状本该造出假失败，实际没有"
     body = json.loads(p.read_text(encoding="utf-8"))
-    assert body["status"] == "failed" and "未找到产物" in body["error"], (
+    assert body["status"] == "failed" and "未得到结果文件" in body["error"], (
         "对照组失效：修复前形状本该用无关文案覆盖原记录"
     )

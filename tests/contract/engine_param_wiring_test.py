@@ -30,7 +30,12 @@ for _p in (REPO_ROOT / "packages", REPO_ROOT / "packages" / "backend" / "src"):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
-from app.engines.registry import engine_class, output_engine_names  # noqa: E402
+from app.engines.registry import (  # noqa: E402
+    ENGINE_REGISTRY,
+    engine_class,
+    find_unavailable_usage,
+    output_engine_names,
+)
 
 SCHEMA_PATH = REPO_ROOT / "docs" / "contracts" / "engine.schema.json"
 IMPL_ROOT = (REPO_ROOT / "packages" / "engine" / "impl").resolve()
@@ -282,7 +287,7 @@ def test_content_style_value_set_has_one_owner() -> None:
     labels = re.findall(r"^\s*([a-z_]+):\s*'", block, re.MULTILINE)
 
     guide = (REPO_ROOT / "docs" / "contracts" / "style-guide.md").read_text(encoding="utf-8")
-    section = guide.split("## 内容风格", 1)[1].split("\n## ", 1)[0]
+    section = guide.split("## 内容类型", 1)[1].split("\n## ", 1)[0]
     doc_ids = re.findall(r"^\|\s*([a-z_]+)\s*\|", section, re.MULTILINE)
 
     for name in output_engine_names():
@@ -429,7 +434,7 @@ def test_divergence_presets_match_between_contract_and_doc() -> None:
     data = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
     presets = [str(p) for p in data["$defs"]["ppt_master_v6"]["properties"]["content_divergence"]["x-presets"]]
     guide = (REPO_ROOT / "docs" / "contracts" / "style-guide.md").read_text(encoding="utf-8")
-    section = guide.split("### 材料发散度的三句示例", 1)[1].split("留空＝", 1)[0]
+    section = guide.split("### 材料发散度的三句示例", 1)[1].split("\n> 边界提醒", 1)[0]
     documented = re.findall(r"^\d+\.\s*(.+)$", section, re.MULTILINE)
     assert presets == documented, (
         f"发散度预设句两处不一致：契约 {presets} / 文档 {documented}"
@@ -489,7 +494,7 @@ def test_visible_param_descriptions_are_human_only() -> None:
     offenders: list[str] = []
     for name, key, spec in _checkable_params():
         desc = spec.get("description") or ""
-        if re.search(r"docs/|\.md\b|openapi\.yaml|style-guide|机器看守", desc):
+        if DEVELOPER_POINTER_RE.search(desc):
             offenders.append(f"{name}.{key}: 说明里出现仓库内部指路")
         if re.search(r"[a-zA-Z][\w-]*=", desc):
             offenders.append(f"{name}.{key}: 说明里还塞着「值=中文名」对照（该写进 x-value-labels）")
@@ -673,3 +678,199 @@ def test_guard_passes_the_fixed_engine() -> None:
     assert unwired_params("ppt_master", engine_class("ppt_master")) == [], (
         "ppt_master 仍有未接线的契约参数"
     )
+
+
+# ── 「暂不支持」标记：契约、后端、界面三处必须一起兑现（ADR-033）──────
+#
+# 起因：盘点实测出两项参数在当前部署里兑现不了（缺生图后端配置、缺 ffmpeg 系列工具），
+# 但界面照常可选，VIP 选了会拿到"任务成功、结果里没这项"的产物——规则 9 禁的假控件，
+# 只是断点不在代码里，在镜像依赖和运行配置里。
+#
+# 三条检查互相把对方钉死：
+#   1) 契约标了的，后端必须拒 → 防"只改界面不改后端"。
+#   2) 契约没标的，后端必须放行 → 防"来者皆拒"那种永远红的假绿，也守住"选了不用不该报错"。
+#   3) 前端必须消费契约字段、且不许按参数名写死比较 → 防"后端拦了界面还能选"和硬编码。
+
+DEVELOPER_POINTER_RE = re.compile(r"docs/|\.md\b|openapi\.yaml|style-guide|机器看守")
+
+FRONTEND_PARAMS_LIB = REPO_ROOT / "packages" / "frontend" / "src" / "lib" / "engineParams.ts"
+FRONTEND_PANEL = REPO_ROOT / "packages" / "frontend" / "src" / "components" / "workspace" / "DraftsPanel.tsx"
+
+
+def _activated_value(spec: dict) -> object:
+    """造一个"确实在要求启用这项"的取值：布尔给 True，数组取第一个候选，其余取第一个枚举或一个非空串。"""
+    if spec.get("type") == "boolean":
+        return True
+    if spec.get("type") == "array":
+        opts = (spec.get("items") or {}).get("enum") or []
+        return [opts[0]] if opts else ["x"]
+    opts = spec.get("enum") or []
+    return opts[0] if opts else "x"
+
+
+def unavailable_marks_from_contract() -> list[tuple[str, str, object, str]]:
+    """契约里所有「暂不支持」标记：(引擎, 参数键, 会触发拒绝的取值, 原因文案)。
+
+    遍历契约而不是数已知项——以后新增标记不必改这条检查（漏改检查正是假绿的来源）。
+    """
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    marks: list[tuple[str, str, object, str]] = []
+    for engine, block in schema["$defs"].items():
+        props = (block or {}).get("properties")
+        if not isinstance(props, dict):
+            continue
+        for key, spec in props.items():
+            if not isinstance(spec, dict):
+                continue
+            whole = spec.get("x-unavailable")
+            if isinstance(whole, str) and whole.strip():
+                marks.append((engine, key, _activated_value(spec), whole))
+            banned = spec.get("x-unavailable-values")
+            if isinstance(banned, dict):
+                for value, reason in banned.items():
+                    if isinstance(reason, str) and reason.strip():
+                        probe = [value] if spec.get("type") == "array" else value
+                        marks.append((engine, key, probe, reason))
+    return marks
+
+
+def test_标了暂不支持的参数_后端提交期必须拒() -> None:
+    """契约里每一条「暂不支持」标记，后端复核函数都必须真的拦下来，并把原因原样带给用户。"""
+    marks = unavailable_marks_from_contract()
+    assert marks, "契约里一条「暂不支持」标记都没有——这条检查已失去看守对象"
+    offenders: list[str] = []
+    for engine, key, probe, reason in marks:
+        blocked = find_unavailable_usage(engine, {key: probe})
+        if not blocked:
+            offenders.append(f"{engine}.{key}={probe!r} 被标记为暂不支持，后端却放行")
+        elif reason not in blocked[0]:
+            offenders.append(f"{engine}.{key} 拒绝文案没带上契约里的原因原文")
+    assert not offenders, f"契约标了但后端没拦（假控件换个形式回来）：{offenders}"
+
+
+def test_没标暂不支持的项不许被误拒() -> None:
+    """对照组：判据必须是"认标记"，不是"来者皆拒"。同时守住"选了不用不算踩到"。
+
+    没有这一条，把 find_unavailable_usage 写成无条件返回一句错误也能骗过上一条——
+    那盏灯永远是红的，等于没有灯。
+    """
+    assert find_unavailable_usage("ppt_master_v6", {"style": "swiss-minimal"}) == [], (
+        "普通参数被误拒：后端拒绝逻辑没有只认契约标记"
+    )
+    assert find_unavailable_usage("ppt_master_v6", {"narration_audio": False}) == [], (
+        "旁白音频选「关闭」被拒了：明确不要是一种真实选择，不该报错"
+    )
+    assert find_unavailable_usage("ppt_master_v6", {"narration_audio": None}) == [], (
+        "旁白音频留空被拒了：留空＝用户没表态，本就不该下发（规则 10）"
+    )
+    assert find_unavailable_usage("ppt_master_v6", {"image_usage": ["provided"]}) == [], (
+        "没被禁的配图来源被误拒：值级标记不该牵连同参数下的其他取值"
+    )
+
+
+def test_前端按契约字段置灰_不按参数名写死() -> None:
+    """界面必须从契约读这两个字段决定置灰，且不许出现按参数名写死的比较。
+
+    只认比较形态（`=== '键名'` / `== "键名"`），注释里提到某个参数名不算违规——
+    判据要跟真实写法走，否则就是把正常写法判成假红。
+    """
+    lib = FRONTEND_PARAMS_LIB.read_text(encoding="utf-8")
+    panel = FRONTEND_PANEL.read_text(encoding="utf-8")
+    for token in ("x-unavailable", "x-unavailable-values"):
+        assert token in lib, f"前端辅助层没读契约字段 {token}，置灰会失去来源"
+    assert "paramUnavailableReason" in panel, "生成弹窗没调用整项置灰的判断"
+    assert "paramUnavailableValues" in panel, "生成弹窗没调用取值级置灰的判断"
+
+    for marked_engine, key, _probe, _reason in unavailable_marks_from_contract():
+        hardcoded = re.search(rf"(===|==)\s*['\"]{re.escape(key)}['\"]", panel)
+        assert not hardcoded, (
+            f"{marked_engine}.{key} 的禁用在前端按参数名写死了（{hardcoded.group(0) if hardcoded else ''}）"
+            "——违反「前端不硬编码引擎参数」，解除标记时还得回来改代码"
+        )
+
+
+def test_暂不支持的原因文案是纯人话() -> None:
+    """这段文案会原样出现在界面提示和接口错误里，所以和 description 同一条规矩：不许抛仓库内部指路。"""
+    offenders = [
+        f"{engine}.{key}: {reason}"
+        for engine, key, _probe, reason in unavailable_marks_from_contract()
+        if DEVELOPER_POINTER_RE.search(reason)
+    ]
+    assert not offenders, f"「暂不支持」的原因不是纯人话：{offenders}"
+
+
+def test_真实提交带暂不支持参数_当场拒(client, visitor, monkeypatch) -> None:
+    """走一次真实提交：契约标了暂不支持，接口必须当场 400，文案是人话。
+
+    为什么上一条不够、还要再来这条真请求：上一条直接调复核函数，等于只证明"函数写对了"。
+    2026-11-02 做破坏实验实测到——把提交路径里那句调用删掉，四条检查全部照绿，
+    而那时用户提交照样静默成功、照样拿不到配音。"代码在"不等于"有人调用"，
+    所以这条判据必须穿过路由、请求模型、service，直到真的落库前那一刻。
+
+    身份门控是另一件事（普通用户的参数会被整体忽略），这里借 monkeypatch 跨过去，
+    只为验证"有权限的人也会被拦"，不为测门控本身。
+    """
+    from app.core import ownership
+
+    monkeypatch.setattr(ownership, "can_edit_engine_params", lambda identity: True)
+    resp = client.post(
+        "/api/decks",
+        json={
+            "engine": "ppt_master_v6",
+            "engine_type": "output",
+            "title": "守卫用例",
+            "content": "正文",
+            "engine_params": {"narration_audio": True},
+        },
+    )
+    assert resp.status_code == 400, (
+        f"暂不支持的参数没被拦在提交期：{resp.status_code} {resp.text[:200]}"
+    )
+    assert "暂不支持" in resp.json()["detail"], f"拒绝文案没说明原因：{resp.json()['detail']}"
+    assert not DEVELOPER_POINTER_RE.search(resp.json()["detail"]), (
+        f"拒绝文案把仓库内部指路抛给了用户：{resp.json()['detail']}"
+    )
+
+
+def test_真实提交选关闭或不选_照常受理(client, visitor, monkeypatch) -> None:
+    """对照组（真实请求版）：没要求启用就不该被拦——否则"明确不要"和"没表态"都提交不了。"""
+    from app.core import ownership
+
+    monkeypatch.setattr(ownership, "can_edit_engine_params", lambda identity: True)
+    for params in ({"narration_audio": False}, {"image_usage": ["provided"]}):
+        resp = client.post(
+            "/api/decks",
+            json={
+                "engine": "ppt_master_v6",
+                "engine_type": "output",
+                "title": "守卫对照组",
+                "content": "正文",
+                "engine_params": params,
+            },
+        )
+        assert resp.status_code == 202, (
+            f"{params} 本应正常受理，却被 {resp.status_code} 拒了：{resp.text[:200]}"
+        )
+
+
+def test_接口下发的参数说明书带着暂不支持标记(client) -> None:
+    """置灰的依据必须真的能从 `/api/engines` 拿到——前端照这份说明书渲染，拿不到就等于界面还会让人选。
+
+    这条管的是"契约→接口→界面"这一段：契约改了、后端函数也对了，但若下发时把扩展字段
+    剥掉（比如响应模型只白名单几个键），用户看到的仍是一个可选中的假控件。
+    """
+    resp = client.get("/api/engines")
+    assert resp.status_code == 200, f"引擎列表接口不通：{resp.status_code} {resp.text[:200]}"
+    engines = {e["name"]: e for e in resp.json()}
+
+    missing: list[str] = []
+    for engine, key, _probe, _reason in unavailable_marks_from_contract():
+        spec = ((engines.get(engine) or {}).get("params_schema") or {}).get("properties", {}).get(key)
+        if spec is None:
+            missing.append(f"{engine}.{key} 整个参数没下发")
+            continue
+        if key == "narration_audio" and not spec.get("x-unavailable"):
+            missing.append(f"{engine}.{key} 没下发 x-unavailable")
+        if key == "image_usage" and "ai" not in (spec.get("x-unavailable-values") or {}):
+            missing.append(f"{engine}.{key} 没下发 ai 的取值级标记")
+    assert not missing, f"界面前拿不到「暂不支持」依据，置灰不会发生：{missing}"

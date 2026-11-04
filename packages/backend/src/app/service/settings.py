@@ -73,16 +73,16 @@ class SystemSettingsService:
     def save(self, db: Session, values: dict, operator_id: str | None) -> dict:
         """部分提交。values 里出现的键才动；值为 null 表示删除覆盖、回落默认。"""
         if not isinstance(values, dict):
-            raise HTTPException(status_code=400, detail="values 必须是对象")
+            raise HTTPException(status_code=400, detail="提交的改动格式不正确")
         if not values:
-            raise HTTPException(status_code=400, detail="values 为空，没有要保存的改动")
+            raise HTTPException(status_code=400, detail="没有要保存的改动")
 
         unknown = sorted(k for k in values if k not in BY_KEY)
         if unknown:
             # 拼错的键名必须报错，静默丢掉就是"你以为改了其实没改"
             raise HTTPException(
                 status_code=400,
-                detail=f"未知设置项：{'、'.join(unknown)}（可提交键见 GET /api/admin/settings）")
+                detail=f"不认识这些设置项：{'、'.join(unknown)}")
 
         # 先全部校验，通过才落库 —— 不做部分成功
         prepared: list[tuple[str, object | None]] = []
@@ -95,7 +95,7 @@ class SystemSettingsService:
                 continue
             prepared.append((key, normalized))
         if errors:
-            raise HTTPException(status_code=400, detail="；".join(errors))
+            raise HTTPException(status_code=400, detail="\n".join(errors))
 
         for key, normalized in prepared:
             if normalized is None:

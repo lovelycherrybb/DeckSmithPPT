@@ -31,12 +31,27 @@ interface DeckItem { key: string; ref: number | null; name: string; content: str
 // 见 ADR-027 层三验证）。留一行浅灰提示，用户随后用对话式改稿/编辑器填内容。
 const BLANK_PAGE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" data-pptx-page-role="content" lang="zh-CN" font-family="Microsoft YaHei, SimHei" font-size="20" fill="#1A1A1A">
   <rect id="bg" x="0" y="0" width="1280" height="720" fill="#FFFFFF" data-pptx-role="background"></rect>
-  <text x="640" y="360" text-anchor="middle" font-size="24" fill="#999999">新页 · 在右侧对话式改稿里告诉 AI 这页放什么</text>
+  <text x="640" y="360" text-anchor="middle" font-size="24" fill="#999999">（空白页，请添加内容）</text>
 </svg>
 `;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-// 版本短标签：用 created_at（UTC ISO）按浏览器本地时区显示 MM-DD HH:MM。
+/**
+ * 未经编辑的新页在提交时去掉画在页面上的占位提示。
+ *
+ * 为什么要去：那行字是给编辑器看的界面提示，用户忘了填就会跟着成品交出去，
+ * 等于把内部提示交付给业主（2026-11-03 界面文案体检清单第四节）。
+ * 判定用全等：只剥掉"原样没动过"的新页，用户编辑过的页面一律原样提交。
+ *
+ * 未验事项：剥掉文字后该页只剩背景矩形，能否通过上游导出闸需要跑一次真实导出确认
+ * （消耗付费额度，未获批准前不跑）。见当日交付说明。
+ */
+const BLANK_PAGE_WITHOUT_HINT = BLANK_PAGE_SVG.replace(
+  /\s*<text[^>]*>（空白页，请添加内容）<\/text>/,
+  ''
+);
+const stripBlankPageHint = (content: string) =>
+  content === BLANK_PAGE_SVG ? BLANK_PAGE_WITHOUT_HINT : content;// 版本短标签：用 created_at（UTC ISO）按浏览器本地时区显示 MM-DD HH:MM。
 // 不能再从文件名里的 UTC 时间戳截——那是 UTC，中国用户看着差 8 小时。
 const localHM = (iso: string) => {
   try {
@@ -51,7 +66,7 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [pages, setPages] = useState<{ index: number; name: string; url: string }[]>([]);
   const [pageIdx, setPageIdx] = useState(0);
-  const [tab, setTab] = useState<'预览' | '拖拽编辑' | '编辑源码'>('预览');
+  const [tab, setTab] = useState<'预览' | '拖动修改' | '编辑代码'>('预览');
   const [baseSvg, setBaseSvg] = useState('');
   const [deck, setDeck] = useState<DeckItem[]>([]);
   const [loadingPages, setLoadingPages] = useState(false);
@@ -80,7 +95,7 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
     const ordered = [...nodes].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     const m = new Map<string, string>();
     let i = 0;
-    for (const n of ordered) { if (n.kind === 'root') m.set(n.key, '起点'); else { i += 1; m.set(n.key, `#${i}`); } }
+    for (const n of ordered) { if (n.kind === 'root') m.set(n.key, '原始版本'); else { i += 1; m.set(n.key, `#${i}`); } }
     return m;
   }, [nodes]);
   // 扁平列表：原始置顶，其余按时间倒序（最新在上）——不再嵌套，深链也看得清
@@ -184,18 +199,16 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
 
   const sendInstruction = async () => {
     const text = instruction.trim();
-    if (!text) { message.warning('先写一句要怎么改'); return; }
-    if (!currentPage) { message.warning('没有选中页'); return; }
-    if (!editValue.trim()) { message.warning('当前页源码还没加载好，稍等一两秒再发'); return; }
+    if (!text) { message.warning('请先填写修改要求'); return; }
+    if (!currentPage) { message.warning('请先选择要修改的页面'); return; }
+    if (!editValue.trim()) { message.warning('当前页尚未加载完成，请稍后重试'); return; }
     setChatBusy(true);
     // 真流式进度：计时器 + AI 输出分片（字符数/补丁数）都汇到这一行状态文案上；
     // 会话 id 存下来供"取消"（后端杀进程组，SSE 会收到 error=已取消 收尾）
     const t0 = Date.now();
     const prog = { chars: 0, patches: 0 };
     const show = () => setStatus({
-      text: `AI 改稿中 · 已 ${Math.round((Date.now() - t0) / 1000)}s`
-        + (prog.chars ? ` · 已生成 ${prog.chars} 字符` : '')
-        + (prog.patches ? ` · 第 ${prog.patches} 处修改` : ''),
+      text: `AI 正在修改当前页，已用时 ${Math.round((Date.now() - t0) / 1000)} 秒`,
     });
     show();
     const tick = window.setInterval(show, 1000);
@@ -210,13 +223,13 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
       const got = out.find((p) => p.index === pageIdx + 1 && typeof p.content === 'string' && p.content.trim())
         || out.find((p) => typeof p.content === 'string' && p.content.trim());
       if (got && typeof got.content === 'string') applyContent(pageIdx, got.content);
-      setStatus({ text: 'AI 改好并并入草稿，可继续改别页或另存。' });
+      setStatus({ text: 'AI 已完成修改，可继续修改其他页面，或点击「保存为新版本」。' });
       setInstruction('');
     } catch (e) {
       const msg = (e as Error).message;
       setStatus(msg.includes('已取消')
-        ? { text: '改稿已取消，草稿未改动。' }
-        : { text: `改稿失败：${msg}`, error: true });
+        ? { text: '已取消，当前页未发生变化。' }
+        : { text: 'AI 修改未成功，请重试', error: true });
     } finally {
       window.clearInterval(tick);
       setReviseSession(null);
@@ -225,22 +238,22 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
   };
 
   const cancelRevise = async () => {
-    if (!reviseSession) { message.warning('会话还没建好，马上就能取消'); return; }
+    if (!reviseSession) { message.warning('取消功能即将可用，请稍后'); return; }
     try { await cancelAgentSession(reviseSession); }
-    catch (e) { setStatus({ text: `取消失败：${(e as Error).message}`, error: true }); }
+    catch (e) { setStatus({ text: '取消未成功，请重试', error: true }); }
   };
 
   const commitDraft = useCallback(async () => {
     if (!selected) return;
-    if (draftCount === 0) { message.warning('草稿还没有改动'); return; }
+    if (draftCount === 0) { message.warning('尚未做任何修改'); return; }
     setCommitBusy(true);
-    setStatus({ text: `提交整稿清单（${deck.length} 页），后台确定性重导出中…（无 AI，秒级到一两分钟）` });
+    setStatus({ text: `正在生成新版本（共 ${deck.length} 页），请稍候…` });
     try {
       // 有序整稿清单（ADR-027）：纯引用=保留源页；ref+content=就地替换；无 ref=新增页
       const deckPayload = deck.map((it) => (
         it.ref !== null
           ? (it.content !== null ? { ref: it.ref, name: it.name, content: it.content } : { ref: it.ref })
-          : { name: it.name, content: it.content || '' }
+          : { name: it.name, content: stripBlankPageHint(it.content || '') }
       ));
       const body = selected.kind === 'root'
         ? { presentation_id: selected.key, deck: deckPayload }
@@ -249,7 +262,7 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
       let st = await getJob(job.job_id); let guard = 0;
       while ((st.status === 'queued' || st.status === 'running') && guard < 900) {
         await sleep(2000); st = await getJob(job.job_id); guard += 1;
-        setStatus({ text: `修改任务 ${st.status}：${st.status_detail || '处理中…'}` });
+        setStatus({ text: st.status === 'queued' ? '正在排队' : st.status === 'running' ? '正在生成新版本' : (st.status_detail || '正在生成新版本') });
       }
       if (st.status === 'completed') {
         const rows = await listSubPresentations(presentation!.presentation_id);
@@ -257,22 +270,32 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
         const fresh = ns.find((n) => n.taskId === job.job_id);
         setSelectedKey(fresh ? fresh.key : ns[ns.length - 1].key); // 新版本在列表最上方并选中
         message.success('新版本已生成');
-      } else { setStatus({ text: `另存失败：${st.error || st.status}`, error: true }); message.error('另存未成功'); }
-    } catch (e) { setStatus({ text: `提交失败：${(e as Error).message}`, error: true }); message.error('提交失败'); }
+      } else {
+        // 失败必须带出后端给的原因，否则用户和排查的人都无从判断（2026-11-04 实测：
+        // 上一版为去黑话把原因整段删掉，界面只剩"请重试"，连为什么被拒都查不出来）
+        const why = st.error || st.status_detail || '保存新版本未成功，请重试';
+        console.error('[保存新版本失败]', st.status, st.error, st.status_detail);
+        setStatus({ text: why, error: true }); message.error(why);
+      }
+    } catch (e) {
+      const why = e instanceof Error && e.message ? e.message : '开始生成新版本未成功，请重试';
+      console.error('[保存新版本失败]', e);
+      setStatus({ text: why, error: true }); message.error(why);
+    }
     finally { setCommitBusy(false); }
   }, [selected, deck, pages, draftCount, presentation, rebuild]);
 
   if (!presentation) return null;
 
   return (
-    <Drawer title={`修改工作台 · ${presentation.file_name}`} placement="right" width="95%"
+    <Drawer title={<div><div>修改这份 PPT</div><div style={{ fontSize: 12, fontWeight: 'normal', color: 'var(--text-muted)' }}>{presentation.file_name}</div></div>} placement="right" width="95%"
       open={open} onClose={onClose} destroyOnClose styles={{ body: { padding: 0, height: '100%', overflow: 'hidden' } }}>
       <div style={{ position: 'relative', display: 'flex', height: '100%', minHeight: 0 }}>
         {commitBusy && (
           <div style={{ position: 'absolute', inset: 0, zIndex: 20, background: 'rgba(255,255,255,.72)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
             <Spin size="large" />
-            <div>{status?.text || '正在重导出…'}</div>
-            <Text type="secondary" style={{ fontSize: 12 }}>完成后版本列表会刷新并跳到新版本，请稍候</Text>
+            <div>{status?.text || '正在生成新版本…'}</div>
+            <Text type="secondary" style={{ fontSize: 12 }}>生成完成后会自动切换到新版本</Text>
           </div>
         )}
 
@@ -284,7 +307,7 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
               style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 6, cursor: busy ? 'default' : 'pointer',
                 background: selectedKey === n.key ? 'rgba(59,130,246,.12)' : 'transparent', marginBottom: 2 }}>
               <Tag color={n.kind === 'root' ? 'blue' : 'green'} style={{ marginInlineEnd: 0, flexShrink: 0 }}>
-                {ordinalByKey.get(n.key) ?? (n.kind === 'root' ? '起点' : '子')}
+                {ordinalByKey.get(n.key) ?? (n.kind === 'root' ? '原始版本' : '版本')}
               </Tag>
               <div style={{ minWidth: 0, flex: 1 }}>
                 <div style={{ fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.short}</div>
@@ -292,7 +315,7 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
                   <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>最初生成的版本</div>
                 ) : (
                   <a onClick={(e) => { e.stopPropagation(); if (n.parentKey) setSelectedKey(n.parentKey); }}
-                     style={{ fontSize: 11, color: '#1677ff' }}>← 来自 {ordinalByKey.get(n.parentKey ?? '') ?? '起点'}</a>
+                     style={{ fontSize: 11, color: '#1677ff' }}>← 来自{ordinalByKey.get(n.parentKey ?? '') ?? '原始版本'}</a>
                 )}
               </div>
               <a href={n.kind === 'root' ? presentationDownloadUrl(n.key) : subPresentationDownloadUrl(n.key)}
@@ -304,11 +327,11 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
         {/* 中：整列滚动预览 / 编辑当前页 */}
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px', borderBottom: '1px solid var(--border)' }}>
-            <Segmented value={tab} onChange={(v) => setTab(v as typeof tab)} options={['预览', '拖拽编辑', '编辑源码']} />
-            <Text type="secondary" style={{ fontSize: 13 }}>{deck.length ? `当前 第 ${pageIdx + 1} / ${deck.length} 页 · ${currentPage?.name}` : '0 页'}</Text>
+            <Segmented value={tab} onChange={(v) => setTab(v as typeof tab)} options={['预览', '拖动修改', '编辑代码']} />
+            <Text type="secondary" style={{ fontSize: 13 }}>{deck.length ? `第 ${pageIdx + 1} 页 / 共 ${deck.length} 页` : '0 页'}</Text>
             <Space size={6} style={{ marginLeft: 'auto' }}>
               {draftCount > 0 && (
-                <Text style={{ fontSize: 12, color: '#fa8c16', whiteSpace: 'nowrap' }}>{draftCount} 处改动</Text>
+                <Text style={{ fontSize: 12, color: '#fa8c16', whiteSpace: 'nowrap' }}>本次共修改 {draftCount} 页</Text>
               )}
               <Tooltip title="在当前页后插入空白页">
                 <Button icon={<Plus size={14} />} disabled={busy || !pages.length} onClick={insertPageAfter} />
@@ -319,44 +342,44 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
               <Tooltip title="当前页下移">
                 <Button icon={<ArrowDown size={14} />} disabled={busy || pageIdx >= deck.length - 1} onClick={() => movePage(1)} />
               </Tooltip>
-              <Popconfirm title={`删除第 ${pageIdx + 1} 页？`} description="从整稿中移除此页，整体另存后生效"
+              <Popconfirm title={`删除第 ${pageIdx + 1} 页？`} description="该页先被移除，点击「保存为新版本」后生效"
                 onConfirm={removePage} disabled={busy || deck.length <= 1}>
                 <Tooltip title="删除当前页">
                   <Button icon={<Trash2 size={14} />} danger disabled={busy || deck.length <= 1} />
                 </Tooltip>
               </Popconfirm>
               {draftCount > 0 && (
-                <Popconfirm title="重置整稿草稿？" description="丢弃全部本地改动（含增删与调序），回到源版本"
+                <Popconfirm title="放弃全部修改？" description="将清除本次所做的全部修改（新增、删除、调整顺序），回到初始状态"
                   onConfirm={resetDeck}>
-                  <Tooltip title="重置草稿">
+                  <Tooltip title="放弃全部修改">
                     <Button icon={<RotateCcw size={14} />} disabled={busy} />
                   </Tooltip>
                 </Popconfirm>
               )}
-              <Button type="primary" icon={<Layers size={14} />} disabled={draftCount === 0 || commitBusy} onClick={commitDraft}>整体另存为新版本</Button>
+              <Button type="primary" icon={<Layers size={14} />} disabled={draftCount === 0 || commitBusy} onClick={commitDraft}>保存为新版本</Button>
             </Space>
           </div>
 
           <div ref={tab === '预览' ? boxRef : undefined} onScroll={tab === '预览' ? onScroll : undefined}
             style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 16, background: 'var(--bg-subtle, #f6f7f9)' }}>
             {loadingPages ? <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div>
-              : !deck.length ? <Empty description="该版本暂无可预览页" />
+              : !deck.length ? <Empty description="该版本暂无可显示的页面" />
               : tab === '预览' ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                   {deck.map((it, i) => (
                     <div key={it.key} ref={(el) => { itemRefs.current[i] = el; }} onClick={() => gotoPage(i)}
                       style={{ outline: i === pageIdx ? '2px solid #3b82f6' : '1px solid var(--border)', outlineOffset: 2, borderRadius: 8, overflow: 'hidden', cursor: 'pointer', background: '#fff' }}>
                       <div style={{ padding: '4px 8px', fontSize: 12, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span>第 {i + 1} 页 · {it.name}</span>
+                        <span>第 {i + 1} 页</span>
                         {it.ref === null && <Tag color="green" style={{ marginInlineEnd: 0, fontSize: 11, lineHeight: '16px' }}>新增</Tag>}
-                        {it.ref !== null && it.content !== null && <Tag color="orange" style={{ marginInlineEnd: 0, fontSize: 11, lineHeight: '16px' }}>已改</Tag>}
+                        {it.ref !== null && it.content !== null && <Tag color="orange" style={{ marginInlineEnd: 0, fontSize: 11, lineHeight: '16px' }}>尚未保存的修改</Tag>}
                       </div>
-                      <iframe title={it.name} src={it.content !== null ? undefined : it.url} srcDoc={it.content ?? undefined}
+                      <iframe title={`第 ${i + 1} 页`} src={it.content !== null ? undefined : it.url} srcDoc={it.content ?? undefined}
                         style={{ width: '100%', height: 420, border: 0, display: 'block', pointerEvents: 'none' }} />
                     </div>
                   ))}
                 </div>
-              ) : tab === '拖拽编辑' ? (
+              ) : tab === '拖动修改' ? (
                 <MultiPageSvgEditor
                   pages={deck.map((it, i) => ({ index: i + 1, name: it.name, url: it.url || '' }))}
                   draft={Object.fromEntries(deck.flatMap((it, i) => (it.content !== null ? [[i + 1, { content: it.content }]] : []))) as Record<number, { content: string }>}
@@ -364,7 +387,7 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
                 />
               ) : (
                 <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>编辑当前页（第 {pageIdx + 1} 页）源码——改动先进草稿</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>编辑第 {pageIdx + 1} 页的代码，修改结果先显示在预览中，不会生成新文件</div>
                   {loadingSvg && currentPage?.content === null ? <Spin /> : (
                     <TextArea value={editValue} onChange={(e) => applyContent(pageIdx, e.target.value)}
                       style={{ flex: 1, fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 12 }} spellCheck={false} />
@@ -376,14 +399,14 @@ export default function RevisionWorkbench({ presentation, open, onClose }: Props
 
         {/* 右：对话改稿 */}
         <div style={{ width: 320, borderLeft: '1px solid var(--border)', padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><MessageSquare size={15} /> <b>对话式改稿</b></div>
-          <Text type="secondary" style={{ fontSize: 12 }}>对<b>当前页（第 {pageIdx + 1} 页）</b>说怎么改，AI 只回传进草稿、不出版本。</Text>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><MessageSquare size={15} /> <b>让 AI 修改</b></div>
+          <Text type="secondary" style={{ fontSize: 12 }}>填写修改要求，结果先显示在预览区，点击「保存为新版本」后才会生成新文件。</Text>
           <TextArea value={instruction} onChange={(e) => setInstruction(e.target.value)}
-            placeholder="例如：标题改深蓝并居中；右下角加页码…" autoSize={{ minRows: 4, maxRows: 10 }} disabled={commitBusy} />
+            placeholder="例如：把标题改成深蓝色并居中，或在右下角添加页码" autoSize={{ minRows: 4, maxRows: 10 }} disabled={commitBusy} />
           <Button type="primary" loading={chatBusy} disabled={!instruction.trim() || !currentPage || commitBusy} onClick={sendInstruction} block>让 AI 改当前页</Button>
           {chatBusy && (
             <Button danger size="small" block onClick={cancelRevise}
-              disabled={!reviseSession}>取消本次改稿{reviseSession ? '' : '（会话建立中…）'}</Button>
+              disabled={!reviseSession}>取消本次修改</Button>
           )}
           {status && !commitBusy && <Alert type={status.error ? 'error' : 'info'} showIcon message={<span style={{ fontSize: 12 }}>{status.text}</span>} />}
         </div>

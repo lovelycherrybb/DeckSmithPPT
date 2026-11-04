@@ -64,13 +64,13 @@ export default function RunningTasksDock({
           <div>
             <div>{displayName}</div>
             <div style={{ fontSize: 12, opacity: 0.8 }}>
-              {p?.stage_label || job.status_detail || '引擎执行中'}
+              {p?.stage_label || job.status_detail || '正在生成'}
               {isDraft
                 ? null
                 : p?.pages_generated != null
-                  ? ` · 已生成 ${p.pages_generated} 页`
+                  ? `｜已生成 ${p.pages_generated} 页`
                   : ''}
-              {elapsed ? ` · ${elapsed}` : ''}
+              {elapsed ? `｜${elapsed}` : ''}
             </div>
             <div style={{ fontSize: 12, opacity: 0.6, marginTop: 4 }}>点击查看详情</div>
           </div>
@@ -79,11 +79,11 @@ export default function RunningTasksDock({
         // 胶囊内容：草稿显示「项目名/草稿生成中」，输出显示页数
         const pillLabel = isDraft ? (
           <span style={{ fontSize: 13 }}>
-            {displayName.slice(0, 12)} · 草稿生成中
+            {displayName.slice(0, 12)}｜草稿生成中
           </span>
         ) : (
           <span style={{ fontSize: 13 }}>
-            {job.title?.slice(0, 10) || job.job_id.slice(0, 8)}
+            {job.title?.slice(0, 10) || '未命名任务'}
             {p?.pages_generated != null && ` (${p.pages_generated}页)`}
           </span>
         );
@@ -121,7 +121,7 @@ export default function RunningTasksDock({
         >
           <Space size={4}>
             <Activity size={13} color="#faad14" />
-            <span style={{ fontSize: 13 }}>还有 {hiddenGenerating} 个在生成</span>
+            <span style={{ fontSize: 13 }}>另有 {hiddenGenerating} 个任务正在生成，点击查看全部</span>
           </Space>
         </Button>
       )}
@@ -136,7 +136,7 @@ export default function RunningTasksDock({
               <div style={{ fontSize: 12, opacity: 0.8 }}>
                 {`下一个是「${(queued.find((j) => (j.queue_position ?? 1e9) === Math.min(...queued.map((x) => x.queue_position ?? 1e9)))?.title || '未命名任务').slice(0, 16)}」`}
               </div>
-              <div style={{ fontSize: 12, opacity: 0.6, marginTop: 4 }}>点击去列表取消排队</div>
+              <div style={{ fontSize: 12, opacity: 0.6, marginTop: 4 }}>点击查看队列，可取消排队</div>
             </div>
           }
         >

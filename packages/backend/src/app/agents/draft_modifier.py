@@ -109,9 +109,11 @@ def modify_draft_with_claude(
             timeout=timeout,
         )
     except FileNotFoundError as exc:
-        raise RuntimeError(f"未找到 claude CLI（{claude_bin}），请确认已安装 Claude Code") from exc
+        raise RuntimeError("生成服务未就绪，请联系管理员") from exc
     except subprocess.TimeoutExpired as exc:
-        raise RuntimeError(f"Agent 修改超时（>{timeout}s）") from exc
+        # 技术细节（部分输出）只进日志；界面说可做的动作
+        raise RuntimeError(
+            f"AI 修改超时（超过 {max(1, timeout // 60)} 分钟），请重试或将要求描述得更简短") from exc
 
     _LOG_DIR.joinpath("last-modify.log").write_text(
         f"=== prompt ===\n{prompt}\n\n=== stdout ===\n{proc.stdout}\n\n=== stderr ===\n{proc.stderr}\n",
@@ -119,12 +121,12 @@ def modify_draft_with_claude(
     )
 
     if proc.returncode != 0:
-        detail = (proc.stderr or proc.stdout or "").strip()[:300]
-        raise RuntimeError(f"Claude 调用失败（exit={proc.returncode}）：{detail}")
+        # 失败原文已写进上方 last-modify.log，界面只说定档句
+        raise RuntimeError("AI 处理未成功，请重试")
 
     result = clean_markdown(proc.stdout)
 
     if not result:
-        raise RuntimeError("Claude 返回了空内容")
+        raise RuntimeError("AI 返回的内容为空，请重试")
 
     return result, None

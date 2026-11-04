@@ -660,7 +660,7 @@ export default function MultiPageSvgEditor({ pages, draft, onEdit }: Props) {
           <div key={p.index} data-page-index={p.index} data-page-name={p.name}
             style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 8, marginBottom: 16, overflow: 'hidden' }}>
             <div style={{ padding: '4px 10px', fontSize: 12, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)' }}>
-              第 {pages.findIndex((x) => x.index === p.index) + 1} 页 · {p.name}{draft[p.index] ? ' ·（已改）' : ''}
+              第 {pages.findIndex((x) => x.index === p.index) + 1} 页{draft[p.index] ? '（尚未保存的修改）' : ''}
             </div>
             <div style={{ position: 'relative' }}>
               <div className="rv-fit" dangerouslySetInnerHTML={{ __html: html[p.index] || '' }} />
@@ -706,24 +706,25 @@ export default function MultiPageSvgEditor({ pages, draft, onEdit }: Props) {
       <div style={{ borderTop: '1px solid var(--border)', padding: '8px 12px', background: 'var(--bg-card, #fff)' }}>
         {sel && selT ? (
           <Space wrap size={8} align="center">
-            <Text type="secondary" style={{ fontSize: 12 }}>选中 &lt;{sel.tag}&gt; · 第 {pages.findIndex((x) => x.index === sel.pageIndex) + 1} 页{canResize ? (isText ? ' ·（文字等比缩放）' : ' ·（拖角/边缩放，Shift 等比）') : ' ·（仅可移动）'}</Text>
+            <Text type="secondary" style={{ fontSize: 12 }}>已选中：{sel.tag === 'text' || sel.tag === 'tspan' ? '文字' : sel.tag === 'image' ? '图片' : ['rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'path'].includes(sel.tag) ? '图形' : '该元素'}｜第 {pages.findIndex((x) => x.index === sel.pageIndex) + 1} 页｜{canResize ? (isText ? '拖动四角可调整大小，按住 Shift 保持比例' : '可拖动位置或调整大小') : '仅可移动位置'}</Text>
+            <Text type="secondary" style={{ fontSize: 12 }}>位置</Text>
             X <InputNumber size="small" value={selT.x} onChange={(v) => setTranslate('x', Number(v) || 0)} style={{ width: 74 }} />
             Y <InputNumber size="small" value={selT.y} onChange={(v) => setTranslate('y', Number(v) || 0)} style={{ width: 74 }} />
             {isText && <Input size="small" placeholder="文字内容" defaultValue={selEl!.textContent || ''}
               onPressEnter={(e) => setText((e.target as HTMLInputElement).value)} onBlur={(e) => setText(e.target.value)} style={{ width: 180 }} />}
             <input type="color" value={((selEl as Element)?.getAttribute('fill') || '#000000').slice(0, 7)}
-              onChange={(e) => setAttr('fill', e.target.value)} style={{ width: 28, height: 24, border: 'none', background: 'none' }} title="填充色" />
-            {isText && <InputNumber size="small" min={1} value={parseFloat(selEl!.getAttribute('font-size') || '16')}
-              onChange={(v) => setAttr('font-size', String(Number(v) || 16))} style={{ width: 74 }} />}
-            <Button size="small" onClick={copySel} title="Ctrl/Cmd+C">复制</Button>
-            <Button size="small" onClick={pasteSel} title="Ctrl/Cmd+V">粘贴</Button>
-            <Button size="small" onClick={() => cloneSel(16)} title="Ctrl/Cmd+D">再制</Button>
-            <Button size="small" onClick={() => zOrder(true)} title="Ctrl/Cmd+] 上移一层">上移</Button>
-            <Button size="small" onClick={() => zOrder(false)} title="Ctrl/Cmd+[ 下移一层">下移</Button>
+              onChange={(e) => setAttr('fill', e.target.value)} style={{ width: 28, height: 24, border: 'none', background: 'none' }} title="颜色" />
+            {isText && <><Text type="secondary" style={{ fontSize: 12 }}>字号</Text><InputNumber size="small" min={1} value={parseFloat(selEl!.getAttribute('font-size') || '16')}
+              onChange={(v) => setAttr('font-size', String(Number(v) || 16))} style={{ width: 74 }} /></>}
+            <Button size="small" onClick={copySel} title="⌘C">复制</Button>
+            <Button size="small" onClick={pasteSel} title="⌘V">粘贴</Button>
+            <Button size="small" onClick={() => cloneSel(16)} title="⌘D">复制一份</Button>
+            <Button size="small" onClick={() => zOrder(true)} title="将选中内容盖到最上面">移到最前</Button>
+            <Button size="small" onClick={() => zOrder(false)} title="将选中内容垫到最下面">移到最后</Button>
             <Button size="small" danger icon={<Trash2 size={13} />} onClick={deleteSel} title="Delete 键">删除</Button>
           </Space>
         ) : (
-          <Text type="secondary" style={{ fontSize: 12 }}>点击任意页里的元素可选中并拖动；可缩放的元素会显示四角/四边手柄。</Text>
+          <Text type="secondary" style={{ fontSize: 12 }}>点击页面中的文字或图形即可选中，拖动可移动位置；选中后四角显示控制点，拖动控制点可调整大小</Text>
         )}
       </div>
     </div>

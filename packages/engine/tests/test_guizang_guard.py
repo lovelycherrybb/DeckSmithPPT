@@ -88,11 +88,12 @@ def test_骨架缺失与重复都有独立缺陷码():
     assert any(d.code == "skeleton_duplicated:nav" for d in dup)
 
 
-def test_失败文案说人话且技术事实在括号里():
+def test_失败文案说人话且缺陷码可查():
     verdict = check_and_heal(_deck(residue=True), closed_pages=1)
     msg = verdict.error_message
-    assert msg.startswith("产物结构不完整，无法正常使用：")
-    assert "SLIDES_HERE" in msg  # 技术事实可查
+    assert msg.startswith("结果文件结构不完整，无法正常使用：")
+    assert "页面内容未被写入文件，请重新生成" in msg  # 界面句；技术事实见 defects 码
+    assert {d.code for d in verdict.defects} == {"slides_here_residue"}
 
 
 # ── ② 纯函数：自愈边界 ──────────────────────────────────────────────
@@ -181,7 +182,7 @@ def test_引擎_结构损坏判failed并带用户可读原因(tmp_path):
     assert eng.status("bad") is EngineJobStatus.FAILED
     data = json.loads((d / "job.json").read_text(encoding="utf-8"))
     assert data["status"] == "failed"
-    assert data["error"].startswith("产物结构不完整，无法正常使用：")
+    assert data["error"].startswith("结果文件结构不完整，无法正常使用：")
     assert data["guard"]["defects"] == ["slides_here_residue"]
     log = (d / "run.log").read_text(encoding="utf-8")
     assert "结构守卫拦截" in log
@@ -192,7 +193,8 @@ def test_引擎_非utf8产物判failed不崩(tmp_path):
     # 必须过 _artifact_ready 的大小下限（2048B），否则根本走不到守卫
     eng, d = _job(tmp_path, "bin", raw=b"\xff\xfe\x00" + b"\x80" * 2100 + b"</html>")
     assert eng.status("bin") is EngineJobStatus.FAILED
-    assert "UTF-8" in json.loads((d / "job.json").read_text(encoding="utf-8"))["error"]
+    assert json.loads((d / "job.json").read_text(encoding="utf-8"))["error"] == \
+        "结果文件不完整或已损坏，请重新生成"
 
 
 def test_引擎_已终态行重放不重复跑守卫(tmp_path):

@@ -4,7 +4,7 @@
 SQLite 不支持原生 JSON 列，用 Text 存 JSON 字符串；时间存 ISO 字符串便于序列化。
 """
 from sqlalchemy import (
-    Integer, String, Text, ForeignKey, create_engine,
+    Integer, String, Text, ForeignKey, Index, text, create_engine,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker, relationship
 
@@ -252,8 +252,9 @@ class SystemSetting(Base):
     一行一项（不是整包 JSON）：单项可审计、可单独回落、加设置项不改表。
     代价是表更"碎"，所以配 updated_by/updated_at 留下改动痕迹。
 
-    关于 secret：值在本表里是**明文**存储。它必须能被原样注入子进程环境变量，
-    所以不能哈希；本系统没有 KMS，做可逆加密只是把明文换个地方放，属自欺。
+    关于 secret：值在本表里是**明文**存储。它是生效值的原文，必须能原样落到 agent 的
+    配置文件（ADR-032 之后由渲染器写入，不再是注入子进程环境变量），所以不能哈希；
+    本系统没有 KMS，做可逆加密只是把明文换个地方放，属自欺。
     边界是：明文永不出接口（GET 只回 masked）、不落日志、库文件权限随数据卷保护。
     """
     __tablename__ = "system_settings"
@@ -263,6 +264,44 @@ class SystemSetting(Base):
     value: Mapped[str] = mapped_column(Text)  # JSON 编码后的单项值
     updated_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
     updated_at: Mapped[str] = mapped_column(String(32))
+
+
+class AgentProvider(Base):
+    """供应商档案（ADR-032）：一套可复用的 agent 接入配置，仅管理员可见。
+
+    为什么不塞进 `system_settings`：那张表的语义是"一行一个覆盖值、删行即回落默认"，
+    而档案有"新建/改名/删除/列出多套"的实体语义，混在一起既分不开审计，
+    又要在运行时动态编键名（绕过设置项注册表）。
+
+    **"当前哪套生效"只有这一个真源**：`is_active`。系统设置里不再另放一个
+    "生效档案 id"的键——两处各存一份迟早漂（ADR-020 后果 1 点名的病）。
+    同一 agent 同时最多一行为真，这件事**不靠服务层纪律**，由下面的部分唯一索引
+    在库层面掐死：第二条并发激活会直接撞索引报错，而不是静默变成"两套都在生效"。
+
+    `values` 存 JSON 文本（字段名 → 值），字段清单的唯一权威是
+    `core/agent_registry.py`；本表不猜字段名，渲染器按注册表遍历。
+    secret 字段在本表里同样是明文，边界与 SystemSetting 一致：不出接口、不落日志。
+    """
+    __tablename__ = "agent_providers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    provider_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    agent_id: Mapped[str] = mapped_column(String(64), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    values: Mapped[str] = mapped_column(Text, default="{}")  # JSON：字段名 → 值
+    is_active: Mapped[int] = mapped_column(Integer, default=0)  # 0|1，见上面的部分唯一索引
+    created_at: Mapped[str] = mapped_column(String(32))
+    updated_at: Mapped[str] = mapped_column(String(32))
+    updated_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    __table_args__ = (
+        Index(
+            "uq_agent_providers_one_active",
+            "agent_id",
+            unique=True,
+            sqlite_where=text("is_active = 1"),
+        ),
+    )
 
 
 def make_engine(database_url: str):

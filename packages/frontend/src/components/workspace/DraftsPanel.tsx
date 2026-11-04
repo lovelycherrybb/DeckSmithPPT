@@ -73,6 +73,7 @@ import { formatDate } from '@/lib/formatDate';
 import {
   paramLabel, paramValueLabel, dependencySatisfied, paramGroup, paramPresets,
   paramItemEnum, paramIsWide, groupBySection, FALLBACK_SECTION, BASE_DUP_PARAM_KEYS,
+  paramUnavailableReason, paramUnavailableValues,
   type ParamSpec,
 } from '@/lib/engineParams';
 import { stylePreviewFor, stylePreviewModalStyles } from '@/lib/stylePreview';
@@ -151,6 +152,19 @@ export function selectUnfinishedDraftJobs(
 function versionDay(v: string): string | null {
   if (!/^\d{14}$/.test(v)) return null;
   return `${v.slice(0, 4)}年${parseInt(v.slice(4, 6), 10)}月${parseInt(v.slice(6, 8), 10)}日`;
+}
+
+/** 14 位时间戳版本号 → 「YYYY-MM-DD」；非该形状返回 null（界面不回显时间戳原值） */
+function versionDate(v: string | null | undefined): string | null {
+  if (!v || !/^\d{14}$/.test(v)) return null;
+  return `${v.slice(0, 4)}-${v.slice(4, 6)}-${v.slice(6, 8)}`;
+}
+
+/** 版本号展示文案：显示「第 N 版（YYYY-MM-DD）」，不显示时间戳原值 */
+function versionDisplay(v: string | null | undefined, rank?: number | null): string {
+  const date = versionDate(v);
+  if (rank != null) return date ? `第 ${rank} 版（${date}）` : `第 ${rank} 版`;
+  return date ? `版本（${date}）` : '版本未知';
 }
 
 export default function DraftsPanel({
@@ -267,7 +281,7 @@ export default function DraftsPanel({
           version: cur,
           rank: null,
           day,
-          label: day || `草稿 ${d.draft_id.slice(0, 8)}`,
+          label: day || '未命名草稿',
           content: '',
           isCurrent: false, // 统一在排序后只标全局最新一版
         });
@@ -286,7 +300,7 @@ export default function DraftsPanel({
         version: item.version,
         rank: idx + 1,
         day,
-        label: day ? `${day} 第${idx + 1}版` : `版本 ${item.version}`,
+        label: day ? `${day} 第${idx + 1}版` : `第 ${idx + 1} 版`,
         content: item.content,
         createdAt: item.createdAt,
         isCurrent: false, // 统一在排序后只标全局最新一版
@@ -316,7 +330,7 @@ export default function DraftsPanel({
           (await getDraftVersion(row.draft.draft_id, row.version).then((v) => v.content).catch(() => ''));
         setDraftText(content || '');
       } catch (e) {
-        messageApi.error(e instanceof Error ? e.message : '加载草稿失败');
+        messageApi.error(e instanceof Error ? e.message : '草稿内容加载失败，请重试');
         setEditing(null);
       } finally {
         setEditLoading(false);
@@ -350,7 +364,7 @@ export default function DraftsPanel({
       );
       setDraftText(finalText);
       setAiPrompt('');
-      messageApi.success('AI 已修改（尚未保存），确认后点「保存为新版本」');
+      messageApi.success('AI 已完成修改，确认后点击「保存为新版本」');
     } catch (e) {
       messageApi.error(e instanceof Error ? e.message : 'AI 修改失败');
     } finally {
@@ -365,11 +379,11 @@ export default function DraftsPanel({
     setSaving(true);
     try {
       const v = await saveDraftVersion(editing.draft.draft_id, draftText);
-      messageApi.success(`已保存新版本 ${v.version}`);
+      messageApi.success('已保存为新版本');
       await refreshEditDetail();
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) {
-        messageApi.warning('同一秒内已保存过，请稍候再试');
+        messageApi.warning('保存过于频繁，请稍后重试');
       } else {
         messageApi.error(e instanceof Error ? e.message : '保存失败');
       }
@@ -382,12 +396,12 @@ export default function DraftsPanel({
     if (!editing) return;
     try {
       await restoreDraftVersion(editing.draft.draft_id, version);
-      messageApi.success(`已还原到版本 ${version}`);
+      messageApi.success('已回到该版本');
       await refreshEditDetail();
       const detail = await getDraft(editing.draft.draft_id);
       setDraftText(detail.content || '');
     } catch (e) {
-      messageApi.error(e instanceof Error ? e.message : '还原失败');
+      messageApi.error(e instanceof Error ? e.message : '回到该版本未成功');
     }
   };
 
@@ -397,10 +411,10 @@ export default function DraftsPanel({
     setRetrying(jobId);
     try {
       const job = await retryJob(jobId);
-      messageApi.success(`已重新提交，新任务 ${job.job_id.slice(0, 8)}`);
+      messageApi.success('已重新提交生成');
       onRefresh();
     } catch (e) {
-      messageApi.error(e instanceof Error ? e.message : '重试失败');
+      messageApi.error(e instanceof Error ? e.message : '重新生成未成功，请稍后重试');
     } finally {
       setRetrying(null);
     }
@@ -456,7 +470,7 @@ export default function DraftsPanel({
       onGenerate(job);
     } catch (e) {
       if (e && typeof e === 'object' && 'errorFields' in e) return;
-      messageApi.error(e instanceof Error ? e.message : '提交失败');
+      messageApi.error(e instanceof Error ? e.message : '开始生成未成功，请重试');
     } finally {
       setGenSubmitting(false);
     }
@@ -511,44 +525,64 @@ export default function DraftsPanel({
     const previewableEnum = !!value.enum?.length && value.enum.some((v) => stylePreviewFor(v));
     const presets = paramPresets(value);
     const itemEnum = paramItemEnum(value);
+    /* 当前兑现不了的项，原因一律从契约读：整项标了就整项锁住，只标某几个取值就只锁那几个。
+       这里不按参数名写死判断——按名字写死等于给「前端不硬编码引擎参数」那条口径开个常例
+       （ADR-033 决策 1）。置灰只是界面层，后端提交期还会再拦一道（ADR-033 决策 3），
+       因为界面挡不住直接调接口的人。 */
+    const unavailableReason = paramUnavailableReason(value);
+    const valueReasons = paramUnavailableValues(value);
+    const paramDisabled = !canEditParams || !!unavailableReason;
+    const tipLines = [value.description, unavailableReason].filter(Boolean) as string[];
+    for (const [v, why] of Object.entries(valueReasons)) {
+      tipLines.push(`「${paramValueLabel(key, v, value)}」${why}`);
+    }
+    /** 下拉候选项：被标了暂不支持的取值照常显示，但选不动，并在名字后面写明 */
+    const optionOf = (v: unknown) => {
+      const why = valueReasons[String(v)];
+      const text = paramValueLabel(key, v, value);
+      return { value: v, label: why ? `${text}（暂不支持）` : text, disabled: !!why };
+    };
     return (
       <Form.Item
         key={key}
         name={['engine_params', key]}
-        label={label}
+        label={
+          unavailableReason ? (
+            <Space size={4}>
+              {label}
+              <Tag>暂不支持</Tag>
+            </Space>
+          ) : (
+            label
+          )
+        }
         /* 长说明挂到标签后面的问号上：说明文字平铺在框里会把弹窗撑得老长，
-           而它本来就是"给用户看的解释"，不该占版面。 */
-        tooltip={value.description}
+           而它本来就是"给用户看的解释"，不该占版面。暂不支持的原因也走同一个问号。 */
+        tooltip={<span style={{ whiteSpace: 'pre-line' }}>{tipLines.join('\n\n')}</span>}
         style={paramIsWide(value) ? { gridColumn: '1 / -1' } : undefined}
       >
         {itemEnum.length ? (
           <Select
             mode="multiple"
-            disabled={!canEditParams}
+            disabled={paramDisabled}
             allowClear
-            options={itemEnum.map((v) => ({
-              value: v,
-              label: paramValueLabel(key, v, value),
-            }))}
+            options={itemEnum.map(optionOf)}
             placeholder={`选择${label}（可多选）`}
           />
         ) : presets.length ? (
           /* 预设句只是"点一下就替你写进去"的便利，不是把选择面锁死成三档：
              输入框照样能自己写，写什么就原样下发什么。 */
           <AutoComplete
-            disabled={!canEditParams}
+            disabled={paramDisabled}
             allowClear
             options={presets.map((p) => ({ value: p, label: p }))}
-            placeholder="留空=不指定，可点示例或自己写"
+            placeholder="未填写表示不指定，可点击示例，也可自行填写"
           />
         ) : value.enum?.length ? (
           <Select
-            disabled={!canEditParams}
+            disabled={paramDisabled}
             allowClear
-            options={value.enum.map((v) => ({
-              value: v,
-              label: paramValueLabel(key, v, value),
-            }))}
+            options={value.enum.map(optionOf)}
             placeholder={`选择${label}`}
             onOpenChange={(open) => { if (!open) setPreviewValue(null); }}
             /* 鼠标划过哪个风格，就把整个弹窗换成那个风格的样子；悬停只是预览，
@@ -569,7 +603,7 @@ export default function DraftsPanel({
           />
         ) : value.type === 'boolean' ? (
           <Select
-            disabled={!canEditParams}
+            disabled={paramDisabled}
             allowClear
             options={[
               { value: true, label: '开启' },
@@ -578,9 +612,9 @@ export default function DraftsPanel({
             placeholder={`选择${label}`}
           />
         ) : value.type === 'integer' ? (
-          <InputNumber disabled={!canEditParams} min={1} style={{ width: '100%' }} placeholder={`输入${label}`} />
+          <InputNumber disabled={paramDisabled} min={1} style={{ width: '100%' }} placeholder={`输入${label}`} />
         ) : (
-          <Input disabled={!canEditParams} placeholder={`输入${label}`} />
+          <Input disabled={paramDisabled} placeholder={`输入${label}`} />
         )}
       </Form.Item>
     );
@@ -609,7 +643,7 @@ export default function DraftsPanel({
             <Spin />
           </div>
         ) : flatRows.length === 0 && unfinishedJobs.length === 0 ? (
-          <Empty description="当前项目暂无草稿——首次生成草稿时会自动创建项目" />
+          <Empty description="当前项目暂无草稿。首次生成草稿时会自动创建项目" />
         ) : (
           <List
             dataSource={[
@@ -623,7 +657,6 @@ export default function DraftsPanel({
                   const job = item.job;
                   const retryable = isRetryable(job.status);
                   const queued = job.status === 'queued';
-                  const pName = projectNameMap.get(job.project_id || '') || job.project_id?.slice(0, 8) || '-';
                   return (
                     <List.Item
                       actions={
@@ -636,7 +669,7 @@ export default function DraftsPanel({
                                 loading={retrying === job.job_id}
                                 onClick={() => handleRetry(job.job_id)}
                               >
-                                重试
+                                重新生成
                               </Button>,
                             ]
                           : queued && !readOnly
@@ -673,16 +706,14 @@ export default function DraftsPanel({
                         description={
                           retryable ? (
                             <>
-                              {`所属项目 ${pName} · ${job.error || job.status_detail || '生成未完成，详见任务日志'}`}
+                              {job.error || job.status_detail || '生成未成功，可点击「重新生成」再次尝试'}
                               {/* 未成功任务烧掉的 token 也是事实（终态才落库，排队/生成中不显示） */}
-                              {` · ${tokenUsageSummary(job.token_usage)}`}
+                              {`｜${tokenUsageSummary(job.token_usage)}`}
                             </>
                           ) : (
-                            `所属项目 ${pName} · ${
-                              queued
-                                ? queueDetailLabel(job.status_detail, job.queue_position)
-                                : job.status_detail || '引擎执行中'
-                            }`
+                            queued
+                              ? queueDetailLabel(job.status_detail, job.queue_position)
+                              : job.status_detail || '正在生成'
                           )
                         }
                       />
@@ -692,7 +723,6 @@ export default function DraftsPanel({
               ) : (
                 (() => {
                   const row = item.row;
-                  const pName = projectNameMap.get(row.draft.project_id) || row.draft.project_id.slice(0, 8);
                   // token 消耗挂在「生成该草稿的任务」上（与任务编号同源）：手工保存的版本不额外烧钱
                   const genJob = row.draft.task_id ? jobByTaskId.get(row.draft.task_id) : undefined;
                   return (
@@ -734,12 +764,7 @@ export default function DraftsPanel({
                         }
                         description={
                           <Space split={<Divider type="vertical" />} style={{ fontSize: 12 }}>
-                            <span>
-                              任务编号 <span style={{ fontFamily: 'monospace' }}>{row.draft.task_id?.slice(0, 8) || '-'}</span>
-                            </span>
-                            <span>
-                              版本号 <span style={{ fontFamily: 'monospace' }}>{row.version}</span>
-                            </span>
+                            <span>{versionDisplay(row.version, row.rank)}</span>
                             <span>{tokenUsageSummary(genJob?.token_usage)}</span>
                             <span>{formatDate(row.createdAt || row.draft.updated_at)}</span>
                           </Space>
@@ -780,10 +805,8 @@ export default function DraftsPanel({
               const genJob = viewing.draft.task_id ? jobByTaskId.get(viewing.draft.task_id) : undefined;
               return (
                 <Descriptions size="small" column={2} style={{ marginBottom: 16 }}>
-                  <Descriptions.Item label="版本号">
-                    <span style={{ fontFamily: 'monospace' }}>{viewing.version}</span>
-                  </Descriptions.Item>
-                  <Descriptions.Item label="任务编号">
+                  <Descriptions.Item label="版本号">{versionDisplay(viewing.version, viewing.rank)}</Descriptions.Item>
+                  <Descriptions.Item label="任务编号（供报障核对）">
                     <span style={{ fontFamily: 'monospace' }}>{viewing.draft.task_id?.slice(0, 8) || '-'}</span>
                   </Descriptions.Item>
                   <Descriptions.Item label="消耗">{tokenUsageTotal(genJob?.token_usage)}</Descriptions.Item>
@@ -802,7 +825,7 @@ export default function DraftsPanel({
 
       {/* 编辑抽屉 */}
       <Drawer
-        title={editing ? `编辑草稿（基于版本 ${editing.version}）` : '草稿'}
+        title={editing ? '编辑草稿' : '草稿'}
         width={'70%'}
         styles={{ body: { display: 'flex', flexDirection: 'column', overflow: 'hidden' } }}
         open={!!editing}
@@ -831,7 +854,15 @@ export default function DraftsPanel({
                     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
                       <Descriptions size="small" column={2} style={{ marginBottom: 12, flexShrink: 0 }}>
                         <Descriptions.Item label="当前版本">
-                          <Tag color="blue">{editDetail.current_version}</Tag>
+                          <Tag color="blue">
+                            {versionDisplay(
+                              editDetail.current_version,
+                              [...(editDetail.versions || [])]
+                                .map((x) => x.version)
+                                .sort()
+                                .indexOf(editDetail.current_version) + 1 || null
+                            )}
+                          </Tag>
                         </Descriptions.Item>
                         <Descriptions.Item label="更新时间">
                           {formatDate(editDetail.updated_at)}
@@ -846,36 +877,41 @@ export default function DraftsPanel({
                 {
                   key: 'versions',
                   label: `版本历史（${editDetail.versions?.length || 0}）`,
-                  children: (
-                    <List
-                      size="small"
-                      dataSource={[...(editDetail.versions || [])].sort((a, b) =>
-                        b.version.localeCompare(a.version)
-                      )}
-                      renderItem={(v) => (
-                        <List.Item
-                          actions={[
-                            <Button
-                              key="restore"
-                              size="small"
-                              icon={<Undo2 size={12} />}
-                              onClick={() => handleRestore(v.version)}
-                              disabled={v.version === editDetail.current_version}
-                            >
-                              {v.version === editDetail.current_version ? '当前' : '还原'}
-                            </Button>,
-                          ]}
-                        >
-                          <List.Item.Meta
-                            title={`版本 ${v.version}`}
-                            description={`${(v.content || '').slice(0, 60)}${
-                              (v.content || '').length > 60 ? '…' : ''
-                            } · ${formatDate(v.created_at)}`}
-                          />
-                        </List.Item>
-                      )}
-                    />
-                  ),
+                  children: (() => {
+                    const asc = [...(editDetail.versions || [])].sort((a, b) =>
+                      a.version.localeCompare(b.version)
+                    );
+                    const rankOf = (ver: string) =>
+                      asc.findIndex((x) => x.version === ver) + 1;
+                    return (
+                      <List
+                        size="small"
+                        dataSource={[...asc].reverse()}
+                        renderItem={(v) => (
+                          <List.Item
+                            actions={[
+                              <Button
+                                key="restore"
+                                size="small"
+                                icon={<Undo2 size={12} />}
+                                onClick={() => handleRestore(v.version)}
+                                disabled={v.version === editDetail.current_version}
+                              >
+                                {v.version === editDetail.current_version ? '当前' : '使用此版本'}
+                              </Button>,
+                            ]}
+                          >
+                            <List.Item.Meta
+                              title={versionDisplay(v.version, rankOf(v.version))}
+                              description={`${(v.content || '').slice(0, 60)}${
+                                (v.content || '').length > 60 ? '…' : ''
+                              }｜${formatDate(v.created_at)}`}
+                            />
+                          </List.Item>
+                        )}
+                      />
+                    );
+                  })(),
                 },
               ]}
             />
@@ -887,7 +923,7 @@ export default function DraftsPanel({
         <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12, marginTop: 8 }}>
           <Space.Compact style={{ width: '100%', marginBottom: 8 }}>
             <Input
-              placeholder="告诉 AI 怎么改，例如：把所有标题改成英文"
+              placeholder="输入修改要求，例如：把所有标题改成英文"
               value={aiPrompt}
               onChange={(e) => setAiPrompt(e.target.value)}
               onPressEnter={handleAiModify}
@@ -899,7 +935,7 @@ export default function DraftsPanel({
               onClick={handleAiModify}
               disabled={!aiPrompt.trim()}
             >
-              AI 修改
+              让 AI 修改
             </Button>
           </Space.Compact>
           {(aiBusy || aiThinking) && (
@@ -944,7 +980,7 @@ export default function DraftsPanel({
           {/* 基础三项一行放完。minmax(0,1fr) 是关键：不写这个 0，网格列会被长内容撑破，
               右列控件就会顶出弹窗边缘（560 宽那版正是这么露馅的）。 */}
           <div style={GEN_GRID_STYLE}>
-            <Form.Item name="engine" label="输出引擎" rules={[{ required: true }]}>
+            <Form.Item name="engine" label="生成方式" rules={[{ required: true }]}>
               <Select
                 options={outputEngines.map((e) => ({
                   value: e.name,
@@ -953,7 +989,7 @@ export default function DraftsPanel({
               />
             </Form.Item>
             <Form.Item name="title" label="PPT 标题">
-              <Input placeholder="默认取项目标题" />
+              <Input placeholder="未填写时使用项目名称" />
             </Form.Item>
             <Form.Item
               name="pages"
@@ -961,29 +997,29 @@ export default function DraftsPanel({
               extra={(() => {
                 const desc = genEngineProps.pages?.description || '';
                 const inner = /（([^）]*)）/.exec(desc)?.[1];
-                return inner ? `可留空。${inner}` : '可留空（由引擎决定），也可填任意页数';
+                return inner ? `可留空。${inner}` : '可留空，由系统决定页数；填写时须为不小于 1 的整数';
               })()}
-              rules={[{ type: 'integer', min: 1, message: '页数须为不小于 1 的整数' }]}
+              rules={[{ type: 'integer', min: 1, message: '页数须为整数，且不小于 1' }]}
             >
               <InputNumber
                 min={1}
                 precision={0}
                 style={{ width: '100%' }}
-                placeholder="留空则由引擎决定"
+                placeholder="未填写时由系统决定"
               />
             </Form.Item>
           </div>
           {genParamEntries.length > 0 && (
             <>
               <Divider orientation="left" plain>
-                引擎参数
+                生成设置
               </Divider>
               {!canEditParams && (
                 <Alert
                   type="info"
                   showIcon
                   style={{ marginBottom: 12 }}
-                  message="当前账号按引擎默认参数生成；如需自定义参数，请联系管理员开通。"
+                  message="当前账号暂不支持修改这些设置，将按默认方式生成。如需自定义，请开通高级用户或联系管理员"
                 />
               )}
               {/* 小节标题与顺序全部来自契约 x-section，前端不重排、不改名。
@@ -1046,7 +1082,7 @@ export default function DraftsPanel({
         <Alert
           type="info"
           showIcon
-          message="生成需要一些时间，页数越多通常越久；可稍后在「生成任务」查看进度。"
+          message="生成需要一些时间，页数越多耗时越长。进度可在「生成任务」中查看。"
         />
       </Modal>
     </div>

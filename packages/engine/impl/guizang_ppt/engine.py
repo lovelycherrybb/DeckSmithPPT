@@ -29,6 +29,7 @@ AGENTS.md 规则：本文件只实现 OutputEngine 协议，不修改任何调�
 from __future__ import annotations
 
 import json
+import logging
 import os
 import subprocess
 import threading
@@ -39,7 +40,8 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 
-from engine.core.config import get_jobs_root
+from engine.core.config import get_claude_config_dir, get_jobs_root
+from engine.core.failure_message import no_result_reason
 from engine.core.models import Job, JobId, EngineJobStatus, EngineType
 from engine.core.proc import terminate_tree
 from engine.core.protocol import OutputEngine
@@ -64,14 +66,12 @@ _MIN_RESULT_BYTES = 2048
 _DEFAULT_MAX_RESUME_ATTEMPTS = 2
 
 # 网关/CLI 断流特征词：实测第三方 Anthropic 兼容网关会在超长输出中途
-# 直接掐连接，会话里留下 "API Error: terminated"，而 stream 的 result 仍报
-# subtype=success —— 只看 result 会把网络故障误判成“agent 没干活”。
-_API_ERROR_MARKERS = (
-    "API Error", "terminated", "ECONNRESET", "socket hang up",
-    "overloaded", "rate limit", "timed out", "timeout",
-)
-
 _STYLE_LABEL = {"magazine": "电子杂志 × 电子墨水（magazine）", "swiss": "瑞士国际主义（swiss）"}
+#: 界面进度条用的中文风格名（取值对齐 docs/contracts/engine.schema.json 的 x-value-labels；
+#: 取不到就只显示「正在生成网页演示文稿」，不把代号拼进界面句子）
+_STYLE_UI_LABEL = {"magazine": "电子杂志风", "swiss": "瑞士国际主义"}
+#: 运维日志用：界面句子只说结论，缺了什么组件由这里留痕（文案改造定档 2026-11-03）
+logger = logging.getLogger("decksmith.engine.guizang_ppt")
 _THEME_LABEL = {
     "magazine_theme": {
         "monocle": "monocle（墨水经典）",
@@ -149,9 +149,12 @@ def scan_slides(html_text: str) -> list[str]:
 
 
 def _claude_skills_dir() -> Path:
-    """Claude Code 的技能发现目录（尊重 CLAUDE_CONFIG_DIR 重定位）。"""
-    base = os.environ.get("CLAUDE_CONFIG_DIR")
-    return (Path(base) if base else Path.home() / ".claude") / "skills"
+    """Claude Code 的技能发现目录（尊重 CLAUDE_CONFIG_DIR 重定位）。
+
+    解析规则统一走 `engine.core.config.get_claude_config_dir()`（ADR-032）：
+    后端设置面也要按同一条规则找配置文件，两处各写各的迟早漂。
+    """
+    return get_claude_config_dir() / "skills"
 
 
 def ensure_skill_installed() -> str | None:
@@ -225,10 +228,13 @@ class GuizangPptEngine(OutputEngine):
         幂等：`ensure_skill_installed()` 自身已保证（已链好则直接返回 None）。
         """
         if not (_SKILL_DIR / "SKILL.md").is_file():
-            raise RuntimeError(
-                f"未找到上游技能 {_SKILL_DIR}（SKILL.md 缺失）。"
-                "请先执行 git submodule update --init --recursive，否则本引擎无法生成。"
+            # 技术细节只进日志（运维可见）；界面统一说「生成服务未就绪」
+            logger.error(
+                "未找到上游技能 %s（SKILL.md 缺失）。"
+                "请先执行 git submodule update --init --recursive，否则本引擎无法生成。",
+                _SKILL_DIR,
             )
+            raise RuntimeError("生成服务未就绪，请联系管理员")
         return ensure_skill_installed()
 
     # ── 内部工具 ──
@@ -435,7 +441,7 @@ class GuizangPptEngine(OutputEngine):
                 job_id, status="failed", title=effective_title, pages=pages,
                 engine_params=params, created_at=_now(), updated_at=_now(),
                 pid=None, result_path=None,
-                error="未找到 claude CLI（Claude Code 未安装或不在 PATH 中）",
+                error="生成服务未就绪，请联系管理员",
             )
             return JobId(job_id)
 
@@ -592,33 +598,18 @@ class GuizangPptEngine(OutputEngine):
             pass
 
     def _diagnose_failure(self, job_id: Any, data: dict) -> str:
-        """失败根因：优先 claude 的 result 原文，其次日志里的断流特征词，最后兜底。"""
+        """失败根因：根因细节（subtype/result 原文/断流日志行）留在 claude_result 与
+        run.log 供运维追查，界面只说定档句（失败 + 可做的动作）。"""
         res = data.get("claude_result") or {}
         if res.get("is_error") or (res.get("subtype") not in (None, "success")):
-            return (
-                f"claude 执行返回失败（subtype={res.get('subtype')}）："
-                f"{res.get('result') or '无返回文本'}"
-            )
+            return "生成未成功，请重试"
         try:
             log = (self._job_dir(job_id) / "run.log").read_text(encoding="utf-8", errors="ignore")
         except OSError:
             log = ""
-        hit = next((m for m in _API_ERROR_MARKERS if m.lower() in log.lower()), None)
-        if hit:
-            # 回显命中行的原文（而非光秃秃一个特征词），让用户在 UI 上直接看到断流文本
-            idx = log.lower().find(hit.lower())
-            start = log.rfind("\n", 0, idx) + 1
-            end = log.find("\n", idx)
-            snippet = (log[start:end if end != -1 else len(log)]).strip()[:200] or hit
-            return (
-                f"上游模型连接被中断（日志：{snippet}），产物未写出；"
-                f"已自动续跑 {data.get('resume_attempt', 0)} 次仍未成功"
-            )
-        tail = self._tail_run_log(job_id) or "（无输出）"
-        return (
-            f"claude 子进程已结束但未写出有效产物（{_RESULT_FILENAME}）；"
-            f"已自动续跑 {data.get('resume_attempt', 0)} 次；末行日志：{tail}"
-        )
+        # 断流与"进程结束但没有产物"都按同一套分流给说法：连不上服务要说检查网络或找管理员，
+        # 不能一律"请重试"（见 engine.core.failure_message）。命中的标志串仍留在 run.log 供运维查。
+        return no_result_reason(self._job_dir(job_id))
 
     def _supervise(self, job_id: Any, proc: subprocess.Popen, timeout: int, attempt: int) -> None:
         """任务监督：超时终止 + 进程结束但无产物时按会话续跑，额度用尽才判 failed。"""
@@ -633,7 +624,7 @@ class GuizangPptEngine(OutputEngine):
                 pass
             self._write_job(
                 job_id, status="timeout", updated_at=_now(), supervisor_pid=None,
-                error=f"生成超时（超过 {timeout} 秒），已终止 claude 子进程",
+                error="生成超时，请重试",
             )
             return
 
@@ -641,9 +632,9 @@ class GuizangPptEngine(OutputEngine):
         if data.get("status") != "running":
             return  # 其它路径已落终态（如 timeout），不覆盖
         if data.get("cancel_requested"):
-            # 用户已撤销：绝不能再 --resume。否则"撤销成功"之后子进程被 supervisor
+            # 用户已取消：绝不能再 --resume。否则"取消成功"之后子进程被 supervisor
             # 亲手拉起来继续烧额度——这个分支就是本钩子存在的理由（ADR-019 决策 5）。
-            self._append_log(job_id, "\n⏹ 已收到撤销，不再续跑\n")
+            self._append_log(job_id, "\n⏹ 已收到取消，不再继续生成\n")
             return
         since = data.get("started_at", 0.0) or 0.0
         if self._artifact_ready(job_id, since):
@@ -664,9 +655,10 @@ class GuizangPptEngine(OutputEngine):
             try:
                 rproc = self._resume_run(job_id, sid, attempt + 1, self._template_file(style))
             except FileNotFoundError:
+                self._append_log(job_id, "\n[error] 续跑未找到 claude CLI（Claude Code 未安装或不在 PATH 中）\n")
                 self._write_job(
                     job_id, status="failed", updated_at=_now(), supervisor_pid=None,
-                    error="续跑失败：未找到 claude CLI（Claude Code 未安装或不在 PATH 中）",
+                    error="生成服务未就绪，请联系管理员",
                 )
                 return
             rlog = open(self._job_dir(job_id) / "run.log", "a", encoding="utf-8")
@@ -727,11 +719,9 @@ class GuizangPptEngine(OutputEngine):
         """
         try:
             html_text = result_file.read_text(encoding="utf-8")
-        except UnicodeDecodeError:
-            return self._guard_reject(job_id, "产物不是合法的 UTF-8 文本，结构校验无法进行（文件可能已损坏）")
-        except OSError as exc:
-            return self._guard_reject(
-                job_id, f"产物文件读取失败，结构校验无法进行（{exc.__class__.__name__}）")
+        except (UnicodeDecodeError, OSError):
+            # 读不出文本/文件损坏：界面只说定档句，异常细节不进界面
+            return self._guard_reject(job_id, "结果文件不完整或已损坏，请重新生成")
 
         verdict = check_and_heal(html_text, closed_pages=len(scan_slides(html_text)))
         if not verdict.ok:
@@ -741,9 +731,9 @@ class GuizangPptEngine(OutputEngine):
         if verdict.healed:
             try:
                 result_file.write_text(verdict.text, encoding="utf-8")
-            except OSError as exc:
+            except OSError:
                 return self._guard_reject(
-                    job_id, f"产物结构自愈后写回失败，未采用修复（{exc.__class__.__name__}）",
+                    job_id, "结果文件修复后未能保存，请重新生成",
                     defects=verdict.healed)
             self._append_log(
                 job_id,
@@ -780,7 +770,7 @@ class GuizangPptEngine(OutputEngine):
         terminated = terminate_tree(data.get("pid"))
         if terminated and data.get("status") == "running":
             self._write_job(
-                job_id, status="failed", error="引擎执行已被终止（cancel）",
+                job_id, status="failed", error="生成已停止",
                 updated_at=_now(), supervisor_pid=None,
             )
         return terminated
@@ -793,7 +783,7 @@ class GuizangPptEngine(OutputEngine):
         p = self._result_path(job_id)
         if p.is_file():
             return str(p)
-        raise FileNotFoundError(f"任务 {job_id} 尚未生成产物")
+        raise FileNotFoundError("该任务还没有结果文件，请等生成完成后下载")
 
     def resume(self, job_id: Any) -> Job:
         """重启中断任务：沿用已落盘的 draft.md 与参数，重新提交同一 job_id。"""
@@ -885,12 +875,13 @@ class GuizangPptEngine(OutputEngine):
         started_at = data.get("started_at", 0)
         elapsed = int(time.time() - started_at) if started_at else 0
         style = (data.get("engine_params") or {}).get("style", "magazine")
+        style_name = _STYLE_UI_LABEL.get(style)
         pages = self.get_pages(job_id)
         return {
             "stage": "generating",
-            "stage_label": f"正在生成 HTML 演示文稿（guizang-ppt-skill · {style}）",
+            "stage_label": f"正在生成网页演示文稿（{style_name}）" if style_name else "正在生成网页演示文稿",
             "pages_generated": len(pages),
             "current_page": pages[-1]["name"] if pages else None,
             "elapsed_seconds": elapsed,
-            "last_log": self._tail_run_log(job_id) or "引擎运行中，暂无输出日志",
+            "last_log": self._tail_run_log(job_id) or "正在生成，请稍候",
         }

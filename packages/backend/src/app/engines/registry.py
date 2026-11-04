@@ -12,9 +12,14 @@
 前端与路由零改动——这是鸭子类型探测，不是按引擎名门控。
 """
 import importlib
+import inspect
 import json
+import logging
+import re
 import sys
 from pathlib import Path
+
+logger = logging.getLogger("decksmith.engines.registry")
 
 # 本文件位于 packages/backend/src/app/engines/registry.py
 # parents[0]=engines [1]=app [2]=src [3]=backend [4]=packages [5]=仓库根
@@ -98,6 +103,32 @@ def implements_hook(target: object, hook: str) -> bool:
     return False
 
 
+def revise_accepts_deck(target: object) -> bool:
+    """引擎的 revise 是否真的接得住**整页清单**（deck：哪几页保留、新增、删除、调顺序）。
+
+    为什么不能只看"实现了 revise"（2026-11-04 真跑抓出来的）：ppt_master 实现了 revise，
+    签名里却没有 deck 参数。界面「保存为新版本」这条通路必须提交整页清单，于是门禁按
+    "有没有实现"放行、用户一点就炸：
+        TypeError: revise() got an unexpected keyword argument 'deck'
+    任务被创建出来再失败，界面上只剩一个看不出原因的报错。
+
+    能力位（svg_edit）与提交门禁统一改看这里，仍然只探测实现、不按引擎名写死（AGENTS 规则 2）。
+    """
+    fn = getattr(target, "revise", None)
+    if fn is None:
+        return False
+    try:
+        params = inspect.signature(fn).parameters
+    except (TypeError, ValueError):        # 拿不到签名（C 实现等）→ 按不支持处理，宁关不误放
+        return False
+    if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()):
+        return True                        # 收 **kwargs 视为能接住
+    deck = params.get("deck")
+    return deck is not None and deck.kind in (
+        inspect.Parameter.KEYWORD_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD
+    )
+
+
 def engine_class(name: str):
     """按注册名取引擎实现类。
 
@@ -129,8 +160,8 @@ def _derive_capabilities(name: str) -> list[str]:
         caps.append("page_preview")
     if implements_hook(engine_cls, CANCEL_HOOK):
         caps.append("cancel")
-    if implements_hook(engine_cls, REVISE_HOOK):
-        caps.append("svg_edit")
+    if implements_hook(engine_cls, REVISE_HOOK) and revise_accepts_deck(engine_cls):
+        caps.append("svg_edit")   # 还要接得住整页清单，否则入口开了也保存不了（见上函数）
     return caps
 
 
@@ -138,44 +169,44 @@ def _derive_capabilities(name: str) -> list[str]:
 ENGINE_REGISTRY = {
     "ppt_master": {
         "name": "ppt_master",
-        "display_name": "PPT Master",
-        "description": "基于 AI Agent 的 PPT 生成引擎，支持多风格/多尺寸",
+        "display_name": "PPT Master 标准版",
+        "description": "PPT Master 标准版生成方式，支持多种风格和画面比例",
         "engine_type": "output",  # 输出引擎
         "params_schema": PPT_MASTER_PARAMS,
     },
     "ppt_master_v6": {
         "name": "ppt_master_v6",
-        "display_name": "PPT Master 6.6",
-        "description": "基于 ppt-master v6.6.0 技能的 PPT 生成引擎，全量支持路由 profile/生成模式/打包结构/画布/备注/动画",
+        "display_name": "PPT Master 6.6 版",
+        "description": "PPT Master 6.6 版生成方式，比标准版多出内容类型、配图来源等可选设置",
         "engine_type": "output",  # 输出引擎
         "params_schema": PPT_MASTER_V6_PARAMS,
     },
     "ppt_master_draft": {
         "name": "ppt_master_draft",
-        "display_name": "默认引擎",
+        "display_name": "PPT Master 快速转草稿",
         "suit_for": "适合已经梳理完成的稿件",
         "description": (
-            "稿件本身已经成型，直接转成草稿，内容和顺序照搬原文，改动最少、不消耗额度。"
-            "支持 word/excel/ppt/pdf/markdown/txt 及网页链接。"
+            "稿件本身已经成型，直接转成草稿，内容和顺序照搬原文，改动最少、不消耗积分。"
+            "支持 Word、Excel、PPT、PDF、Markdown、TXT 和网页链接。"
         ),
         "engine_type": "draft",  # 草稿引擎
         "params_schema": PPT_MASTER_DRAFT_PARAMS,
     },
     "claude_draft": {
         "name": "claude_draft",
-        "display_name": "Claude 引擎",
+        "display_name": "Claude 通读整理",
         "suit_for": "适合整理长篇、混合型稿件",
         "description": (
-            "交 AI 通读后归纳成分章节的草稿大纲，成稿更规整，耗时数分钟并消耗额度。"
-            "单次通读约一万五千字，多份素材合并后超长部分只取头尾、中间不纳入。"
+            "交 AI 通读后归纳成分章节的草稿大纲，成稿更规整，耗时数分钟并消耗积分。"
+            "素材超过一万五千字时，只保留开头和结尾部分。"
         ),
         "engine_type": "draft",  # 草稿引擎
         "params_schema": CLAUDE_DRAFT_PARAMS,
     },
     "guizang_ppt": {
         "name": "guizang_ppt",
-        "display_name": "Guizang HTML PPT",
-        "description": "基于 guizang-ppt-skill 的 HTML 演示文稿引擎，输出单文件网页 PPT",
+        "display_name": "Guizang 网页演示",
+        "description": "生成网页形式的演示文稿，单个文件即可放映",
         "engine_type": "output",  # 输出引擎
         "params_schema": GUIZANG_PPT_PARAMS,
     },
@@ -196,3 +227,62 @@ def list_engines(engine_type: str | None = None) -> list[dict]:
 
 def get_engine_info(name: str) -> dict | None:
     return ENGINE_REGISTRY.get(name)
+
+
+def _param_display_name(key: str, spec: dict) -> str:
+    """给用户看的参数名：取契约 description 第一句（去掉括号注释），截不出就用占位名并记日志。
+
+    与前端 paramLabel 同口径。两端各实现一次，是因为契约才是唯一事实来源，
+    界面文案不靠任何一侧的代码复制。界面上不露英文键名（规则 3），
+    原始键只进日志给运维看。
+    """
+    desc = (spec.get("description") or "").strip()
+    head = re.split(r"[。：]", re.sub(r"（[^）]*）", "", desc), maxsplit=1)[0].strip()
+    if not head:
+        logger.debug("参数 %s 的契约说明截不出中文名，界面按「未命名选项」显示", key)
+        return "未命名选项"
+    return head
+
+
+def _value_display_name(key: str, item: object, spec: dict) -> str:
+    """取值中文名：契约 x-value-labels，取不到用占位名并记日志（界面不露英文原值）。"""
+    labels = spec.get("x-value-labels") or {}
+    display = labels.get(str(item))
+    if display is None:
+        logger.debug("参数 %s 的取值 %r 没有中文名，界面按「未命名选项」显示", key, item)
+        return "未命名选项"
+    return display
+
+
+def find_unavailable_usage(engine: str, params: dict | None) -> list[str]:
+    """提交期复核：这批参数有没有踩到「当前兑现不了」的项。返回给用户看的说明，空表＝没踩到。
+
+    为什么界面置灰之后后端还要拦一道：置灰只挡得住从表单点的人，挡不住直接调接口的请求
+    （ADR-033 决策 3）。判据全部从契约的 `x-unavailable` / `x-unavailable-values` 读，
+    不写死任何引擎名或参数名——所以以后解除标记只改契约，这里的代码不用动。
+
+    **「选了不用」不算踩到**：旁白音频选「关闭」是用户真实的取舍，不做配音本来就做得到，
+    拦它等于连"明确不要"都不许表达。所以只在值确实要求启用时才拒——
+    假值、空值、空列表一律放行（与规则 10 的布尔例外是同一条道理）。
+    """
+    entry = ENGINE_REGISTRY.get(engine) or {}
+    props = (entry.get("params_schema") or {}).get("properties") or {}
+    reasons: list[str] = []
+    for key, value in (params or {}).items():
+        spec = props.get(key) or {}
+        name = _param_display_name(key, spec)
+        whole_reason = spec.get("x-unavailable")
+        if whole_reason:
+            if value is None or value == "" or value is False or value == []:
+                continue
+            reasons.append(f"{name}暂不支持：{whole_reason}")
+            continue
+        banned = spec.get("x-unavailable-values") or {}
+        picked = value if isinstance(value, list) else [value]
+        for item in picked:
+            why = banned.get(str(item))
+            if why:
+                reasons.append(
+                    f"{name}的「{_value_display_name(key, item, spec)}」暂不支持：{why}"
+                )
+    return reasons

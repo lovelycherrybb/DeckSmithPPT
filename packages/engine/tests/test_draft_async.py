@@ -59,4 +59,4 @@ def test_草稿提取抛异常置failed(tmp_path, monkeypatch):
     while eng.status(job_id).value == "running" and time.monotonic() < deadline:
         time.sleep(0.05)
     assert eng.status(job_id).value == "failed"
-    assert "转换炸了" in eng._read_job(job_id)["error"]  # noqa: SLF001
+    assert eng._read_job(job_id)["error"] == "素材未能转换成草稿，请重试"  # noqa: SLF001

@@ -227,9 +227,11 @@ class Scheduler:
             engine = self._engine_for(row.get("engine"))
             if engine is None:
                 # 引擎名已从注册表消失：这条永远等不到人来改，如实判失败，不要挂着
+                logger.warning("任务 %s 的引擎名 %r 已不在注册表，判失败",
+                               job_id[:8], row.get("engine"))
                 self.repo.cas_status(
                     db, job_id, from_status="running", status="failed",
-                    status_detail="生成失败", error=f"引擎不可用：{row.get('engine')}")
+                    status_detail="生成失败", error="该生成方式当前不可用，请稍后重试")
                 stats["finalized"] += 1
                 continue
             try:
@@ -242,7 +244,7 @@ class Scheduler:
                     self._hit_deadline(db, row, engine, stats)
                 else:
                     self.repo.cas_status(db, job_id, from_status="running",
-                                         status_detail=f"引擎执行中（{status.value}）")
+                                         status_detail="正在生成")
                 continue
             self._finalize(db, row, engine, status, stats)
 
@@ -264,10 +266,12 @@ class Scheduler:
         """
         job_id = row["job_id"]
         killed = self._terminate(engine, job_id)
-        note = ("已终止引擎子进程" if killed
-                else "未能终止引擎子进程（该引擎未实现 cancel 钩子）")
+        if killed:
+            extra_error = f"生成超时（超过 {self.timeout_seconds} 秒），已停止"
+        else:
+            extra_error = "已判定超时，但未能停止，请稍后刷新确认"
         self._finalize(db, row, engine, EngineJobStatus.TIMEOUT, stats,
-                       extra_error=f"生成超时（超过 {self.timeout_seconds} 秒），{note}")
+                       extra_error=extra_error)
 
     # ── ③ 认领新的 ──
     def _claim_queued(self, db, stats: dict) -> None:
@@ -297,10 +301,12 @@ class Scheduler:
         job_id = row["job_id"]
         engine = self._engine_for(row.get("engine"))
         if engine is None:
+            logger.warning("任务 %s 的引擎名 %r 已不在注册表，拒绝启动",
+                           job_id[:8], row.get("engine"))
             self.repo.cas_status(
                 db, job_id, from_status="queued", status="failed",
-                status_detail="引擎提交失败", claimed_by=None, claimed_at=None,
-                error=f"引擎不可用：{row.get('engine')}")
+                status_detail="未能开始生成", claimed_by=None, claimed_at=None,
+                error="该生成方式当前不可用，请稍后重试")
             stats["rejected"] += 1
             return
         try:
@@ -331,8 +337,8 @@ class Scheduler:
             # 与搬走之前的行为一致：引擎抛异常就判失败，不退回队列（重试只会再失败一次）
             self.repo.cas_status(
                 db, job_id, from_status="queued", status="failed",
-                status_detail="引擎提交失败", claimed_by=None, claimed_at=None,
-                error=f"引擎提交失败：{exc}")
+                status_detail="未能开始生成", claimed_by=None, claimed_at=None,
+                error=f"未能开始生成：{exc}")
             stats["rejected"] += 1
             logger.warning("任务 %s 引擎提交失败：%s", job_id[:8], exc)
             return
@@ -376,7 +382,7 @@ class Scheduler:
             "result_path": result_path,
         }
         if status != "completed":
-            fields["error"] = extra_error or data.get("error") or "生成失败，详见引擎 run.log"
+            fields["error"] = extra_error or data.get("error") or "生成失败，可重新生成；反复失败请联系管理员"
         # token 消耗：失败/超时的也已烧掉的部分同样如实回填，未上报仍为 NULL（ADR-016）
         usage = self._engine_reported_usage(job_id)
         if usage:

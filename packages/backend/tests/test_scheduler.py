@@ -401,16 +401,16 @@ def test_排队状态明细现算带位序(db):
     eng = FakeEngine()
     svc = JobService(JobRepo(), engine_factory=lambda name: eng)
 
-    assert svc.get(db, "c").status_detail == "排队中 · 前方还有 2 个任务"
-    # 队首不说"前方还有 0 个"，说"即将开始"
-    assert svc.get(db, "a").status_detail == "排队中 · 即将开始"
+    assert svc.get(db, "c").status_detail == "排队中，前面还有 2 个"
+    # 队首不说"前面还有 0 个"，说"即将开始"
+    assert svc.get(db, "a").status_detail == "排队中，即将开始"
 
     # 派生值不污染存储：读取后 DB 里仍是静态原值（None），位序不进库
     assert JobRepo().get(db, "c")["status_detail"] is None
 
     # list 路径同样补齐，且不动 running 行的明细
     listed = {j.job_id: j for j in svc.list(db, limit=50)}
-    assert listed["b"].status_detail == "排队中 · 前方还有 1 个任务"
+    assert listed["b"].status_detail == "排队中，前面还有 1 个"
     assert listed["run"].status_detail is None
 
 
@@ -419,7 +419,7 @@ def test_重试探针保留重试语义(db):
     _mk(db, "rt", status_detail="排队中（重试）")
     svc = JobService(JobRepo(), engine_factory=lambda name: FakeEngine())
     out = svc.get(db, "rt")
-    assert out.status_detail == "排队中（重试） · 即将开始"
+    assert out.status_detail == "排队中（重试），即将开始"
 
 
 def test_队首要分清有无空位(db):
@@ -430,18 +430,18 @@ def test_队首要分清有无空位(db):
     """
     from app.service.jobs import _queued_status_detail as f
 
-    # 拿到占位事实：满了就说"等待空位"，没满才敢说"即将开始"
-    assert f(0, running=2, capacity=2) == "排队中 · 等待空位（2 个正在生成）"
-    assert f(0, running=1, capacity=2) == "排队中 · 即将开始"
-    assert f(0, running=0, capacity=2) == "排队中 · 即将开始"
-    # 没查占位（排在后面时用不上）→ 沿用旧说法，不编造"等待空位"
-    assert f(0) == "排队中 · 即将开始"
+    # 拿到占位事实：满了就说任务已满，没满才敢说"即将开始"
+    assert f(0, running=2, capacity=2) == "排队中，正在生成的任务已满，需等待其中一个结束"
+    assert f(0, running=1, capacity=2) == "排队中，即将开始"
+    assert f(0, running=0, capacity=2) == "排队中，即将开始"
+    # 没查占位（排在后面时用不上）→ 沿用位序说法，不编造"任务已满"
+    assert f(0) == "排队中，即将开始"
     # 排在后面：占位事实不参与，仍然只报前面排队的人数
-    assert f(3, running=2, capacity=2) == "排队中 · 前方还有 3 个任务"
+    assert f(3, running=2, capacity=2) == "排队中，前面还有 3 个"
 
 
-def test_闸满时出参给等待空位(db):
-    """走完整出参链路：2 个 running 占满闸门 + 1 个队首 queued → 文案是"等待空位"。"""
+def test_闸满时出参说明任务已满(db):
+    """走完整出参链路：2 个 running 占满闸门 + 1 个队首 queued → 文案说明任务已满。"""
     eng = FakeEngine()
     svc = JobService(JobRepo(), engine_factory=lambda name: eng)
     _mk(db, "r1", status="running")
@@ -450,7 +450,7 @@ def test_闸满时出参给等待空位(db):
 
     out = svc.get(db, "head")
     assert out.queue_position == 0
-    assert out.status_detail == "排队中 · 等待空位（2 个正在生成）"
+    assert out.status_detail == "排队中，正在生成的任务已满，需等待其中一个结束"
 
 
 def test_有空位时出参给即将开始(db):
@@ -461,7 +461,7 @@ def test_有空位时出参给即将开始(db):
 
     out = svc.get(db, "head")
     assert out.queue_position == 0
-    assert out.status_detail == "排队中 · 即将开始"
+    assert out.status_detail == "排队中，即将开始"
 
 
 def test_单身份未完成任务达上限时提交被拒(db):

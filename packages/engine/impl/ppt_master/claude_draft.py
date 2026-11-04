@@ -104,7 +104,13 @@ class ClaudeDraftEngine(PptMasterEngine):
             # 素材里提取到的标题回填（submit 时还没提取，先占位）
             self._write_job(job_id, title=effective_title, updated_at=_now())
         except Exception as exc:  # noqa: BLE001
-            self._write_job(job_id, status="failed", error=f"草稿素材准备失败：{exc}", updated_at=_now())
+            try:
+                (self._job_dir(job_id) / "run.log").write_text(
+                    f"[draft] 素材准备失败：{exc!r}\n", encoding="utf-8")
+            except OSError:
+                pass
+            self._write_job(job_id, status="failed",
+                            error="素材读取失败，请确认文件内容完整后重试", updated_at=_now())
             return
         self._run_claude_draft(job_id, prompt)
 
@@ -224,11 +230,18 @@ class ClaudeDraftEngine(PptMasterEngine):
                 cwd=str(_PPT_MASTER_DIR),
             )
         except subprocess.TimeoutExpired:
-            self._write_job(job_id, status="timeout", error=f"草稿生成超时（>{_CLAUDE_DRAFT_TIMEOUT}s）",
+            self._write_job(job_id, status="timeout", error="草稿生成超时，请重试或减少素材篇幅",
                             updated_at=_now())
             return
         except FileNotFoundError:
-            self._write_job(job_id, status="failed", error="未找到 claude CLI",
+            # 技术细节只进日志；界面统一说「生成服务未就绪」
+            try:
+                (job_dir / "run.log").write_text(
+                    "[error] 未找到 claude CLI（Claude Code 未安装或不在 PATH 中）\n",
+                    encoding="utf-8")
+            except OSError:
+                pass
+            self._write_job(job_id, status="failed", error="生成服务未就绪，请联系管理员",
                             updated_at=_now())
             return
 
@@ -263,11 +276,11 @@ class ClaudeDraftEngine(PptMasterEngine):
                 updated_at=_now(),
             )
         else:
-            detail = (proc.stderr or proc.stdout or "").strip()[:300]
+            # 失败原文（stderr/stdout 片段）已写进上方 run.log，界面只说定档句
             self._write_job(
                 job_id,
                 status="failed",
-                error=f"claude 草稿生成失败（exit={proc.returncode}）：{detail}",
+                error="草稿整理失败，请重试；反复失败请联系管理员",
                 token_usage=token_usage,
                 updated_at=_now(),
             )
@@ -283,11 +296,11 @@ class ClaudeDraftEngine(PptMasterEngine):
         elapsed = int(time.time() - started_at) if started_at else 0
         return {
             "stage": "drafting",
-            "stage_label": "AI 正在理解素材并生成结构化草稿（claude）",
+            "stage_label": "AI 正在理解素材并生成草稿",
             "pages_generated": 0,
             "elapsed_seconds": elapsed,
             "current_page": None,
-            "last_log": "Claude 正在总结素材要点，通常 1-3 分钟完成",
+            "last_log": "AI 正在阅读素材并整理要点，通常需要数分钟",
         }
 
     def status(self, job_id: Any) -> EngineJobStatus:

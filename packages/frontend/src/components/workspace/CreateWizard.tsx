@@ -108,9 +108,9 @@ export default function CreateWizard({ draftEngines, currentProjectId, onSubmitt
         (accumulated) => setStreamHint(accumulated)
       );
       setTitle(finalTitle);
-      messageApi.success(`AI 拟题：${finalTitle}`);
+      messageApi.success(`AI 已生成标题：${finalTitle}`);
     } catch (e) {
-      messageApi.error(e instanceof Error ? e.message : 'AI 拟题失败');
+      messageApi.error(e instanceof Error ? e.message : 'AI 生成标题失败');
     } finally {
       setSuggesting(false);
       setStreamHint('');
@@ -145,7 +145,7 @@ export default function CreateWizard({ draftEngines, currentProjectId, onSubmitt
       // 当前项目已失效（被删，或退出登录后归属不再可见）。后端按"不泄露存在性"回 404，
       // 这句原文用户读不懂，而且他会对着同一个已死的项目反复点提交——就地切回新建并说清楚。
       if (e instanceof ApiError && e.status === 404 && currentProjectId) {
-        messageApi.warning('当前项目已失效，已切回新建——请重新提交');
+        messageApi.warning('当前项目已不可用，已切换为新建，请重新提交');
         onProjectInvalid?.();
       } else {
         messageApi.error(e instanceof Error ? e.message : '提交失败');
@@ -199,7 +199,7 @@ export default function CreateWizard({ draftEngines, currentProjectId, onSubmitt
                       {uploading ? '正在上传…' : '点击或拖拽文件到此处'}
                     </p>
                     <p className="ant-upload-hint" style={{ fontSize: 12 }}>
-                      支持多选、可多次追加 · TXT / MD / DOCX / PDF
+                      支持多选、可多次追加，格式为 TXT / MD / DOCX / PDF
                     </p>
                   </Upload.Dragger>
                   {uploadedFiles.length > 0 && (
@@ -229,7 +229,7 @@ export default function CreateWizard({ draftEngines, currentProjectId, onSubmitt
                         </div>
                       ))}
                       <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-                        已上传 {uploadedFiles.length} 个文件，可继续追加，提交时一起交给引擎
+                        已上传 {uploadedFiles.length} 个文件，可继续添加，生成时将一并处理
                       </span>
                     </div>
                   )}
@@ -261,11 +261,11 @@ export default function CreateWizard({ draftEngines, currentProjectId, onSubmitt
                   说明文字又和标签同权重，读下来是一整片。这里拉开组距，说明改用 extra
                   （走 globals.css 的 .ant-form-item-extra 次级文字色），组内紧、组间松。 */}
               <Form.Item
-                label="草稿引擎"
+                label="草稿生成方式"
                 style={{ marginBottom: 30 }}
                 extra={
                   <div style={{ fontSize: 13, lineHeight: 1.75, marginTop: 6 }}>
-                    {draftEngines.find((e) => e.name === (draftEngine || draftEngines[0]?.name))?.description || '不同引擎理解素材的方式不同'}
+                    {draftEngines.find((e) => e.name === (draftEngine || draftEngines[0]?.name))?.description || '不同生成方式整理的详略不同'}
                   </div>
                 }
               >
@@ -294,11 +294,11 @@ export default function CreateWizard({ draftEngines, currentProjectId, onSubmitt
               </Form.Item>
               {currentProjectId ? null : (
               <Form.Item
-                label="标题（将作为新项目名称）"
+                label="标题"
                 style={{ marginBottom: 30 }}
                 extra={
                   <div style={{ fontSize: 13, lineHeight: 1.75, marginTop: 6 }}>
-                    首次生成会自动创建项目；可让 AI 拟题，留空则由引擎从素材自动拟定
+                    首次生成会自动创建项目；可交由 AI 生成标题，未填写时系统会依据素材自动拟定
                   </div>
                 }
               >
@@ -306,8 +306,8 @@ export default function CreateWizard({ draftEngines, currentProjectId, onSubmitt
                   placeholder={
                     suggesting
                       ? streamHint
-                        ? `✍ AI 正在拟题：${streamHint}`
-                        : 'AI 正在通读文件，准备拟题…'
+                        ? `AI 正在生成标题：${streamHint}`
+                        : 'AI 正在阅读文件，准备生成标题…'
                       : '例如：产品发布会介绍'
                   }
                   value={title}
@@ -315,7 +315,7 @@ export default function CreateWizard({ draftEngines, currentProjectId, onSubmitt
                   enterButton={
                     <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       <Sparkles size={14} />
-                      拟题
+                      AI 生成标题
                     </span>
                   }
                   loading={suggesting}
@@ -330,7 +330,7 @@ export default function CreateWizard({ draftEngines, currentProjectId, onSubmitt
                   loading={submitting}
                   onClick={handleSubmit}
                 >
-                  提交草稿任务
+                  开始生成草稿
                 </Button>
               </div>
             </Form>
@@ -338,7 +338,7 @@ export default function CreateWizard({ draftEngines, currentProjectId, onSubmitt
               type="info"
               showIcon
               style={{ marginTop: 26 }}
-              message="提交后引擎会理解素材并生成结构化草稿，通常几秒到几十秒完成。"
+              message="开始生成后，系统会读取素材并整理为草稿，通常需要数分钟。"
             />
           </>
         )}

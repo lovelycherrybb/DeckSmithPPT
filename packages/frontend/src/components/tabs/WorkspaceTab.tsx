@@ -111,7 +111,7 @@ export default function WorkspaceTab({ initialProjectId = null }: Props) {
   }, [currentProjectId]);
 
   useEffect(() => {
-    listEngines().then(setEngines).catch(() => messageApi.error('获取引擎列表失败'));
+    listEngines().then(setEngines).catch(() => messageApi.error('生成方式列表加载失败，请刷新页面重试'));
     refreshProjects().then(() => refreshDrafts());
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -178,7 +178,7 @@ export default function WorkspaceTab({ initialProjectId = null }: Props) {
     (job: JobWithProgress) => {
       setActiveKey('jobs');
       refreshJobs();
-      messageApi.success(`输出任务已提交：${job.job_id.slice(0, 8)}`);
+      messageApi.success('已开始生成，稍后可在「生成任务」查看进度');
     },
     [refreshJobs, messageApi]
   );
@@ -187,10 +187,10 @@ export default function WorkspaceTab({ initialProjectId = null }: Props) {
     async (jobId: string) => {
       try {
         const job = await retryJob(jobId);
-        messageApi.success(`重试任务已创建：${job.job_id.slice(0, 8)}`);
+        messageApi.success('已重新提交生成');
         refreshJobs();
       } catch (e) {
-        messageApi.error(e instanceof Error ? e.message : '重试失败');
+        messageApi.error(e instanceof Error ? e.message : '重新生成未成功，请稍后重试');
       }
     },
     [refreshJobs, messageApi]
@@ -203,7 +203,7 @@ export default function WorkspaceTab({ initialProjectId = null }: Props) {
         messageApi.success('已取消');
         refreshJobs();
       } catch (e) {
-        messageApi.error(e instanceof Error ? e.message : '取消失败');
+        messageApi.error(e instanceof Error ? e.message : '取消未成功，请稍后重试');
       }
     },
     [refreshJobs, messageApi]
@@ -247,7 +247,7 @@ export default function WorkspaceTab({ initialProjectId = null }: Props) {
   const currentProject = projects.find((p) => p.project_id === currentProjectId);
 
   const subtabs = [
-    { key: 'create', label: '创建向导', icon: Wand2, badge: 0 },
+    { key: 'create', label: '新建演示', icon: Wand2, badge: 0 },
     { key: 'drafts', label: '草稿任务', icon: FileText, badge: draftBadgeCount },
     { key: 'jobs', label: '生成任务', icon: Rocket, badge: outputJobsCount },
     { key: 'presentations', label: '演示文件库', icon: FolderOpen, badge: presentations.length },
@@ -281,10 +281,9 @@ export default function WorkspaceTab({ initialProjectId = null }: Props) {
         {currentProject ? (
           <>
             <span className="name">{currentProject.project_name}</span>
-            <span className="id">{currentProject.project_id.slice(0, 8)}</span>
           </>
         ) : (
-          <span style={{ color: 'var(--text-muted)' }}>未关联（提交时自动创建）</span>
+          <span style={{ color: 'var(--text-muted)' }}>未选择，提交时自动创建</span>
         )}
       </div>
 

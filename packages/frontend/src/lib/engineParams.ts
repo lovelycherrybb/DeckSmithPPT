@@ -8,54 +8,23 @@ import type { EngineInfo } from '@/lib/api';
 
 export const PARAM_LABELS: Record<string, string> = {
   style: '视觉风格',
-  mode: '叙事模式',
-  format: '画布尺寸',
+  mode: '内容结构',
+  format: '输出用途',
   notes: '演讲备注',
   animation: '动画',
-  content_style: '内容风格',
+  content_style: '内容类型',
 };
 
-export const PARAM_ENUM_LABELS: Record<string, Record<string, string>> = {
-  style: {
-    'swiss-minimal': '瑞士极简风',
-    'soft-rounded': '圆角柔和风',
-    glassmorphism: '毛玻璃风',
-    'dark-tech': '深色科技风',
-    blueprint: '蓝图线稿风',
-    editorial: '杂志编辑风',
-    'photo-editorial': '摄影编辑风',
-    'data-journalism': '数据新闻风',
-    brutalist: '粗野主义',
-    chalkboard: '黑板手绘风',
-    'ink-notes': '墨水笔记风',
-    'ink-wash': '水墨风',
-    memphis: '孟菲斯风',
-    'paper-cut': '剪纸风',
-    'pixel-art': '像素风',
-    'sketch-notes': '速写笔记风',
-    'vintage-poster': '复古海报风',
-    zine: '小杂志拼贴风',
-  },
-  mode: {
-    auto: '自动',
-    pyramid: '金字塔',
-    narrative: '叙事',
-    instructional: '教学',
-    showcase: '展示',
-    briefing: '简报',
-  },
-  format: {
-    ppt169: 'PPT 16:9',
-    ppt43: 'PPT 4:3',
-    xiaohongshu: '小红书',
-    moments: '朋友圈/IG',
-    story: '竖屏故事',
-    wechat: '公众号头图',
-    banner: '横版横幅',
-    a4: 'A4 打印',
-  },
-  animation: { none: '关', auto: '自动' },
-};
+/**
+ * 选项中文名的来源已统一到契约 `x-value-labels`（AGENTS 规则 9：契约是唯一事实来源）。
+ *
+ * 原先这里另存一份 style/format 表，改契约界面不变——两份名字早晚漂移，
+ * 且后端拼「暂不支持」句子时只能回落英文原值（用户会看到 swiss-minimal、ppt169）。
+ * 2026-11-03 文案改造时把 18 个风格名与 8 个尺寸名收进 docs/contracts/engine.schema.json，
+ * 本表清空，只留作契约漏标时的兜底位置；tests/contract/engine_param_wiring_test.py
+ * 会检查每个枚举参数都拿得到中文名，漏标即判红，不靠这张表兜住。
+ */
+export const PARAM_ENUM_LABELS: Record<string, Record<string, string>> = {};
 
 /**
  * 引擎参数在契约里的声明（本文件只用到这些字段）。
@@ -76,6 +45,10 @@ export interface ParamSpec {
   'x-presets'?: unknown;
   'x-when'?: Record<string, string[]>;
   'x-value-labels'?: Record<string, string>;
+  /** 整项当前兑现不了的原因（中文，给用户看）。见 ADR-033 */
+  'x-unavailable'?: string;
+  /** 只有其中某几个取值兑现不了：取值 → 中文原因。见 ADR-033 */
+  'x-unavailable-values'?: Record<string, string>;
   items?: { enum?: unknown[] };
 }
 
@@ -144,7 +117,7 @@ export function paramGroup(value: { 'x-group'?: string }): 'advanced' | 'normal'
 }
 
 /** 参数所属小节名（契约 `x-section`）；没标的归到兜底小节，绝不因漏标而不渲染 */
-export const FALLBACK_SECTION = '其它参数';
+export const FALLBACK_SECTION = '其他设置';
 export function paramSection(value: { 'x-section'?: string }): string {
   return value['x-section'] || FALLBACK_SECTION;
 }
@@ -182,3 +155,26 @@ export function paramItemEnum(value: { items?: { enum?: unknown[] } }): unknown[
 
 /** 与基础表单字段（目标页数等）重复、不该出现在「引擎参数」区的键 */
 export const BASE_DUP_PARAM_KEYS = ['source', 'files', 'prompt', 'pages'];
+
+/**
+ * 参数当前兑现不了时，原因文案一律从契约读（`x-unavailable` / `x-unavailable-values`）。
+ *
+ * 为什么不按参数名在前端写死：本仓已定口径「前端不硬编码引擎参数、照 schema 动态渲染，
+ * 改契约即改界面」，写 `key === 'narration_audio'` 等于给这条规矩开个常例
+ * （ADR-033 决策 1）。
+ * 为什么不用现成的 `x-hidden`：那条是「纯工程旋钮，压根不给用户看」；今天要的是相反
+ * 形状——让用户看得见功能存在、但明确知道现在选不了（ADR-033 决策 2）。
+ */
+export function paramUnavailableReason(spec?: ParamSpec): string | undefined {
+  return spec?.['x-unavailable'] || undefined;
+}
+
+/** 取值级的「暂不支持」对照表：取值 → 中文原因。没标就是空表，整项照常可选 */
+export function paramUnavailableValues(spec?: ParamSpec): Record<string, string> {
+  return spec?.['x-unavailable-values'] || {};
+}
+
+/** 哪些取值被标了暂不支持（后端拒绝逻辑要覆盖的就是这一组，见 ADR-033 决策 5） */
+export function unavailableValueKeys(spec?: ParamSpec): string[] {
+  return Object.keys(paramUnavailableValues(spec));
+}

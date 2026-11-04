@@ -77,8 +77,8 @@ class SettingField:
 GROUPS: tuple[dict[str, str], ...] = (
     {
         "id": "scheduler",
-        "label": "任务调度",
-        "description": "同时生成几个任务、排队怎么限、多久轮询一次。改动对下一个任务即生效。",
+        "label": "任务排队",
+        "description": "同时生成几个任务、排队数量上限、状态刷新频率。保存后下一个任务生效。",
     },
 )
 
@@ -96,7 +96,7 @@ FIELDS: tuple[SettingField, ...] = (
         # 现在三个输出引擎恰好都靠 claude 子进程跑，将来接别的引擎（或本地模型、
         # 其他 agent CLI）时这句话依然成立。把实现细节写进语义里，换引擎就成假话。
         description="同一时刻允许处于生成中的任务条数，超出的任务在队列里等待。"
-                    "调大会同时多吃机器内存与模型额度、也可能触发网关限流；调小则更多时间在排队。",
+                    "调大更费内存和积分，也可能被 AI 服务限制请求；调小则任务更多时间在排队。",
     ),
     SettingField(
         key="max_unfinished_per_identity",
@@ -107,20 +107,20 @@ FIELDS: tuple[SettingField, ...] = (
         min=1,
         max=200,
         default=get_max_unfinished_per_identity,
-        description="同一个人（登录用户或访客）排队中 + 生成中的任务总数上限，超了提交会被拒。"
-                    "用来防止一个人把队列占满。",
+        description="同一个账号排队中与生成中的任务总数上限，超过后无法提交。"
+                    "用于防止单个账号占满队列。",
     ),
     SettingField(
         key="scheduler_interval_seconds",
         group="scheduler",
-        label="调度轮询间隔",
+        label="状态刷新间隔",
         type="int",
         unit="秒",
         min=1,
         max=300,
         default=lambda: int(get_scheduler_interval()),
-        description="调度器每隔多久认领一次任务、刷新一次状态。调小任务启动更快、空转更频繁；"
-                    "调大更省资源，但排队任务被认领的延迟会变长。",
+        description="系统检查新任务与刷新状态的时间间隔。数值越小任务启动越快，系统检查越频繁。"
+                    "调大更省资源，但排队任务开始处理的等待时间会变长。",
     ),
     SettingField(
         key="job_timeout_seconds",
@@ -131,8 +131,8 @@ FIELDS: tuple[SettingField, ...] = (
         min=60,
         max=86400,
         default=get_job_timeout_seconds,
-        description="从任务真正开始生成算起，超过这个时间就判超时并终止其引擎子进程。"
-                    "复杂 PPT 动辄十几分钟，不要设得太短。",
+        description="从任务开始生成算起，超过该时间自动停止。"
+                    "复杂演示通常需要十几分钟，不要设置过短。",
     ),
 )
 
@@ -151,7 +151,7 @@ def validate(field: SettingField, raw: Any) -> tuple[bool, Any, str | None]:
     if field.type == "bool":
         if isinstance(raw, bool):
             return True, raw, None
-        return False, None, f"「{field.label}」需要 true/false"
+        return False, None, f"「{field.label}」只能选择开启或关闭"
 
     if field.type in ("string", "secret"):
         if not isinstance(raw, str) or not raw.strip():
@@ -160,13 +160,15 @@ def validate(field: SettingField, raw: Any) -> tuple[bool, Any, str | None]:
 
     # int
     if isinstance(raw, bool) or not isinstance(raw, (int, float, str)):
-        return False, None, f"「{field.label}」需要整数"
+        return False, None, f"「{field.label}」须为整数"
     try:
         value = int(str(raw).strip())
     except ValueError:
-        return False, None, f"「{field.label}」需要整数"
+        return False, None, f"「{field.label}」须为整数"
     if field.min is not None and value < field.min:
-        return False, None, f"「{field.label}」不能小于 {field.min}{field.unit or ''}"
+        return False, None, (f"「{field.label}」不能小于 {field.min} {field.unit}"
+                             if field.unit else f"「{field.label}」不能小于 {field.min}")
     if field.max is not None and value > field.max:
-        return False, None, f"「{field.label}」不能大于 {field.max}{field.unit or ''}"
+        return False, None, (f"「{field.label}」不能大于 {field.max} {field.unit}"
+                             if field.unit else f"「{field.label}」不能大于 {field.max}")
     return True, value, None

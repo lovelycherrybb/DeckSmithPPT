@@ -22,10 +22,10 @@ export const TOKEN_USAGE_PARTS: ReadonlyArray<{
   key: keyof Omit<TokenUsage, 'total_tokens'>;
   label: string;
 }> = [
-  { key: 'input_tokens', label: '新增输入' },
-  { key: 'cache_creation_input_tokens', label: '写缓存' },
-  { key: 'cache_read_input_tokens', label: '读缓存' },
-  { key: 'output_tokens', label: '输出' },
+  { key: 'input_tokens', label: '本次新内容' },
+  { key: 'cache_creation_input_tokens', label: '缓存写入' },
+  { key: 'cache_read_input_tokens', label: '缓存读取' },
+  { key: 'output_tokens', label: '生成内容' },
 ];
 
 export const UNRECORDED = '未记录';
@@ -40,13 +40,14 @@ const CREDITS_DIVISOR = 1_000_000;
  */
 export function formatCredits(tokens: number): string {
   const rounded = Math.round((tokens / CREDITS_DIVISOR) * 100) / 100;
-  if (rounded === 0) return tokens === 0 ? '0 积分' : '<0.01 积分';
+  if (rounded === 0) return tokens === 0 ? '0 积分' : '不足 0.01 积分';
   return `${rounded} 积分`;
 }
 
 /** 列表行用的短句：「消耗 3.47 积分」；未记录时「消耗 未记录」 */
 export function tokenUsageSummary(usage: TokenUsage | null | undefined): string {
-  return `消耗 ${tokenUsageTotal(usage)}`;
+  const total = tokenUsageTotal(usage);
+  return total === UNRECORDED ? '本次用量未统计到' : `消耗 ${total}`;
 }
 
 /** 总数（或「未记录」），供详情/列表分别取用 */
@@ -63,7 +64,7 @@ export function tokenUsagePartRows(
     ...TOKEN_USAGE_PARTS.map(({ key, label }) => ({
       key,
       label,
-      value: usage[key] == null ? '未回报' : formatCredits(usage[key] as number),
+      value: usage[key] == null ? '未统计到' : formatCredits(usage[key] as number),
     })),
     { key: 'total_tokens', label: '合计', value: tokenUsageTotal(usage) },
   ];

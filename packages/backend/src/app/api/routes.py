@@ -2,6 +2,7 @@
 
 与 openapi.yaml 保持一致：支持项目管理、草稿版本管理、演示文件管理、安全检查。
 """
+import logging
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,6 +27,8 @@ from ..core.schemas import (
     PresentationOut, SubPresentationOut, ReviseRequest, SecurityCheckRequest, SecurityCheckResult,
     SuggestTitleRequest, SuggestTitleResult, JobPages, VersionOut, ClaimProjectRequest,
 )
+
+logger = logging.getLogger("decksmith.api")
 
 router = APIRouter()
 repo = JobRepo()
@@ -127,7 +130,8 @@ async def api_upload(file: UploadFile = File(...)):
     dest = dest_dir / safe_name
     # 双保险：确认落点仍在 uploads 目录内
     if not dest.resolve().is_relative_to(dest_dir.resolve()):
-        raise HTTPException(status_code=400, detail="非法文件名")
+        logger.warning("上传文件名消毒后越界：%r", file.filename)
+        raise HTTPException(status_code=400, detail="文件名无法使用，请重命名后重新上传")
     dest.write_bytes(data)
     return UploadResponse(upload_id=upload_id, filename=safe_name, path=str(dest), size=len(data))
 
@@ -147,7 +151,7 @@ def api_suggest_title(body: SuggestTitleRequest):
     if len(body.files) == 1:
         stem = Path(body.files[0].filename).stem.strip()
         if not stem:
-            raise HTTPException(status_code=400, detail="文件名无效")
+            raise HTTPException(status_code=400, detail="文件名无法使用，请重命名后重新上传")
         return SuggestTitleResult(title=stem[:60])
 
     # 多文件：读内容交给 Agent
@@ -161,7 +165,8 @@ def api_suggest_title(body: SuggestTitleRequest):
             p = Path(f.path)
             # 路径必须位于 uploads 目录内（防任意读）
             if not p.resolve().is_relative_to((JOBS_ROOT / "uploads").resolve()):
-                raise HTTPException(status_code=400, detail=f"非法文件路径：{f.filename}")
+                logger.warning("拟题请求引用了上传区之外的文件：%r", f.path)
+                raise HTTPException(status_code=400, detail="该文件不在本次上传范围内，请重新上传")
             if p.exists():
                 try:
                     raw = p.read_bytes()[:20000]
@@ -178,13 +183,15 @@ def api_suggest_title(body: SuggestTitleRequest):
     for name, content in zip(filenames, contents):
         passed, reason = check_draft_content(content)
         if not passed:
-            raise HTTPException(status_code=400, detail=f"文件「{name}」安全检查不通过：{reason}")
+            logger.info("拟题安全检查未通过（文件 %r）：%s", name, reason)
+            raise HTTPException(status_code=400, detail=f"这份内容疑似包含{reason}，请修改后重新提交")
 
     from ..agents.title_suggester import suggest_title_with_claude
     try:
         title = suggest_title_with_claude(filenames, contents)
     except (RuntimeError, ValueError) as exc:
-        raise HTTPException(status_code=502, detail=f"Agent 拟题失败：{exc}")
+        logger.warning("拟题失败：%s", exc, exc_info=True)
+        raise HTTPException(status_code=502, detail="AI 生成标题失败，请重试")
 
     return SuggestTitleResult(title=title)
 
@@ -233,7 +240,7 @@ def api_delete_project(project_id: str, db: Session = Depends(get_db),
     if result == "not_found":
         raise HTTPException(status_code=404, detail="项目不存在")
     if result == "owned":
-        raise HTTPException(status_code=409, detail="该项目已归属真实用户，本期不允许删除")
+        raise HTTPException(status_code=409, detail="该项目已属于某个账号，当前版本不支持删除")
     return {"ok": True}
 
 
@@ -368,9 +375,9 @@ def api_download(job_id: str, db: Session = Depends(get_db), identity: Identity 
     _guard_job(db, job_id, identity)
     row = repo.get(db, job_id)
     if row is None or not row.get("result_path"):
-        raise HTTPException(status_code=404, detail="任务不存在或未生成产物")
+        raise HTTPException(status_code=404, detail="找不到该任务，或它还没有生成结果")
     if not Path(row["result_path"]).exists():
-        raise HTTPException(status_code=404, detail="产物文件不存在或已被清理")
+        raise HTTPException(status_code=404, detail="生成的文件已过期或被删除，请重新生成")
     result_path = row["result_path"]
     # 按引擎真实产物后缀决定下载文件名与 MIME，避免把 HTML 伪装成 pptx
     suffix = Path(result_path).suffix.lower()
@@ -485,17 +492,19 @@ def api_modify_draft(draft_id: str, body: ModifyDraftRequest, db: Session = Depe
 
     # 安全检查：草稿内容 + 用户提示词都过一遍（提示词注入防护）
     from ..core.security import check_draft_content
-    for text, label in ((content, "草稿内容"), (body.prompt, "修改指令")):
+    for text, label in ((content, "草稿内容"), (body.prompt, "修改要求")):
         passed, reason = check_draft_content(text)
         if not passed:
-            raise HTTPException(status_code=400, detail=f"{label}安全检查不通过：{reason}")
+            logger.info("修改草稿安全检查未通过（%s）：%s", label, reason)
+            raise HTTPException(status_code=400, detail=f"{label}疑似包含{reason}，请修改后重新提交")
 
     # 调 Claude Code 修改（同步，纯文本改写，不跳过权限模式）
     from ..agents.draft_modifier import modify_draft_with_claude
     try:
         modified, _ = modify_draft_with_claude(content, body.prompt)
     except (RuntimeError, ValueError) as exc:
-        raise HTTPException(status_code=502, detail=f"Agent 修改失败：{exc}")
+        logger.warning("草稿修改失败：%s", exc, exc_info=True)
+        raise HTTPException(status_code=502, detail="AI 修改未成功，请重试")
 
     # 不保存，仅返回修改后的内容（用户确认后另调保存接口）
     from datetime import datetime, timezone
@@ -516,9 +525,9 @@ def api_restore_draft_version(draft_id: str, body: dict, db: Session = Depends(g
     _guard_draft(db, draft_id, identity)
     version = body.get("version")
     if not version:
-        raise HTTPException(status_code=400, detail="缺少 version 参数")
+        raise HTTPException(status_code=400, detail="缺少要还原的版本")
     if not re.match(r"^[0-9]{14}$", str(version)):
-        raise HTTPException(status_code=400, detail="version 必须是 14 位数字（年月日时分秒）")
+        raise HTTPException(status_code=400, detail="草稿版本号格式不正确")
     return service.restore_draft_version(db, draft_id, str(version))
 
 
@@ -534,7 +543,7 @@ def api_save_draft_version(draft_id: str, body: SaveDraftVersionRequest, db: Ses
     # 检查版本冲突
     existing = draft_version_repo.get(db, draft_id, version)
     if existing is not None:
-        raise HTTPException(status_code=409, detail="版本冲突（同一秒内已保存过）")
+        raise HTTPException(status_code=409, detail="刚刚已经保存过一次，请稍后再保存")
 
     # 创建新版本（含契约必填的 draft_path）
     now = datetime.now(timezone.utc).isoformat()
@@ -578,6 +587,7 @@ def api_check_draft_security(body: SecurityCheckRequest):
     passed, reason = check_draft_content(body.content or "")
     return SecurityCheckResult(
         passed=passed,
-        reason=reason,
+        reason=(None if passed or reason is None
+                else f"内容疑似包含：{reason}，请修改后重新提交"),
         rules_checked=list_rules(),
     )

@@ -47,9 +47,12 @@ def test_markers_命中判定():
     assert looks_like_api_error(None) is False
 
 
-def test_ppt_master_家族实现_revise_派生_svg_edit():
-    """步骤3b：ppt_master 与 ppt_master_v6 实现 revise 钩子 → svg_edit 能力位自动派生
-    （前端据此才显示「修改」）。guizang 未实现 → 不该有 svg_edit。三处同步的"派生"端。"""
+def test_svg_edit_能力要求接得住整页清单():
+    """逐页修改入口只给"实现了 revise 且签名接得住整页清单（deck）"的引擎。
+
+    2026-11-04 真跑实测：ppt_master 实现了 revise 但不接 deck，门禁按"有没有实现"放行，
+    用户点「保存为新版本」当场 TypeError。故判据改为看真实签名——仍只探测实现，不按引擎名写死。
+    """
     import sys
     from pathlib import Path
 
@@ -59,9 +62,16 @@ def test_ppt_master_家族实现_revise_派生_svg_edit():
     from app.engines.registry import _derive_capabilities, implements_hook, REVISE_HOOK
     from app.engines.registry import engine_class
 
-    for name in ("ppt_master", "ppt_master_v6"):
-        assert implements_hook(engine_class(name), REVISE_HOOK) is True, name
-        assert "svg_edit" in _derive_capabilities(name), name
+    from app.engines.registry import revise_accepts_deck
+
+    # 6.6 版：实现 revise 且接得住整页清单 → 点亮入口
+    assert implements_hook(engine_class("ppt_master_v6"), REVISE_HOOK) is True
+    assert revise_accepts_deck(engine_class("ppt_master_v6")) is True
+    assert "svg_edit" in _derive_capabilities("ppt_master_v6")
+    # 标准版：实现了 revise，但签名不接 deck → 不得点亮入口（否则用户一点就炸）
+    assert implements_hook(engine_class("ppt_master"), REVISE_HOOK) is True, "前提：它确实实现了 revise"
+    assert revise_accepts_deck(engine_class("ppt_master")) is False, "标准版不接整页清单，入口不该开"
+    assert "svg_edit" not in _derive_capabilities("ppt_master")
     # 草稿类引擎（ppt_master_draft / claude_draft 均继承输出引擎）必须显式退出 revise，
     # 否则会被误标 svg_edit（实测 /api/engines 曾泄漏给 claude_draft）。
     for name in ("guizang_ppt", "ppt_master_draft", "claude_draft"):

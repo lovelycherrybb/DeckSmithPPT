@@ -15,9 +15,11 @@ import {
   Table,
   Tabs,
   Tag,
+  Tooltip,
   message,
 } from 'antd';
 import {
+  CircleHelp,
   Eye,
   FolderOpen,
   Pencil,
@@ -187,14 +189,38 @@ export default function HistoryTab({ onOpenInWorkspace }: Props) {
     { title: '草稿数量', dataIndex: 'draft_count', width: 90, align: 'center' as const },
     { title: '演示文件数量', dataIndex: 'presentation_count', width: 110, align: 'center' as const },
     {
-      title: '进行中任务',
+      title: (
+        <Space size={4}>
+          进行中任务
+          <Tooltip
+            placement="top"
+            trigger={['hover', 'click']}
+            styles={{ root: { maxWidth: 320 } }}
+            title="排队中的任务和正在生成的任务都算在内"
+          >
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                color: 'var(--text-muted)',
+                cursor: 'help',
+              }}
+            >
+              <CircleHelp size={13} strokeWidth={2} />
+            </span>
+          </Tooltip>
+        </Space>
+      ),
       dataIndex: 'running_task_count',
       width: 110,
       align: 'center' as const,
       // 后端口径是"未结束 = 排队中 + 生成中"（契约 running_task_count 描述），
-      // 所以列名不能说"运行中"——那会把只在排队的任务也算进来却让人以为在跑
+      // 所以列名不能说"运行中"——那会把只在排队的任务也算进来却让人以为在跑。
+      // 这个口径由列标题旁的问号提示承载：格子里只写数量。原先格子里写整串
+      // 「N 个任务排队或生成中」，实测宽 133，列只有 110，向右溢出 31 像素压到
+      // 「创建时间」的日期上——table-layout: fixed 不会为内容撑列（2026-11-05 实测）。
       render: (n: number) =>
-        n > 0 ? <Tag color="gold">{n} 个任务排队或生成中</Tag> : <span style={{ color: 'var(--text-muted)' }}>0</span>,
+        n > 0 ? <Tag color="gold">{n} 个</Tag> : <span style={{ color: 'var(--text-muted)' }}>0</span>,
     },
     { title: '创建时间', dataIndex: 'created_at', width: 150, render: (t: string) => formatDate(t) },
     { title: '更新时间', dataIndex: 'updated_at', width: 150, render: (t: string) => formatDate(t) },

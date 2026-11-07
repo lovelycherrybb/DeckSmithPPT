@@ -34,6 +34,9 @@ class AgentSession:
     task: asyncio.Task | None = None
     proc: Any = None  # 在跑的子进程（Popen），供 cancel 按进程组击杀
     cancelled: bool = False  # 用户已请求取消：worker 收尾时别再覆盖状态/错误
+    #: 发起者身份格（`ownership.space_key` 算出来的短串）。取消时靠它认主人（ADR-035 决策 4）；
+    #: None 表示这次处理没认出身份，只有管理员能取消。
+    owner_key: str | None = None
 
 
 class SessionManager:
@@ -42,13 +45,15 @@ class SessionManager:
     def __init__(self):
         self._sessions: dict[str, AgentSession] = {}
     
-    def create_session(self, agent_type: str, kind: str) -> AgentSession:
-        """创建新会话。"""
+    def create_session(self, agent_type: str, kind: str,
+                       owner_key: str | None = None) -> AgentSession:
+        """创建新会话。owner_key 是发起者的身份格，取消时认主人用（ADR-035 决策 4）。"""
         session_id = str(uuid.uuid4())
         session = AgentSession(
             session_id=session_id,
             agent_type=agent_type,
             kind=kind,
+            owner_key=owner_key,
         )
         self._sessions[session_id] = session
         return session
@@ -79,14 +84,20 @@ class SessionManager:
         if session:
             session.proc = proc
 
-    def request_cancel(self, session_id: str) -> bool:
+    def request_cancel(self, session_id: str, caller_key: str | None = None,
+                       is_admin: bool = False) -> bool:
         """用户取消在跑会话：置 cancelled + 杀进程组 + failed/已取消。幂等。
 
         会话不存在返回 False；已结束返回 True（空操作）。cancelled 标记让 worker
         收尾时不再用"子进程退出码非 0"覆盖掉"已取消"这个真实原因。
+
+        **认主人**（ADR-035 决策 4）：不是发起者本人且不是管理员，同样返回 False——
+        调用方按"找不到这次处理记录"回，不告诉对方"确实有这条任务"。
         """
         session = self._sessions.get(session_id)
         if session is None:
+            return False
+        if not is_admin and session.owner_key != caller_key:
             return False
         if session.status != "running":
             return True

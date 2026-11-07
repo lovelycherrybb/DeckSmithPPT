@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import time
 import uuid
@@ -30,6 +31,8 @@ from ..core.schemas import (
     DeckRequest, JobOut, ProgressInfo, PageItem, JobPages, ReviseRequest,
 )
 from ..engines.registry import find_unavailable_usage, implements_hook, revise_accepts_deck
+
+logger = logging.getLogger("decksmith.service.jobs")
 
 # ── 状态集合（ADR-018 消费侧口径）──────────────────────────────────
 # 全仓库判"任务是否还在推进"一律走这两个集合，**不要写 status != 'running'**：
@@ -189,6 +192,50 @@ class JobService:
         )
         return new_project_id
 
+    # ── 素材内容检查（ADR-035 决策 1）──
+    @staticmethod
+    def _check_material(content: str | None, sources: list[dict], identity) -> None:
+        """把**真正要交给 AI 的文字**过一遍内容检查，不通过当场 400。
+
+        覆盖范围如实划三条线，多一句都不吹：
+
+        1. 正文 `content`——含从草稿版本取回的正文（输出引擎任务走这条）。
+        2. `type=text` 的素材全文。
+        3. `type=file_path` 的素材里**能按文本读出来的那些**（txt/md/csv 等）。
+
+        没覆盖的：docx/pdf 由引擎在任务里转成文字（`ppt_master/engine.py:384`），
+        提交时手上只有原始字节，这一层读不到；`type=url` 不在提交时抓取。
+        补齐那条路要在引擎拼提示词处设共用卡口，写在 ADR-035 遗留 1，
+        **做完之前不许把本函数叙述成"生成路径已全面检查"**。
+
+        `identity` 为 None 是内部调用与旧单测（不带上传区归属），只查 1、2 两项。
+        """
+        from ..core.security import check_draft_content
+        from ..core import uploads as upload_area
+
+        checks: list[tuple[str, str]] = []
+        if content:
+            checks.append((content, "素材内容"))
+        for s in sources or []:
+            stype, value = s.get("type", ""), s.get("value", "")
+            if not value:
+                continue
+            if stype == "text":
+                checks.append((value, "文本素材"))
+            elif stype == "file_path" and identity is not None:
+                # 越界引用别人的上传文件，read_material_text 里按 400 拒掉
+                text = upload_area.read_material_text(value, identity)
+                if text:
+                    checks.append((text, f"文件「{Path(value).name}」"))
+
+        for text, label in checks:
+            passed, reason = check_draft_content(text)
+            if not passed:
+                logger.info("生成提交内容检查未通过（%s）：%s", label, reason)
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{label}疑似包含{reason}，请修改后重新提交")
+
     # ── submit：提交任务 = 校验 + 入库排队，然后立刻返回 ──
     def submit(self, db: Session, req: DeckRequest, identity=None) -> JobOut:
         """受理任务：只负责校验与入库（status=queued），**不启动引擎**。
@@ -252,6 +299,10 @@ class JobService:
         # 一律走引擎默认值。identity 为 None（内部调用/旧单测）不门控。
         if not ownership.can_edit_engine_params(identity):
             engine_params = {}
+
+        # 素材交给 AI 之前过一遍内容检查（ADR-035 决策 1）。
+        # 这条以前不存在：检查只装在 agent 入口，而生成引擎跑 AI 时是"不用问，直接干"。
+        self._check_material(content, sources, identity)
 
         # 确保项目存在
         project_id = self._ensure_project(db, req.project_id, self._default_project_name(req), identity)

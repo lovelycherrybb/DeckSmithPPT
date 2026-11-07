@@ -6,7 +6,6 @@ import logging
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-import uuid
 
 from fastapi import APIRouter, Depends, File, UploadFile, HTTPException
 from fastapi.responses import FileResponse, Response
@@ -15,7 +14,7 @@ from sqlalchemy.orm import Session
 from ..core.db import SessionLocal, JOBS_ROOT
 from ..core.config import get_app_version
 from ..core.auth import Identity, get_identity, require_admin
-from ..core import ownership
+from ..core import ownership, uploads
 from ..repository.jobs import ProjectRepo, JobRepo, DraftRepo, DraftVersionRepo, PresentationRepo, SubPresentationRepo
 from ..repository.users import UserRepo
 from ..service.jobs import JobService, sanitize_filename
@@ -25,7 +24,7 @@ from ..core.schemas import (
     DeckRequest, JobOut, EngineInfo, UploadResponse,
     ProjectOut, ProjectDetailOut, DraftOut, DraftDetailOut, DraftVersionOut, ModifyDraftRequest, SaveDraftVersionRequest,
     PresentationOut, SubPresentationOut, ReviseRequest, SecurityCheckRequest, SecurityCheckResult,
-    SuggestTitleRequest, SuggestTitleResult, JobPages, VersionOut, ClaimProjectRequest,
+    JobPages, VersionOut, ClaimProjectRequest,
 )
 
 logger = logging.getLogger("decksmith.api")
@@ -116,84 +115,28 @@ MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50MB
 
 
 @router.post("/api/upload", response_model=UploadResponse)
-async def api_upload(file: UploadFile = File(...)):
-    """上传源文件（docx/pdf 等）。文件名经消毒，防路径穿越。"""
-    upload_id = uuid.uuid4().hex
-    dest_dir = JOBS_ROOT / "uploads" / upload_id
-    dest_dir.mkdir(parents=True, exist_ok=True)
+async def api_upload(file: UploadFile = File(...),
+                     identity: Identity = Depends(get_identity)):
+    """上传源文件（docx/pdf 等）。文件名经消毒，落点按身份分格（ADR-035 决策 2）。
+
+    要身份，但**不要求登录**：访客令牌在进页面时由 GET /api/auth/me 顺带下发，
+    所以从界面来的试用请求一定带着它；不带令牌说明不是从界面来的。
+    """
+    # 身份格与拒绝句式都由上传区一处定（uploads.own_dir 里判），本路由不再自己写一遍——
+    # 两处各写一套＝改一处漏一处，漏的那处永远绿。
+    uploads.own_dir(identity)
     data = await file.read()
     if len(data) > MAX_UPLOAD_BYTES:
-        import shutil
-        shutil.rmtree(dest_dir, ignore_errors=True)
         raise HTTPException(status_code=413, detail=f"文件超过 {MAX_UPLOAD_BYTES // 1024 // 1024}MB 上限")
     safe_name = sanitize_filename(file.filename)
-    dest = dest_dir / safe_name
-    # 双保险：确认落点仍在 uploads 目录内
-    if not dest.resolve().is_relative_to(dest_dir.resolve()):
-        logger.warning("上传文件名消毒后越界：%r", file.filename)
-        raise HTTPException(status_code=400, detail="文件名无法使用，请重命名后重新上传")
-    dest.write_bytes(data)
+    upload_id, dest = uploads.store(identity, data, safe_name)
     return UploadResponse(upload_id=upload_id, filename=safe_name, path=str(dest), size=len(data))
 
 
-@router.post("/api/engines/suggest-title", response_model=SuggestTitleResult)
-def api_suggest_title(body: SuggestTitleRequest):
-    """为演示文件拟标题。
-
-    规则：
-    - 单个文件：直接用文件名（去扩展名），不调 Agent
-    - 多个文件：Agent 通读各文件内容后拟一个概括性标题（与 modify 同模式）
-    """
-    if not body.files:
-        raise HTTPException(status_code=400, detail="文件列表不能为空")
-
-    # 单文件：文件名即标题（去扩展名），秒回
-    if len(body.files) == 1:
-        stem = Path(body.files[0].filename).stem.strip()
-        if not stem:
-            raise HTTPException(status_code=400, detail="文件名无法使用，请重命名后重新上传")
-        return SuggestTitleResult(title=stem[:60])
-
-    # 多文件：读内容交给 Agent
-    from ..core.security import check_draft_content
-    filenames: list[str] = []
-    contents: list[str] = []
-    for f in body.files:
-        filenames.append(f.filename)
-        content = ""
-        if f.path:
-            p = Path(f.path)
-            # 路径必须位于 uploads 目录内（防任意读）
-            if not p.resolve().is_relative_to((JOBS_ROOT / "uploads").resolve()):
-                logger.warning("拟题请求引用了上传区之外的文件：%r", f.path)
-                raise HTTPException(status_code=400, detail="该文件不在本次上传范围内，请重新上传")
-            if p.exists():
-                try:
-                    raw = p.read_bytes()[:20000]
-                    # 去掉二进制内容（docx/pdf 等）：剥控制字符和 null byte
-                    # null byte 会让 subprocess 参数直接报错
-                    content = raw.decode(encoding="utf-8", errors="ignore")
-                    content = "".join(ch for ch in content if ch >= " " or ch in "\n\r\t")
-                    content = content.strip()[:5000]
-                except OSError:
-                    content = ""
-        contents.append(content)
-
-    # 安全门禁：文件内容过检查，通过才交给 Agent
-    for name, content in zip(filenames, contents):
-        passed, reason = check_draft_content(content)
-        if not passed:
-            logger.info("拟题安全检查未通过（文件 %r）：%s", name, reason)
-            raise HTTPException(status_code=400, detail=f"这份内容疑似包含{reason}，请修改后重新提交")
-
-    from ..agents.title_suggester import suggest_title_with_claude
-    try:
-        title = suggest_title_with_claude(filenames, contents)
-    except (RuntimeError, ValueError) as exc:
-        logger.warning("拟题失败：%s", exc, exc_info=True)
-        raise HTTPException(status_code=502, detail="AI 生成标题失败，请重试")
-
-    return SuggestTitleResult(title=title)
+# 已下线：POST /api/engines/suggest-title（ADR-035 决策 3）。
+# 拟题的唯一入口是 POST /api/agent/execute（kind=suggest_title）——那条带身份、带内容检查；
+# 这条既不看身份又能读上传区文件，留着就是一个没人用却开着的口子。
+# 实测前端、脚本与部署目录都没有调用方，只有契约里还挂着路径，故一并删除。
 
 
 # ===== 项目相关 =====

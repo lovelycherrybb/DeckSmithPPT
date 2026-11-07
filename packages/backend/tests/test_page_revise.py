@@ -25,19 +25,20 @@ def test_注册了_revise_pages():
 
 def test_缺_pages_或缺_指令_报400():
     with pytest.raises(HTTPException) as e:
-        _handle_revise_pages(AgentExecuteRequest(kind="revise_pages", instruction="改红"), None)
+        _handle_revise_pages(AgentExecuteRequest(kind="revise_pages", instruction="改红"), None, None)
     assert e.value.status_code == 400
     with pytest.raises(HTTPException) as e:
         _handle_revise_pages(
             AgentExecuteRequest(kind="revise_pages",
-                                pages=[AgentExecutePage(index=1, content="<svg/>")]), None)
+                                pages=[AgentExecutePage(index=1, content="<svg/>")]), None, None)
     assert e.value.status_code == 400
 
 
 def test_handler_产出上下文与安全对():
     req = AgentExecuteRequest(kind="revise_pages", instruction="标题改红",
         pages=[AgentExecutePage(index=1, content="<svg><text>hi</text></svg>", name="01.svg")])
-    instr, context, checks = _handle_revise_pages(req, None)
+    # 第三个参数是身份：本 kind 用不上，但四个 kind 签名统一（ADR-035 决策 2 的口径）
+    instr, context, checks = _handle_revise_pages(req, None, None)
     assert instr == "标题改红"
     assert json.loads(context)[0]["index"] == 1
     assert len(checks) == 2  # 指令 + 1 页内容都过安全检查

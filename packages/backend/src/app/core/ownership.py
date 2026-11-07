@@ -29,6 +29,24 @@ def create_stamp(identity) -> dict:
     return {}
 
 
+def space_key(identity) -> str | None:
+    """把身份折算成一个**可用于目录名与归属比对**的短串（ADR-035 决策 2、4）。
+
+    集中一处的理由与 `create_stamp` 一样：上传区按身份分格、会话归属比对，
+    两处若各写一套 `u_`/`v_` 前缀规则，改一处就漏一处——漏的那处永远绿。
+
+    返回 None 表示"没有可归属的身份"（无令牌访客、或内部调用不带身份），
+    调用方必须显式处理，不许把它当成"放行"的默认值。
+    """
+    if identity is None:
+        return None
+    if identity.user is not None:
+        return f"u_{identity.user.user_id}"
+    if identity.visitor_id:
+        return f"v_{identity.visitor_id}"
+    return None
+
+
 def can_edit_engine_params(identity) -> bool:
     """是否可编辑引擎参数：仅 vip/管理员；普通用户与访客不可。identity=None（内部/旧测）放行。"""
     if identity is None:

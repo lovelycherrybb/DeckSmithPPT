@@ -890,7 +890,12 @@ paths:
   /api/upload:
     post:
       summary: 上传源文件（docx/pdf 等）
-      description: '上传用户本地文件，后端存到 jobs_root/uploads/<upload_id>/，返回服务器路径。
+      description: '上传用户本地文件，后端存到 jobs_root/uploads/<身份段>/<upload_id>/，返回服务器路径。
+
+        身份段由调用者身份折算（登录用户 u_用户号、试用 v_访客令牌），
+        **只有上传者本人能在后续请求里引用自己那一格**（ADR-035 决策 2）。
+
+        要身份，但不要求登录：试用令牌在进入页面时由 GET /api/auth/me 顺带下发。
 
         该路径作为 DeckRequest.sources[].value（type=file_path）提交，引擎再用 source_to_md 转成草稿。
 
@@ -914,6 +919,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/UploadResponse'
+        '401':
+          description: 没有可归属的身份（既未登录也没有试用令牌），文件不落地
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '413':
+          description: 文件超过上限
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /api/agent/execute:
     post:
@@ -1057,6 +1074,8 @@ paths:
         - status：状态更新（如"正在分析内容..."）
         - result：清洗后的最终结果（JSON 文本，前端并入草稿）
         - ping：长同步调用期间的心跳续命（防前端 60s 看门狗误杀，data 为空）
+        - session：本轮 AI 工具的对话标识（仅 kind=chat 下发，data 为字符串）。
+          界面存着它，下一轮作为 resume_id 带回，即可接着上一轮说（ADR-034 决策 5）
         - error：错误信息
         - done：完成信号
 
@@ -1094,7 +1113,10 @@ paths:
       summary: 取消在跑的 Agent 会话
       description: '杀掉会话的 Agent 子进程（按进程组，claude 的 fork 子树一并清理）并把会话
         置为 failed/已取消。幂等：对已结束（completed/failed）的会话是空操作、同样返回 ok；
-        会话不存在返回 404。取消后 SSE 流会收到 error 事件（data=已取消），前端据此收尾。'
+        会话不存在返回 404。取消后 SSE 流会收到 error 事件（data=已取消），前端据此收尾。
+
+        **只认主人**（ADR-035 决策 4）：会话创建时记下发起者的身份格，取消时比对；
+        不是本人且不是管理员，同样按 404「找不到这次处理记录」回——不告诉对方这条任务确实存在。'
       operationId: cancelAgentSession
       parameters:
       - name: session_id
@@ -1122,39 +1144,9 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
-  /api/engines/suggest-title:
-    post:
-      deprecated: true
-      summary: '（已废弃）拟演示文件标题'
-      description: '已废弃：改用 POST /api/agent/execute（kind=suggest_title）。
-        过渡期保留兼容，后续版本删除。
-        '
-      operationId: suggestTitle
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/SuggestTitleRequest'
-      responses:
-        '200':
-          description: 拟题结果
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SuggestTitleResult'
-        '400':
-          description: 输入格式不正确，或内容未通过安全检查
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '502':
-          description: Agent 调用失败
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
+  # 已下线：POST /api/engines/suggest-title（ADR-035 决策 3）。
+  # 拟题的唯一入口是 POST /api/agent/execute（kind=suggest_title）——带身份、带内容检查。
+  # 实测前端、脚本与部署目录都没有调用方，留着就是一个无身份却能读上传区文件的口子。
 
   # ===== 项目相关 =====
   /api/projects:
@@ -1299,6 +1291,10 @@ paths:
     post:
       summary: 提交生成任务
       description: '用户上传文件后调用，创建草稿引擎任务或输出引擎任务。
+
+        受理前先把要交给 AI 的文字过一遍内容检查（正文、文本素材、能按文本读出来的上传文件），
+        不通过当场 400，句子与 agent 入口同一句（ADR-035 决策 1）。
+        边界：docx/pdf 由引擎在任务里转成文字，那一层这一趟查不到，见 ADR-035 遗留 1。
 
         任务类型区分：
         - 草稿引擎任务：调用草稿生成引擎，将用户文件转化为 Markdown 草稿
@@ -2820,41 +2816,10 @@ components:
           description: 原始文件名
         path:
           type: string
-          description: 服务器存储路径（jobs_root/uploads/<upload_id>/<filename>），作为 sources[].value 提交
+          description: 服务器存储路径（jobs_root/uploads/<身份段>/<upload_id>/<filename>），作为 sources[].value 提交
         size:
           type: integer
           description: 字节数
-
-    SuggestTitleRequest:
-      type: object
-      description: '（已废弃，过渡兼容）拟题请求——改用 AgentExecuteRequest（kind=suggest_title）'
-      required:
-      - files
-      properties:
-        files:
-          type: array
-          description: 已上传文件列表（来自 UploadResponse）
-          items:
-            type: object
-            required:
-            - filename
-            properties:
-              filename:
-                type: string
-                description: 文件名
-              path:
-                type: string
-                description: 上传返回的服务器路径（后端读内容给 Agent）
-
-    SuggestTitleResult:
-      type: object
-      description: '（已废弃，过渡兼容）拟题结果——改用 AgentExecuteResult'
-      required:
-      - title
-      properties:
-        title:
-          type: string
-          description: Agent 拟定的演示文件标题
 
     AgentExecuteRequest:
       type: object
@@ -2868,7 +2833,8 @@ components:
           - modify_draft
           - suggest_title
           - revise_pages
-          description: 任务类型（白名单，后端注册；新增能力需同步契约）。revise_pages=对话式改稿，只回传改好的逐页内容，不落库、不出版本
+          - chat
+          description: 任务类型（白名单，后端注册；新增能力需同步契约）。revise_pages=对话式改稿，只回传改好的逐页内容，不落库、不出版本；chat=模型对话，把这句话原样交给 AI 工具并逐字回它的回答（ADR-034，仅管理员）
         draft_id:
           type: string
           description: 'modify_draft：草稿标识'
@@ -2878,7 +2844,11 @@ components:
           pattern: '^[0-9]{14}$'
         prompt:
           type: string
-          description: 'modify_draft：用户的修改提示词'
+          description: 'modify_draft：用户的修改提示词；chat：这一轮要说的话，原样交给 AI 工具'
+        resume_id:
+          type: string
+          description: 'chat：上一轮 AI 工具返回的对话标识（来自流式 session 事件）。
+            首轮不带＝开一段新对话；带上＝接着上一轮说。服务端不保存它，由界面持有（ADR-034 决策 5）'
         files:
           type: array
           description: 'suggest_title：已上传文件列表'
@@ -2988,13 +2958,22 @@ components:
           type: string
           enum:
           - text
+          - thinking
+          - progress
           - status
+          - result
+          - ping
+          - session
           - error
           - done
-          description: 事件类型
+          description: '事件类型。取值以本枚举为准（实现里出现这里没列的类型即为漂移）：
+            text=正文片段，thinking=思考片段，progress=子进程原始输出片段（改稿补丁协议用），
+            status=状态描述，result=清洗后的最终结果，ping=心跳续命，
+            session=本轮对话标识（仅 kind=chat，界面存着它下一轮带回，ADR-034 决策 5），
+            error=错误信息，done=完成信号'
         data:
           type: string
-          description: 事件数据（text 为输出片段，status 为状态描述，error 为错误信息，done 为完成信号）
+          description: 事件数据（含义随 type 而定，见 type 说明）
 
     # ===== 用户与鉴权相关 =====
     UserRole:

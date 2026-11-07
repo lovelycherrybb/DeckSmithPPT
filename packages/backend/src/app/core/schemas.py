@@ -326,22 +326,6 @@ class UploadResponse(BaseModel):
     size: int
 
 
-class SuggestTitleFile(BaseModel):
-    """拟题请求里的单个文件。"""
-    filename: str
-    path: str | None = None
-
-
-class SuggestTitleRequest(BaseModel):
-    """Agent 拟题请求（对齐 openapi.yaml 的 SuggestTitleRequest）。"""
-    files: list[SuggestTitleFile]
-
-
-class SuggestTitleResult(BaseModel):
-    """Agent 拟题结果（对齐 openapi.yaml 的 SuggestTitleResult）。"""
-    title: str
-
-
 class AgentExecuteFile(BaseModel):
     """Agent 执行请求里的单个文件（suggest_title 用）。"""
     filename: str
@@ -364,6 +348,7 @@ class AgentExecuteRequest(BaseModel):
     files: list[AgentExecuteFile] = Field(default_factory=list)
     pages: list[AgentExecutePage] = Field(default_factory=list)  # revise_pages：待改页基线
     instruction: str | None = None  # revise_pages：本轮改稿指令
+    resume_id: str | None = None  # chat：上一轮返回的对话标识，带上＝接着说（ADR-034 决策 5）
 
 
 class AgentExecuteResult(BaseModel):
@@ -390,7 +375,7 @@ class AgentSessionStatus(BaseModel):
 
 class AgentSessionStreamEvent(BaseModel):
     """Agent 会话流式输出事件（对齐 openapi.yaml 的 AgentSessionStreamEvent）。"""
-    type: str  # text / status / error / done
+    type: str  # text / thinking / progress / status / result / ping / session / error / done
     data: str
 
 

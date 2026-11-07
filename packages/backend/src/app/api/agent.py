@@ -3,6 +3,7 @@
 kind 白名单（与契约 AgentExecuteRequest.kind 枚举一致）：
 - modify_draft：草稿版本内容 + 修改指令 → 改写后的 Markdown
 - suggest_title：文件列表 → 标题（单文件直接文件名，多文件 Agent 概括）
+- chat：模型对话（仅管理员，ADR-034）——这句话原样交给 AI 工具，逐字回它的回答
 
 统一流程：参数校验 → 组装上下文（草稿内容/文件内容）→ 安全门禁 → Agent 调用 → 文本返回。
 新增 kind：在 _KINDS 注册 + 写模板函数 + 契约同步枚举。
@@ -16,7 +17,9 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from ..core.db import SessionLocal, JOBS_ROOT
+from ..core.auth import Identity, get_identity
+from ..core import ownership, uploads
+from ..core.db import SessionLocal
 from ..core.schemas import (
     AgentExecuteRequest, AgentExecuteResult,
     AgentSessionResponse, AgentSessionStatus, AgentSessionStreamEvent,
@@ -41,12 +44,13 @@ def _get_db():
 
 # ── 上下文读取 ──
 
-def _read_uploaded_text(path: str) -> str:
-    """读上传文件内容并剥控制字符（docx/pdf 等二进制的 null byte 会让 subprocess 报错）。"""
-    p = Path(path)
-    if not p.resolve().is_relative_to((JOBS_ROOT / "uploads").resolve()):
-        logger.warning("Agent 请求引用了上传区之外的文件：%r", path)
-        raise HTTPException(status_code=400, detail="该文件不在本次上传范围内，请重新上传")
+def _read_uploaded_text(path: str, identity) -> str:
+    """读上传文件内容并剥控制字符（docx/pdf 等二进制的 null byte 会让 subprocess 报错）。
+
+    路径必须落在**调用者自己那一格**上传区里（ADR-035 决策 2）。以前只验"在 uploads 里面"，
+    等于任何人可以引用任何人塞进去的文件。
+    """
+    p = uploads.guard(path, identity)
     if not p.exists():
         return ""
     try:
@@ -57,9 +61,11 @@ def _read_uploaded_text(path: str) -> str:
         return ""
 
 
-# ── kind 实现：返回 (给 Agent 的上下文描述, prompt 模板渲染函数, 需要安全检查的文本列表) ──
+# ── kind 实现：统一签名 (req, db, identity)，返回 (交给 AI 的话, 上下文, 需要安全检查的文本列表) ──
+# identity 只有拟题用得上（要把它折成上传区身份格，ADR-035 决策 2）；其余实现忽略它，
+# 但签名统一，将来谁要加归属判断不必再改一遍调用方。
 
-def _handle_modify_draft(req: AgentExecuteRequest, db: Session) -> tuple[str, str, list[tuple[str, str]]]:
+def _handle_modify_draft(req: AgentExecuteRequest, db: Session, identity) -> tuple[str, str, list[tuple[str, str]]]:
     """草稿修改：返回 (修改指令, 草稿内容, 安全检查对)"""
     if not req.draft_id:
         raise HTTPException(status_code=400, detail="缺少要修改的草稿")
@@ -80,7 +86,7 @@ def _handle_modify_draft(req: AgentExecuteRequest, db: Session) -> tuple[str, st
     return req.prompt, content, checks
 
 
-def _handle_suggest_title(req: AgentExecuteRequest, db: Session) -> tuple[str, str, list[tuple[str, str]]]:
+def _handle_suggest_title(req: AgentExecuteRequest, db: Session, identity) -> tuple[str, str, list[tuple[str, str]]]:
     """拟题：多文件返回 (指令, 组装上下文, 检查对)；单文件在路由层直接短路。"""
     files = req.files or []
     if not files:
@@ -89,7 +95,7 @@ def _handle_suggest_title(req: AgentExecuteRequest, db: Session) -> tuple[str, s
     contents = []
     checks: list[tuple[str, str]] = []
     for f in files:
-        content = _read_uploaded_text(f.path) if f.path else ""
+        content = _read_uploaded_text(f.path, identity) if f.path else ""
         contents.append(content)
         if content:
             checks.append((content, f"文件「{f.filename}」"))
@@ -100,7 +106,7 @@ def _handle_suggest_title(req: AgentExecuteRequest, db: Session) -> tuple[str, s
     return "为这份演示文件拟一个标题", context, checks
 
 
-def _handle_revise_pages(req: AgentExecuteRequest, db: Session) -> tuple[str, str, list[tuple[str, str]]]:
+def _handle_revise_pages(req: AgentExecuteRequest, db: Session, identity) -> tuple[str, str, list[tuple[str, str]]]:
     """对话式改稿：给定若干页 SVG + 指令，返回改好的页（只回传、不落库/不出版本）。
 
     context 存 pages 的 JSON（异步分支据此重建 prompt）；安全检查覆盖指令与每页内容。
@@ -126,19 +132,51 @@ def _handle_revise_pages(req: AgentExecuteRequest, db: Session) -> tuple[str, st
     return instruction, _json.dumps(pages, ensure_ascii=False), checks
 
 
+def _handle_chat(req: AgentExecuteRequest, db: Session, identity) -> tuple[str, str, list[tuple[str, str]]]:
+    """模型对话：这句话原样交给 AI 工具，不加任何模板包装（ADR-034）。
+
+    与另外三种 kind 的区别就一条：它们把用户的话塞进写好的提示词模板里，
+    这里**没有模板**——用户说什么，工具听到什么。这正是它危险的地方，
+    所以门禁与二次确认在调用方（`_guard_admin_only` 与界面）上，不在这里。
+    上下文为空：接着上一轮说靠 `resume_id` 让工具自己认这条线，服务端不留记录。
+    """
+    message = (req.prompt or "").strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="请先写要问的内容")
+    return message, "", [(message, "对话内容")]
+
+
 _KINDS = {
     "modify_draft": _handle_modify_draft,
     "suggest_title": _handle_suggest_title,
     "revise_pages": _handle_revise_pages,
+    "chat": _handle_chat,
 }
+
+#: 只有管理员能使唤的能力：这类 kind 把用户原话直接交给 AI 工具，
+#: 而工具在服务器上能读写文件、执行命令（实测见 ADR-034 凭据 3、4），
+#: 所以不给 vip、不给普通用户、也不给未登录访客。
+_ADMIN_ONLY_KINDS = frozenset({"chat"})
+
+
+def _guard_admin_only(req: AgentExecuteRequest, identity: Identity) -> None:
+    """能力级门禁：后端独立复核，不靠界面藏按钮（AGENTS.md 规则 8 同一条纪律）。"""
+    if req.kind not in _ADMIN_ONLY_KINDS:
+        return
+    if identity.user is None:
+        raise HTTPException(status_code=401, detail="请先登录")
+    if identity.user.role != "manager":
+        raise HTTPException(status_code=403, detail="仅管理员可操作")
 
 
 @router.post("/api/agent/execute", response_model=AgentExecuteResult)
-def api_agent_execute(req: AgentExecuteRequest, db: Session = Depends(_get_db)):
+def api_agent_execute(req: AgentExecuteRequest, db: Session = Depends(_get_db),
+                      identity: Identity = Depends(get_identity)):
     """Agent 文本处理统一入口。"""
     handler = _KINDS.get(req.kind)
     if handler is None:
         raise HTTPException(status_code=400, detail="不支持的操作类型")
+    _guard_admin_only(req, identity)
 
     # suggest_title 单文件短路：文件名即标题，不调 Agent（与 vc_design 规则一致）
     if req.kind == "suggest_title" and req.files and len(req.files) == 1:
@@ -147,7 +185,7 @@ def api_agent_execute(req: AgentExecuteRequest, db: Session = Depends(_get_db)):
             raise HTTPException(status_code=400, detail="文件名无法使用，请重命名后重新上传")
         return AgentExecuteResult(text=stem[:60], kind=req.kind)
 
-    instruction, context, checks = handler(req, db)
+    instruction, context, checks = handler(req, db, identity)
 
     # 安全门禁：所有输入文本过检查，通过才交给 Agent
     from ..core.security import check_draft_content
@@ -167,10 +205,13 @@ def api_agent_execute(req: AgentExecuteRequest, db: Session = Depends(_get_db)):
             text, _ = modify_draft_with_claude(context, instruction)
         elif req.kind == "suggest_title":
             filenames = [f.filename for f in (req.files or [])]
-            contents = [_read_uploaded_text(f.path) if f.path else "" for f in (req.files or [])]
+            contents = [_read_uploaded_text(f.path, identity) if f.path else "" for f in (req.files or [])]
             text = suggest_title_with_claude(filenames, contents)
         elif req.kind == "revise_pages":
             text = revise_pages_with_claude(_json.loads(context), instruction)
+        elif req.kind == "chat":
+            # 对话要一句一句逐字回，一次性返回这条路不适合它：界面走的是流式入口
+            raise HTTPException(status_code=400, detail="对话请使用「发起对话」入口，不支持一次性返回")
         else:
             raise HTTPException(status_code=400, detail="该操作尚未上线")
     except (RuntimeError, ValueError) as exc:
@@ -184,13 +225,15 @@ def api_agent_execute(req: AgentExecuteRequest, db: Session = Depends(_get_db)):
 # ── 异步 Agent 接口 ──
 
 @router.post("/api/agent/execute-async", response_model=AgentSessionResponse)
-async def api_agent_execute_async(req: AgentExecuteRequest, db: Session = Depends(_get_db)):
+async def api_agent_execute_async(req: AgentExecuteRequest, db: Session = Depends(_get_db),
+                                  identity: Identity = Depends(get_identity)):
     """Agent 文本处理异步接口：立即返回会话ID，后台线程执行。"""
     from ..agents.session_manager import session_manager
 
     handler = _KINDS.get(req.kind)
     if handler is None:
         raise HTTPException(status_code=400, detail="不支持的操作类型")
+    _guard_admin_only(req, identity)
     
     # suggest_title 单文件短路
     if req.kind == "suggest_title" and req.files and len(req.files) == 1:
@@ -198,12 +241,13 @@ async def api_agent_execute_async(req: AgentExecuteRequest, db: Session = Depend
         if not stem:
             raise HTTPException(status_code=400, detail="文件名无法使用，请重命名后重新上传")
         # 直接返回结果，不创建异步会话
-        session = session_manager.create_session("claude", req.kind)
+        session = session_manager.create_session(
+            "claude", req.kind, owner_key=ownership.space_key(identity))
         session_manager.set_result(session.session_id, stem[:60])
         session_manager.update_session_status(session.session_id, "completed")
         return AgentSessionResponse(session_id=session.session_id, agent_type="claude")
     
-    instruction, context, checks = handler(req, db)
+    instruction, context, checks = handler(req, db, identity)
     
     # 安全门禁
     from ..core.security import check_draft_content
@@ -213,8 +257,9 @@ async def api_agent_execute_async(req: AgentExecuteRequest, db: Session = Depend
             logger.info("Agent 安全检查未通过（%s）：%s", label, reason)
             raise HTTPException(status_code=400, detail=f"{label}疑似包含{reason}，请修改后重新提交")
     
-    # 创建会话
-    session = session_manager.create_session("claude", req.kind)
+    # 创建会话：记下发起者的身份格，取消时认主人（ADR-035 决策 4）
+    session = session_manager.create_session(
+        "claude", req.kind, owner_key=ownership.space_key(identity))
 
     # 后台线程执行（不用 asyncio.create_task：uvicorn 长跑后事件循环停摆会导致
     # create_task 静默不执行，会话永远 running、SSE 一个事件都发不出）
@@ -266,20 +311,28 @@ async def api_agent_execute_async(req: AgentExecuteRequest, db: Session = Depend
                 prompt = modify_prompt(context, instruction)
             elif req.kind == "suggest_title":
                 filenames = [f.filename for f in (req.files or [])]
-                contents = [_read_uploaded_text(f.path) if f.path else "" for f in (req.files or [])]
+                contents = [_read_uploaded_text(f.path, identity) if f.path else "" for f in (req.files or [])]
                 prompt = title_prompt(filenames, contents)
+            elif req.kind == "chat":
+                prompt = instruction  # 原话直给，不套模板（ADR-034）
             else:
                 raise RuntimeError("该操作尚未上线")
 
             acc: list[str] = []
             payload: str | None = None
-            for ev in stream_claude_text(prompt):
+            for ev in stream_claude_text(
+                prompt,
+                resume_id=req.resume_id if req.kind == "chat" else None,
+            ):
                 if "delta" in ev:
                     acc.append(ev["delta"])
                     session_manager.append_output(session.session_id, ev["delta"], "text")
                 elif "thinking" in ev:
                     # 思考增量：实时透传，让用户看到 AI 的推理过程
                     session_manager.append_output(session.session_id, ev["thinking"], "thinking")
+                elif "session" in ev:
+                    # 对话标识透给界面：下一轮由界面带回来接着说，服务端不留记录
+                    session_manager.append_output(session.session_id, ev["session"], "session")
                 elif "error" in ev:
                     session_manager.update_session_status(session.session_id, "failed", ev["error"])
                     return
@@ -292,6 +345,10 @@ async def api_agent_execute_async(req: AgentExecuteRequest, db: Session = Depend
             # revise_pages 在函数开头就走了同步特例分支，到这里只剩两种流式 kind
             if req.kind == "suggest_title":
                 cleaned = clean_title(payload)
+            elif req.kind == "chat":
+                # 对话回答原样给：clean_markdown 是给草稿用的（会剥掉非正文包裹），
+                # 用在回答上会把代码块、表格这些模型刻意排出来的东西削掉
+                cleaned = payload
             else:
                 cleaned = clean_markdown(payload)
             session_manager.set_result(session.session_id, cleaned)
@@ -338,11 +395,18 @@ async def api_get_agent_session(session_id: str):
 
 
 @router.post("/api/agent/sessions/{session_id}/cancel")
-async def api_cancel_agent_session(session_id: str):
-    """取消在跑的 Agent 会话：杀进程组 + 置 failed/已取消（幂等，对已结束会话是空操作）。"""
+async def api_cancel_agent_session(session_id: str,
+                                   identity: Identity = Depends(get_identity)):
+    """取消在跑的 Agent 会话：杀进程组 + 置 failed/已取消（幂等，对已结束会话是空操作）。
+
+    只认主人：不是发起者本人且不是管理员，按「找不到这次处理记录」回，
+    不告诉对方这条任务确实存在（ADR-035 决策 4，与项目里既有的归属口径同一句）。
+    """
     from ..agents.session_manager import session_manager
 
-    if not session_manager.request_cancel(session_id):
+    if not session_manager.request_cancel(
+            session_id, caller_key=ownership.space_key(identity),
+            is_admin=bool(identity.is_admin)):
         raise HTTPException(status_code=404, detail="找不到这次处理记录，请重新发起")
     return {"ok": True}
 

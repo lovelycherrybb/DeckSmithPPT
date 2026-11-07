@@ -312,7 +312,7 @@ export async function uploadFile(file: File): Promise<UploadResponse> {
 }
 
 // ── Agent 文本能力（统一接口：丢任务给 AI、拿文本回来） ──
-export type AgentKind = 'modify_draft' | 'suggest_title' | 'revise_pages';
+export type AgentKind = 'modify_draft' | 'suggest_title' | 'revise_pages' | 'chat';
 
 export function executeAgent(req: {
   kind: AgentKind;
@@ -322,6 +322,7 @@ export function executeAgent(req: {
   files?: Array<{ filename: string; path?: string }>;
   pages?: Array<{ index: number; name?: string; content: string }>;
   instruction?: string;
+  resume_id?: string;
 }): Promise<{ text: string; kind: string }> {
   return requestJson('/api/agent/execute', {
     method: 'POST',
@@ -394,11 +395,13 @@ export async function executeAgentStream(
     files?: Array<{ filename: string; path?: string }>;
     pages?: Array<{ index: number; name?: string; content: string }>;
     instruction?: string;
+    resume_id?: string;
   },
   onDelta?: (accumulated: string) => void,
   onThinking?: (accumulated: string) => void,
   onProgress?: (accumulated: string) => void,
-  onSession?: (sessionId: string) => void
+  onSession?: (sessionId: string) => void,
+  onResume?: (resumeId: string) => void
 ): Promise<string> {
   const session = await requestJson<{ session_id: string }>('/api/agent/execute-async', {
     method: 'POST',
@@ -445,6 +448,9 @@ export async function executeAgentStream(
           onProgress?.(progAcc);
         } else if (ev.type === 'result') {
           finish(() => resolve(ev.data));
+        } else if (ev.type === 'session') {
+          // 对话标识：交出去存着，下一轮带回去就能接着说（服务端不留这份记录）
+          onResume?.(ev.data);
         } else if (ev.type === 'done') {
           finish(() => resolve(acc));
         } else if (ev.type === 'error') {
@@ -483,6 +489,30 @@ export function suggestTitleStream(
   onDelta?: (accumulated: string) => void
 ): Promise<string> {
   return executeAgentStream({ kind: 'suggest_title', files }, onDelta);
+}
+
+/** 模型对话·一轮（ADR-034，仅管理员）：这句话原样交给 AI 工具，逐字回它的回答。
+ *  resumeId 带上＝接着上一轮说，不带＝开一段新对话；
+ *  onResume 收到本轮的对话标识，界面存着它供下一轮带回——关掉界面即清零。
+ *  onSession 透出这次处理的标识，供「停止」按钮用。 */
+export function chatWithAgent(
+  message: string,
+  resumeId: string | null,
+  handlers: {
+    onDelta?: (accumulated: string) => void;
+    onThinking?: (accumulated: string) => void;
+    onSession?: (sessionId: string) => void;
+    onResume?: (resumeId: string) => void;
+  } = {}
+): Promise<string> {
+  return executeAgentStream(
+    { kind: 'chat', prompt: message, resume_id: resumeId ?? undefined },
+    handlers.onDelta,
+    handlers.onThinking,
+    undefined,
+    handlers.onSession,
+    handlers.onResume
+  );
 }
 
 // ── 任务 ──

@@ -33,7 +33,8 @@ import {
   message,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { KeyRound, Plug, Plus, Save, ToggleRight, Trash2 } from 'lucide-react';
+import { KeyRound, MessageSquare, Plug, Plus, Save, ToggleRight, Trash2 } from 'lucide-react';
+import AgentChatPanel from '@/components/tabs/AgentChatPanel';
 import {
   ApiError,
   activateProvider,  createProvider,
@@ -90,6 +91,8 @@ export default function AgentSettingsPanel() {
 
   // 探针结果
   const [probe, setProbe] = useState<ProviderProbeResult | null>(null);
+  /** 对话面板开关：打开即一段新对话，关掉由面板自己清空（不留记录，ADR-034 决策 5） */
+  const [chatOpen, setChatOpen] = useState(false);
   /** 探测中的配置 id：只让被点的那一行转圈，不能让整表一起转（2026-11-04 龚成指出） */
   const [probingId, setProbingId] = useState<string | null>(null);
   /** 配置文件区默认收起：整屏文字压到一屏标题加一句说明，需要改高级项时才展开 */
@@ -426,6 +429,23 @@ export default function AgentSettingsPanel() {
               <Space style={{ marginTop: 12 }}>
                 <Button type="primary" icon={<Plus size={14} />} onClick={openCreate}>新建配置</Button>
                 <Button icon={<KeyRound size={14} />} onClick={() => { void reload(); }}>刷新</Button>
+                {/* 对话入口挂在卡片上，不挂在某一行配置上：它使唤的是服务器当前生效的这套
+                    AI 工具，与界面里存了几套配置无关（ADR-034）。没配好时当场报错，不假装能聊。 */}
+                <Popconfirm
+                  title="要开始和 AI 对话吗？"
+                  description={
+                    <div style={{ maxWidth: 360, fontSize: 12 }}>
+                      你的原话会直接交给服务器上正在使用的 AI 工具。它能读写服务器上的文件、
+                      执行命令，当前版本无法关闭这些能力。每发一句都会向 AI 服务发起真实请求，
+                      可能消耗积分。这段对话不保存，关闭后清空。
+                    </div>
+                  }
+                  okText="开始对话"
+                  cancelText="取消"
+                  onConfirm={() => setChatOpen(true)}
+                >
+                  <Button icon={<MessageSquare size={14} />}>发起对话</Button>
+                </Popconfirm>
               </Space>
               {lastActivate && lastActivate.length > 0 && (
                 <Alert
@@ -575,6 +595,8 @@ export default function AgentSettingsPanel() {
           </Space>
         )}
       </Modal>
+
+      <AgentChatPanel open={chatOpen} onClose={() => setChatOpen(false)} />
     </div>
   );
 }

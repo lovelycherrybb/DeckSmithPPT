@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Button,
   Card,
+  Drawer,
   Empty,
   Space,
   Spin,
@@ -284,39 +285,38 @@ export default function HistoryTab({ onOpenInWorkspace }: Props) {
         />
       </Card>
 
-      {/* 查看：只读复用工作台面板 */}
-      {viewProjectId && (
-        <Card
-          style={{ marginTop: 16 }}
-          title={
-            <Space>
-              <FolderOpen size={15} color="#8b5cf6" />
-              <span>
-                {viewProject?.project_name || '未命名项目'}
-                <Tag color="default" style={{ marginLeft: 8 }}>
-                  只读
-                </Tag>
-              </span>
-            </Space>
-          }
-          extra={
-            <Space>
-              <Button
-                size="small"
-                type="primary"
-                ghost
-                icon={<Pencil size={13} />}
-                onClick={() => onOpenInWorkspace?.(viewProjectId)}
-              >
-                去编辑
-              </Button>
-              <Button size="small" onClick={() => setViewProjectId(null)}>
-                关闭
-              </Button>
-            </Space>
-          }
-        >
-          {viewLoading ? (
+      {/* 查看：右侧抽屉，只读复用工作台面板 */}
+      <Drawer
+        title={
+          <Space>
+            <FolderOpen size={15} color="#8b5cf6" />
+            <span>
+              {viewProject?.project_name || '未命名项目'}
+              <Tag color="default" style={{ marginLeft: 8 }}>
+                只读
+              </Tag>
+            </span>
+          </Space>
+        }
+        placement="right"
+        width={'80%'}
+        open={!!viewProjectId}
+        onClose={() => setViewProjectId(null)}
+        destroyOnHidden
+        extra={
+          <Button
+            size="small"
+            type="primary"
+            ghost
+            icon={<Pencil size={13} />}
+            onClick={() => onOpenInWorkspace?.(viewProjectId)}
+          >
+            去编辑
+          </Button>
+        }
+      >
+        {viewProjectId &&
+          (viewLoading ? (
             <div style={{ textAlign: 'center', padding: 40 }}>
               <Spin />
             </div>
@@ -378,9 +378,8 @@ export default function HistoryTab({ onOpenInWorkspace }: Props) {
                 },
               ]}
             />
-          )}
-        </Card>
-      )}
+          ))}
+      </Drawer>
     </div>
   );
 }
